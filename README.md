@@ -176,6 +176,17 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
   - Invoice numbers follow the financial year (`INV-2026-00234`, ≤ 16 characters).
   - The server always recomputes the bill.
 - **Promotions** are evaluated server-side in a fixed order: item offers by priority (a unit is never discounted twice), then the best bill offer, the coupon, and points. The POS shows the exact server preview before charging.
+- **Bills** (Billing & orders → Bills):
+  - Today / Yesterday / Last 7 days / This month / custom range, and Previous day / Next day.
+  - Filters for payment mode (Cash, UPI, Card, Khata, COD), order type and status, plus search.
+  - A summary strip shows collected money per mode, counting only successful payments. Export to Excel with the same filters.
+  - Filters are kept in the URL.
+- **Hotel branding:** for hotel users the sidebar shows the hotel's uploaded logo (Settings → logo) and business name, with initials when there's no logo. The platform console keeps the CANAVO branding.
+- **WhatsApp** (Settings → WhatsApp, per hotel):
+  - Choose the Meta WhatsApp Cloud API, WATI or none. Tokens are stored encrypted, masked when read back, and never logged.
+  - Approved template names are set per message type (receipt, khata reminder, birthday, anniversary, delivery update, staff alert, test), and there's a test-message button.
+  - Optional automatic delivery updates to customers and staff alerts.
+  - Every send falls back to a wa.me click-to-chat link when no provider is set or the provider fails.
 - **Menu bulk upload** (Menu → Bulk upload):
   - Download the Excel template. It includes your GST rates, categories and stock items.
   - Fill in one row per item and upload it (.xlsx or .csv). A per-row preview shows New / Update / Error before anything is saved.
@@ -193,7 +204,10 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
   - Every sale deducts recipe ingredients; a variant's recipe overrides the item's. Cancelling a bill restores them.
   - Set the ingredients in the menu item form, in Inventory → Recipes (amounts per size), or in the bulk-upload sheet.
   - Inventory staff see stock reports (consumption, movement, valuation, wastage, purchases) only. Sales, profit, GST reports, the dashboard and food cost / margins are for the Owner and Manager only.
-  - Stock may go negative (billing never blocks) and raises low-stock alerts.
+  - **Automatic out of stock:** when an ingredient at an outlet can't cover one portion, the menu items (or just the sizes) that use it show "Out of stock · <ingredient> ran out" on the POS and can't be billed.
+    - They come back by themselves when stock is added (purchase, transfer, adjustment, audit, or a cancelled bill). Managers are notified both ways.
+    - A manager's own "out of stock" switch is never undone by restocking.
+    - Bills synced from offline devices are still accepted, because the sale already happened, so stock can still go negative and raises low-stock alerts.
   - Purchases update a weighted-average cost.
 - **Dine-in tabs:** each round fires KOTs immediately and items are billed at the end. When the last bill is paid, the tab closes itself and its tickets leave the kitchen display.
 - **Offline billing:** queued bills carry a client UUID, so syncing is idempotent.
@@ -211,10 +225,14 @@ CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Deployment
 
-- **API + database:** [render.yaml](render.yaml) is a Render blueprint (Docker API, managed Postgres, a persistent disk for uploads/backups).
-  - Set `CORS_ORIGINS`, `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
-  - Background jobs run in-process, so run a **single** API instance, or move the jobs to a worker before scaling out.
-- **Web:** Vercel with root `apps/web` and `NEXT_PUBLIC_API_URL`.
+The frontend, backend and database deploy separately. The step-by-step guide is [docs/deployment/DEPLOYMENT.md](docs/deployment/DEPLOYMENT.md).
+
+- **Frontend:** Vercel with root `apps/web` ([vercel.json](apps/web/vercel.json)) and `NEXT_PUBLIC_API_URL` set to the API's URL.
+- **Backend:** Render Docker web service ([render.yaml](render.yaml), [apps/api/Dockerfile](apps/api/Dockerfile)). Migrations run on start; the health check is `/ready`.
+  - Set `CORS_ORIGINS` (wildcards like `https://*.vercel.app` work), `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
+  - Background jobs run in-process, so run a **single** API instance.
+  - Create the first Super Admin with `npm run create-admin -w @canavo/api`. The demo seed refuses to run in production.
+- **Database:** Render Postgres 16 (or Neon / Supabase / RDS via `DATABASE_URL`).
 - **Mobile:** `eas build -p android --profile production`, then `eas submit`. Store listing steps are in [apps/mobile/STORE_RELEASE.md](apps/mobile/STORE_RELEASE.md). Publishing needs your Google Play and Apple developer accounts.
 
 ## Known limitations

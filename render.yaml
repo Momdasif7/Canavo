@@ -1,39 +1,91 @@
-# Render.com blueprint: API (Docker) + managed Postgres.
-# Web is deployed on Vercel (root directory apps/web); mobile via EAS.
+# Render blueprint: BACKEND (API) + DATABASE as two separate Render resources.
+# The FRONTEND (web) is deployed separately on Vercel (apps/web/vercel.json).
+# Full guide: docs/deployment/DEPLOYMENT.md
+#
+# - canavo-api : Docker web service built from apps/api/Dockerfile. Runs
+#                `prisma migrate deploy` on start, then the API (port 4000).
+# - canavo-db  : managed PostgreSQL 16. Prefer an external managed Postgres
+#                (Neon / Supabase / RDS)? Delete the `databases:` block and set
+#                DATABASE_URL on canavo-api by hand.
+#
+# Background jobs run inside the API process: keep exactly ONE instance
+# (numInstances: 1) until jobs are moved to a separate worker.
+
 services:
   - type: web
     name: canavo-api
     runtime: docker
+    region: singapore
+    plan: starter
+    numInstances: 1
     dockerfilePath: apps/api/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    healthCheckPath: /ready
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 4000
       - key: DATABASE_URL
         fromDatabase:
           name: canavo-db
           property: connectionString
+      # Secrets: generated once by Render (min 32 chars each)
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
       - key: RECEIPT_LINK_SECRET
         generateValue: true
+      # 32-byte key, base64 or hex: `openssl rand -base64 32`. Losing it makes encrypted Aadhaar and WhatsApp tokens unreadable.
       - key: DATA_ENCRYPTION_KEY
         sync: false
+      # Vercel production domain(s) + previews, e.g. https://app.canavo.in,https://*.vercel.app
       - key: CORS_ORIGINS
         sync: false
+      # Public URL of this API, e.g. https://canavo-api.onrender.com (used in receipt links)
       - key: PUBLIC_API_URL
         sync: false
+      # Render's load balancer is on a private network
+      - key: TRUST_PROXY
+        value: loopback, linklocal, uniquelocal
+      # Optional integrations (leave empty to use the dev fallbacks)
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
     disk:
-      # uploads, backups and the email outbox when Cloudinary/SMTP are not configured
+      # Uploaded images (when Cloudinary isn't set), platform backups, email outbox
       name: canavo-storage
       mountPath: /repo/apps/api/storage
       sizeGB: 5
 
 databases:
   - name: canavo-db
+    region: singapore
     plan: basic-256mb
+    postgresMajorVersion: "16"
     databaseName: canavo
     user: canavo
+    ipAllowList: [] # only Render services in this account can connect
