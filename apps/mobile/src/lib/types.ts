@@ -231,7 +231,16 @@ export interface MenuItem {
   taxRate?: TaxRateRef | null;
   hsnCode: string;
   imageUrl: string | null;
+  /** Effective status: "OUT_OF_STOCK" also when an ingredient ran out (see stockOut) */
   status: ItemStatus;
+  /** Status the manager set (without automatic out-of-stock). Missing on older servers. */
+  manualStatus?: ItemStatus;
+  /** An ingredient can't cover one portion (automatic out-of-stock) */
+  stockOut?: boolean;
+  /** Names of the ingredients that ran out, e.g. "Pav buns" */
+  stockOutReason?: string | null;
+  /** Sizes that are out of stock (the item itself may still be available) */
+  unavailableVariantIds?: string[];
   availableFrom: string | null;
   availableTo: string | null;
   kitchenStation: string;
@@ -383,10 +392,29 @@ export interface PaymentStatusResponse {
 /** GET /orders/:id/receipt — the GST fields (cess, extras, gstEnabled…) are optional for older orders. */
 export type Receipt = ReceiptData & { publicUrl?: string };
 
-export interface WhatsAppShareResponse {
+/**
+ * Result of a WhatsApp action (receipt share, khata reminder…): "sent" = delivered through the
+ * business's WhatsApp provider (don't open wa.me); "link" = open `waLink` (with `error` when the
+ * provider failed and the server fell back to a link).
+ */
+export interface WhatsAppResult {
   method: "sent" | "link";
+  /** WhatsApp provider configured on the web console ("NONE" = links only). Missing on older servers. */
+  provider?: string;
   waLink: string;
+  error?: string;
+}
+
+export interface WhatsAppShareResponse extends WhatsAppResult {
   receiptUrl: string;
+}
+
+/** Customer status message on delivery responses (wa.me link, or already sent automatically). */
+export interface DeliveryCustomerMessage {
+  waLink: string;
+  text: string;
+  /** Sent to the customer on WhatsApp automatically — no need to send it manually */
+  autoSent?: boolean;
 }
 
 export interface SyncResult {
@@ -666,11 +694,14 @@ export interface DeliveryPayment {
   qrPayload: string | null;
 }
 
+/** PATCH /delivery/:id/status (and GET /delivery/:id) */
+export type DeliveryStatusResult = Delivery & { customerMessage?: DeliveryCustomerMessage };
+
 /** POST /delivery/:id/complete — one tap at the door */
 export type DeliveryCompleteResult = Delivery & {
   /** Cash recorded as collected by the partner (0 when already paid) */
   cashCollected: Paise;
-  customerMessage?: unknown;
+  customerMessage?: DeliveryCustomerMessage;
 };
 
 export type DeliveryIssueReason = "CUSTOMER_UNREACHABLE" | "WRONG_ADDRESS" | "CUSTOMER_REFUSED" | "VEHICLE_PROBLEM" | "OTHER";
@@ -863,9 +894,7 @@ export interface CustomerProfile {
   favouriteItems: { menuItemId: string; name: string; quantity: number }[];
 }
 
-export interface KhataRemindResponse {
-  method: "sent" | "link";
-  waLink: string;
+export interface KhataRemindResponse extends WhatsAppResult {
   text: string;
 }
 

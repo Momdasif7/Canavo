@@ -78,11 +78,10 @@ function ReceiptScreen() {
       if (!/^[6-9]\d{9}$/.test(customerPhone)) throw new Error("Enter a valid 10-digit mobile number");
       const res = await endpoints.shareWhatsApp(orderId, customerPhone);
       setWaOpen(false);
-      if (res.method === "link") {
-        await Linking.openURL(res.waLink);
-        return;
-      }
-      return `Bill sent on WhatsApp to ${customerPhone}.`;
+      if (res.method === "sent") return `Sent on WhatsApp to ${customerPhone}.`;
+      // No provider (or it failed): open the chat with the bill link filled in.
+      await Linking.openURL(res.waLink);
+      if (res.error) setMessage({ kind: "info", text: res.error });
     });
 
   const newBill = () => router.replace("/(tabs)/bill");

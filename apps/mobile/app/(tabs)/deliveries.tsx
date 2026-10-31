@@ -50,6 +50,8 @@ function MyDeliveries() {
   const duty = useOnDuty();
   const presence = usePartnerPresence();
   const [actionError, setActionError] = useState<string | null>(null);
+  /** "Customer notified on WhatsApp" after a status change the server sent automatically */
+  const [notified, setNotified] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [reporting, setReporting] = useState<Delivery | null>(null);
@@ -71,11 +73,13 @@ function MyDeliveries() {
     if (!next) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActionError(null);
+    setNotified(null);
     setBusy(`${d.id}:advance`);
     try {
       const updated = await endpoints.deliveryStatus(d.id, next.status);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       patch(d.id, updated);
+      setNotified(updated.customerMessage?.autoSent ? `${d.order.invoiceNumber}: Customer notified on WhatsApp` : null);
     } catch (e) {
       failed(e);
     } finally {
@@ -91,7 +95,7 @@ function MyDeliveries() {
       const r = await endpoints.completeDelivery(d.id, d.amountDue);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       patch(d.id, null);
-      setDelivered({ delivery: r, cashCollected: r.cashCollected ?? 0 });
+      setDelivered({ delivery: r, cashCollected: r.cashCollected ?? 0, customerNotified: !!r.customerMessage?.autoSent });
     } catch (e) {
       if (isAmountChanged(e)) {
         setActionError("The bill changed since you opened it. Check the new amount on the card and try again.");
@@ -154,6 +158,7 @@ function MyDeliveries() {
         />
       ) : null}
       {actionError ? <Notice kind="error" message={actionError} /> : null}
+      {notified ? <Notice kind="success" message={notified} /> : null}
       {active.length === 0 ? (
         <View style={{ height: 300 }}>
           <EmptyState icon="bicycle-outline" title="No deliveries right now" message="New assignments appear here and as a notification." />

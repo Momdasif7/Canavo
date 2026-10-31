@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useClock } from "../attendance/useClock";
 import { useSignedIn } from "../auth/AuthContext";
+import { BusinessBrandRow } from "../components/BusinessBrand";
 import { PinPad } from "../components/PinPad";
 import { Screen } from "../components/Screen";
 import { AppText, Button, Card, Loading, Notice, Row, Segmented } from "../components/ui";
@@ -101,6 +102,7 @@ export function DeliveryHome() {
         <View style={{ flex: 1, gap: 2 }}>
           <AppText variant="muted">Hi,</AppText>
           <AppText variant="title">{me.name.split(" ")[0]}</AppText>
+          <BusinessBrandRow />
           <AppText variant="small">Delivery partner{outlet ? ` · ${outlet.name}` : ""}</AppText>
         </View>
         <Pressable

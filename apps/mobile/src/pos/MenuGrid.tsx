@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FlatList, Image, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -8,6 +8,7 @@ import { mediaUrl } from "../lib/media";
 import type { Menu, MenuItem, PricedOption } from "../lib/types";
 import { font, radius, space, useTheme } from "../theme";
 import { ItemOptionsSheet } from "./ItemOptionsSheet";
+import { isItemOut, ranOut } from "./stock";
 
 /**
  * Searchable, category-filtered menu tiles. Used by the POS (Bill tab) and
@@ -52,13 +53,22 @@ export function MenuGrid({
     return visibleItems.filter((i) => (q ? i.name.toLowerCase().includes(q) : !category || i.categoryId === category));
   }, [visibleItems, category, query]);
 
+  // Latest copy of the item in the options sheet: a stock change while it's open disables sizes / closes it.
+  const optionsItem = useMemo(() => {
+    const fresh = optionsFor ? menu.items.find((i) => i.id === optionsFor.id) : undefined;
+    return fresh && fresh.status === "AVAILABLE" && !isItemOut(fresh) ? fresh : null;
+  }, [optionsFor, menu]);
+  useEffect(() => {
+    if (optionsFor && !optionsItem) setOptionsFor(null);
+  }, [optionsFor, optionsItem]);
+
   const add = (item: MenuItem, variant: PricedOption | null = null, addons: PricedOption[] = [], qty = 1) => {
     onAdd(item, variant, addons, qty);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const onTapItem = (item: MenuItem) => {
-    if (item.status !== "AVAILABLE") return;
+    if (item.status !== "AVAILABLE" || isItemOut(item)) return;
     if (item.variants.length || item.addons.length) setOptionsFor(item);
     else add(item);
   };
@@ -103,7 +113,8 @@ export function MenuGrid({
         ListEmptyComponent={<EmptyState icon="fast-food-outline" title="No items" message={query ? "Try a different search." : "Nothing in this category."} />}
         renderItem={({ item }) => {
           const qty = qtyByItem.get(item.id) ?? 0;
-          const out = item.status !== "AVAILABLE";
+          const out = item.status !== "AVAILABLE" || isItemOut(item);
+          const outReason = out ? ranOut(item) : null;
           const hasOptions = item.variants.length > 0 || item.addons.length > 0;
           const fromPrice = item.variants.length ? Math.min(...item.variants.map((v) => v.price)) : item.price;
           const slot = timeSlot(item.availableFrom, item.availableTo);
@@ -120,7 +131,7 @@ export function MenuGrid({
               onPress={() => onTapItem(item)}
               disabled={out}
               accessibilityRole="button"
-              accessibilityLabel={`${item.name}, ${item.variants.length > 1 ? "from " : ""}${inr(fromPrice)}${hasOptions ? ", has options" : ""}${slot ? `, served ${slot}` : ""}${out ? ", out of stock" : ""}`}
+              accessibilityLabel={`${item.name}, ${item.variants.length > 1 ? "from " : ""}${inr(fromPrice)}${hasOptions ? ", has options" : ""}${slot ? `, served ${slot}` : ""}${out ? `, out of stock${outReason ? `, ${outReason}` : ""}` : ""}`}
               style={({ pressed }) => [
                 styles.tile,
                 {
@@ -185,8 +196,8 @@ export function MenuGrid({
                 <View style={styles.tags}>
                   {out ? (
                     <View style={[styles.tag, { backgroundColor: t.dangerBg, borderColor: t.danger }]}>
-                      <AppText style={[styles.tagText, { color: t.danger }]} numberOfLines={1}>
-                        OUT OF STOCK
+                      <AppText style={[styles.tagText, { color: t.danger }]} numberOfLines={2}>
+                        {outReason ? `Out of stock · ${outReason}` : "OUT OF STOCK"}
                       </AppText>
                     </View>
                   ) : (
@@ -204,7 +215,7 @@ export function MenuGrid({
       />
 
       <ItemOptionsSheet
-        item={optionsFor}
+        item={optionsItem}
         onClose={() => setOptionsFor(null)}
         onAdd={(item, v, a, q) => {
           add(item, v, a, q);

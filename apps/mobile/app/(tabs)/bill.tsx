@@ -22,6 +22,7 @@ import { useActiveOffers, useCustomerLookup, usePromotionPreview } from "../../s
 import { freeTargets } from "../../src/pos/freeItems";
 import { buildProvisionalReceipt, setLastOfflineReceipt } from "../../src/pos/offlineReceipt";
 import { useCatalog } from "../../src/pos/useCatalog";
+import { isStockError } from "../../src/pos/stock";
 import { brand, font, radius, space, useTheme } from "../../src/theme";
 import { withAccess } from "../../src/auth/RequireAccess";
 
@@ -135,7 +136,14 @@ function Bill() {
       // Lost connection mid-request: queue it (simple bills only). clientOrderId makes this safe even if the server got it.
       const queueable = cart.state.orderType === "TAKEAWAY" || cart.state.orderType === "DINE_IN";
       if (e instanceof ApiError && e.isNetwork && queueable) setOfflinePay(clientOrderId);
-      else setChargeError(errorMessage(e));
+      else {
+        setChargeError(errorMessage(e));
+        // An item ran out since the menu loaded: refetch so the grid and the cart line show it.
+        if (isStockError(e)) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          void reload();
+        }
+      }
     } finally {
       setCharging(false);
     }

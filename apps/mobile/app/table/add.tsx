@@ -15,6 +15,7 @@ import { useOffline } from "../../src/offline/OfflineContext";
 import { lineKey } from "../../src/pos/CartContext";
 import { MenuGrid } from "../../src/pos/MenuGrid";
 import { useCatalog } from "../../src/pos/useCatalog";
+import { isItemOut, isLineOut, isStockError, ranOut } from "../../src/pos/stock";
 import { font, radius, space, TAP, useTheme } from "../../src/theme";
 import { withAccess } from "../../src/auth/RequireAccess";
 
@@ -52,6 +53,10 @@ function AddToTab() {
     lines.forEach((l) => m.set(l.item.id, (m.get(l.item.id) ?? 0) + l.quantity));
     return m;
   }, [lines]);
+  // Round lines against the latest menu, so items that ran out since they were added are flagged.
+  const byId = useMemo(() => new Map((menu?.items ?? []).map((i) => [i.id, i])), [menu]);
+  const view = useMemo(() => lines.map((l) => ({ ...l, item: byId.get(l.item.id) ?? l.item })), [lines, byId]);
+  const outCount = view.filter(isLineOut).length;
   const count = lines.reduce((s, l) => s + l.quantity, 0);
   const total = lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
 
@@ -89,6 +94,8 @@ function AddToTab() {
     } catch (e) {
       setSendError(errorMessage(e));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      // Ran out since the menu loaded: refetch so the grid and the round show it.
+      if (isStockError(e)) void reload();
     } finally {
       setSending(false);
     }
@@ -137,34 +144,47 @@ function AddToTab() {
 
       <Sheet visible={reviewOpen} onClose={() => setReviewOpen(false)} title="New round" maxHeight="92%">
         <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, gap: space.sm, paddingBottom: space.lg }} keyboardShouldPersistTaps="handled">
-          {lines.map((l) => (
-            <View key={l.key} style={[styles.line, { backgroundColor: t.surface, borderColor: t.border }]}>
-              <Row>
-                <VegMark type={l.item.foodType} size={14} />
-                <View style={{ flex: 1 }}>
-                  <AppText style={{ fontWeight: "700" }} numberOfLines={2}>
-                    {l.item.name}
-                    {l.variant ? ` (${l.variant.name})` : ""}
+          {view.map((l) => {
+            const out = isLineOut(l);
+            const reason = out ? ranOut(l.item) : null;
+            return (
+              <View key={l.key} style={[styles.line, { backgroundColor: out ? t.dangerBg : t.surface, borderColor: out ? t.danger : t.border }]}>
+                <Row>
+                  <VegMark type={l.item.foodType} size={14} />
+                  <View style={{ flex: 1 }}>
+                    <AppText style={{ fontWeight: "700" }} numberOfLines={2}>
+                      {l.item.name}
+                      {l.variant ? ` (${l.variant.name})` : ""}
+                    </AppText>
+                    <AppText variant="small">
+                      {l.seat ? `Seat ${l.seat}` : "Shared"}
+                      {l.addons.length ? ` · + ${l.addons.map((a) => a.name).join(", ")}` : ""}
+                    </AppText>
+                    {out ? (
+                      <AppText variant="small" color={t.danger} style={{ fontWeight: "700" }} numberOfLines={2}>
+                        {isItemOut(l.item) ? "Out of stock" : `${l.variant?.name ?? "This size"} is out of stock`}
+                        {reason ? ` · ${reason}` : ""}
+                      </AppText>
+                    ) : null}
+                  </View>
+                  <Pressable onPress={() => changeQty(l.key, -1)} style={[styles.qty, { borderColor: t.border }]} accessibilityLabel={`One less ${l.item.name}`}>
+                    <Ionicons name={l.quantity === 1 ? "trash-outline" : "remove"} size={22} color={l.quantity === 1 ? t.danger : t.text} />
+                  </Pressable>
+                  <AppText variant="h3" style={{ minWidth: 28, textAlign: "center" }}>
+                    {l.quantity}
                   </AppText>
-                  <AppText variant="small">
-                    {l.seat ? `Seat ${l.seat}` : "Shared"}
-                    {l.addons.length ? ` · + ${l.addons.map((a) => a.name).join(", ")}` : ""}
-                  </AppText>
-                </View>
-                <Pressable onPress={() => changeQty(l.key, -1)} style={[styles.qty, { borderColor: t.border }]} accessibilityLabel={`One less ${l.item.name}`}>
-                  <Ionicons name={l.quantity === 1 ? "trash-outline" : "remove"} size={22} color={l.quantity === 1 ? t.danger : t.text} />
-                </Pressable>
-                <AppText variant="h3" style={{ minWidth: 28, textAlign: "center" }}>
-                  {l.quantity}
-                </AppText>
-                <Pressable onPress={() => changeQty(l.key, 1)} style={[styles.qty, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel={`One more ${l.item.name}`}>
-                  <Ionicons name="add" size={22} color="#fff" />
-                </Pressable>
-              </Row>
-              <Input placeholder="Note for kitchen (e.g. less spicy)" value={l.notes} onChangeText={(v) => setNotes(l.key, v)} maxLength={200} style={{ minHeight: 44, fontSize: font.md }} />
-            </View>
-          ))}
+                  <Pressable onPress={() => changeQty(l.key, 1)} style={[styles.qty, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel={`One more ${l.item.name}`}>
+                    <Ionicons name="add" size={22} color="#fff" />
+                  </Pressable>
+                </Row>
+                <Input placeholder="Note for kitchen (e.g. less spicy)" value={l.notes} onChangeText={(v) => setNotes(l.key, v)} maxLength={200} style={{ minHeight: 44, fontSize: font.md }} />
+              </View>
+            );
+          })}
           {sendError ? <Notice kind="error" message={sendError} /> : null}
+          {outCount ? (
+            <Notice kind="warning" message={`${outCount === 1 ? "1 item is" : `${outCount} items are`} out of stock. Remove ${outCount === 1 ? "it" : "them"} to send this round.`} />
+          ) : null}
           <Button title={`Send to kitchen · ${count} item${count === 1 ? "" : "s"}`} icon="flame-outline" size="xl" variant="success" loading={sending} disabled={!online} onPress={send} />
         </ScrollView>
       </Sheet>

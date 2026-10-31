@@ -51,8 +51,12 @@ function CustomerDetail() {
     setMessage(null);
     try {
       const res = await endpoints.remindKhata(p.customer.id);
-      if (res.method === "sent") setMessage({ kind: "success", text: "Reminder sent on WhatsApp." });
-      else await Linking.openURL(res.waLink);
+      if (res.method === "sent") setMessage({ kind: "success", text: "Sent on WhatsApp." });
+      else {
+        await Linking.openURL(res.waLink);
+        // e.g. "WhatsApp API failed — opened chat instead"
+        if (res.error) setMessage({ kind: "info", text: res.error });
+      }
     } catch (e) {
       // Fallback: compose the reminder locally.
       const text = `Hi ${p.customer.name ?? "there"}, a friendly reminder from ${outlet?.name ?? "us"}: ${inr(p.customer.khataBalance)} is pending on your khata. Thank you!`;

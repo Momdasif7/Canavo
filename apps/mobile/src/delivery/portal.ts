@@ -11,6 +11,7 @@ import type {
   DeliveryCompleteResult,
   DeliveryIssueReason,
   DeliveryPayment,
+  DeliveryStatusResult,
   DeliverySummary,
   HandoverResult,
   MyCash,
@@ -68,14 +69,14 @@ export const deliveryRequests = {
   summary: (r?: DateRange) => spec<DeliverySummary>("GET", "/delivery/mine/summary", { query: { from: r?.from, to: r?.to } }),
   /** Partner: cash to hand over, today's movement, pending orders, handovers. */
   myCash: () => spec<MyCash>("GET", "/delivery/mine/cash"),
-  get: (id: string) => spec<Delivery>("GET", `/delivery/${id}`),
+  get: (id: string) => spec<DeliveryStatusResult>("GET", `/delivery/${id}`),
   /** Partner: own dispatch availability (null when not a delivery partner here). */
   myStatus: () => spec<PartnerAvailability | null>("GET", "/delivery/me/status"),
   /** Partner: foreground GPS while clocked in — tells the outlet when they're back. */
   myLocation: (lat: number, lng: number, accuracy?: number) =>
     spec<PartnerLocationResult>("POST", "/delivery/me/location", { body: { lat, lng, ...(accuracy != null ? { accuracy } : {}) } }),
   /** Accept / out for delivery. Delivering goes through `complete`. */
-  status: (id: string, status: Delivery["status"], note?: string) => spec<Delivery>("PATCH", `/delivery/${id}/status`, { body: { status, note } }),
+  status: (id: string, status: Delivery["status"], note?: string) => spec<DeliveryStatusResult>("PATCH", `/delivery/${id}/status`, { body: { status, note } }),
   /**
    * One tap at the door. Unpaid / COD → the amount due is recorded as cash
    * collected by the partner and the bill is paid; paid → just delivered.

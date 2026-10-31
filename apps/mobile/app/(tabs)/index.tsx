@@ -7,6 +7,7 @@ import { useClock } from "../../src/attendance/useClock";
 import { isDeliveryPartner } from "../../src/auth/access";
 import { DeliveryHome } from "../../src/delivery/DeliveryHome";
 import { useSignedIn } from "../../src/auth/AuthContext";
+import { BusinessBrandRow } from "../../src/components/BusinessBrand";
 import { PinPad } from "../../src/components/PinPad";
 import { Screen } from "../../src/components/Screen";
 import { AppText, Button, Card, Kpi, Notice, Row } from "../../src/components/ui";
@@ -106,11 +107,8 @@ function StaffHome() {
         <View style={{ gap: 2, flex: 1 }}>
           <AppText variant="muted">{greeting()},</AppText>
           <AppText variant="title">{me.name.split(" ")[0]}</AppText>
-          {businessName ? (
-            <AppText variant="muted" style={{ fontWeight: "700" }} numberOfLines={1}>
-              {businessName}
-            </AppText>
-          ) : null}
+          {/* Hotel logo + name (initials when there's no logo); platform admins keep CANAVO. */}
+          <BusinessBrandRow />
           <AppText variant="small">
             {me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role]}
             {outlet ? ` · ${outlet.name}` : ""}
@@ -273,7 +271,7 @@ function StaffHome() {
       ) : null}
       {!canClock && !canReport && !canStock ? (
         <Card style={{ gap: space.sm }}>
-          <AppText variant="h3">Welcome to CANAVO</AppText>
+          <AppText variant="h3">Welcome to {!me.platformAdmin && businessName ? businessName : "CANAVO"}</AppText>
           <AppText variant="muted">
             {"Use the tabs below to get started. Features your business hasn't enabled are hidden."}
           </AppText>
