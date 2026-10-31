@@ -1,49 +1,28 @@
-import { env } from "../env";
+import { sendWhatsApp, type WaPurpose, type WaSendResult } from "./whatsapp";
 
-export interface CustomerMessageResult {
-  /** "sent" via WhatsApp Business API (WATI); "link" = open the wa.me link on a device */
-  method: "sent" | "link";
-  waLink: string;
-}
+export { waLink } from "./whatsapp";
 
-/** WATI template names used by the CRM module (create/approve them in WATI). */
+/** "sent" via the business's WhatsApp provider; "link" = open the wa.me link on a device. */
+export type CustomerMessageResult = WaSendResult;
+
+/** Template purpose per CRM message (template names are set per business in Settings → WhatsApp). */
 export const CRM_TEMPLATES = {
   khataReminder: "khata_reminder",
-  birthday: "birthday_wish",
-  anniversary: "anniversary_wish",
-} as const;
-
-export const waLink = (phone: string, text: string) => `https://wa.me/91${phone}?text=${encodeURIComponent(text)}`;
+  birthday: "birthday",
+  anniversary: "anniversary",
+} as const satisfies Record<string, WaPurpose>;
 
 /**
- * Send a WhatsApp message to a customer. With WATI configured the approved
- * template is sent server-side; otherwise (or on failure) a wa.me
- * click-to-chat link with the same text is returned for staff to open.
+ * Send a WhatsApp message to a customer through the business's provider (Meta
+ * Cloud API or WATI) using its approved template; otherwise (or on failure) a
+ * wa.me click-to-chat link with the same text is returned for staff to open.
  */
 export async function sendCustomerMessage(opts: {
   phone: string;
   text: string;
-  template: string;
+  template: WaPurpose;
   broadcast: string;
   parameters: { name: string; value: string }[];
 }): Promise<CustomerMessageResult> {
-  const link = waLink(opts.phone, opts.text);
-  if (env.WATI_API_URL && env.WATI_API_TOKEN) {
-    try {
-      const res = await fetch(`${env.WATI_API_URL}/api/v1/sendTemplateMessage?whatsappNumber=91${opts.phone}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${env.WATI_API_TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          template_name: opts.template,
-          broadcast_name: opts.broadcast,
-          parameters: opts.parameters,
-        }),
-      });
-      if (res.ok) return { method: "sent", waLink: link };
-      console.warn(`[crm] WATI send failed (${res.status}); falling back to wa.me link`);
-    } catch (e) {
-      console.warn("[crm] WATI send error; falling back to wa.me link", e);
-    }
-  }
-  return { method: "link", waLink: link };
+  return sendWhatsApp({ to: opts.phone, text: opts.text, purpose: opts.template, tag: opts.broadcast, params: opts.parameters });
 }

@@ -1,3 +1,4 @@
+import { allowedOrigin } from "./lib/cors";
 import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 import { env } from "./env";
@@ -12,7 +13,7 @@ let io: Server | undefined;
  * outlet they are working in.
  */
 export function initRealtime(server: HttpServer) {
-  io = new Server(server, { cors: { origin: env.CORS_ORIGINS.split(",") } });
+  io = new Server(server, { cors: { origin: allowedOrigin() } });
   io.use(async (socket, next) => {
     try {
       const claims = verifyAccess(String(socket.handshake.auth.token ?? ""));

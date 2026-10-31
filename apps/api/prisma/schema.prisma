@@ -325,6 +325,12 @@ model OutletItemOverride {
   menuItemId String
   price      Int?
   status     ItemStatus?
+  /// Set automatically when an ingredient at this outlet can't cover one portion; cleared when restocked.
+  stockOut           Boolean  @default(false)
+  /// Sizes that are out of stock while other sizes can still be sold
+  stockOutVariantIds String[] @default([])
+  /// Ingredient names that ran out (shown to staff)
+  stockOutReason     String?
   outlet     Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
   menuItem   MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 

@@ -10,6 +10,7 @@ import { emitToOutlet } from "../realtime";
 import { requireBusinessId } from "../lib/tenant";
 import { defaultTaxRate, taxRateBrief } from "../services/tax";
 import multer from "multer";
+import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 import { applyImport, buildTemplate, parseSheet, planImport, summarize } from "../services/menu-import";
 
 export const menuRouter = Router();
@@ -70,8 +71,16 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
       effectiveTaxRate: taxRateBrief(item.taxRate) ?? def,
       basePrice: item.price,
       price: overrides[0]?.price ?? item.price,
-      status: overrides[0]?.status ?? item.status,
-      hasOverride: Boolean(overrides[0]),
+      /** Effective status at this outlet: an ingredient that ran out makes an available item OUT_OF_STOCK */
+      status: overrides[0]?.stockOut && (overrides[0]?.status ?? item.status) === "AVAILABLE" ? "OUT_OF_STOCK" : (overrides[0]?.status ?? item.status),
+      /** The status a manager set (outlet override or the item's own) */
+      manualStatus: overrides[0]?.status ?? item.status,
+      /** Automatic out-of-stock from inventory (comes back by itself when restocked) */
+      stockOut: overrides[0]?.stockOut ?? false,
+      stockOutReason: overrides[0]?.stockOutReason ?? null,
+      /** Sizes that can't be sold right now (ingredient ran out) */
+      unavailableVariantIds: overrides[0]?.stockOutVariantIds ?? [],
+      hasOverride: overrides[0]?.price != null || overrides[0]?.status != null,
     })),
   });
 });
@@ -219,6 +228,8 @@ menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single
   if (apply) {
     if (!planned.some((r) => r.action !== "error")) throw badRequest("No valid rows to import");
     await applyImport(planned);
+    // Imported ingredients may already be out of stock at this outlet
+    announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
     const result = summarize(planned, true);
     await audit(req, "menu.import", "MenuItem", undefined, result.summary);
     emitToOutlet(req.outletId!, "menu:changed", { import: true });

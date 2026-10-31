@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import { allowedOrigin } from "./lib/cors";
+import { platformPrisma } from "./db";
 import helmet from "helmet";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
@@ -29,10 +31,10 @@ import { taxRatesRouter } from "./routes/tax-rates";
 
 export function createApp() {
   const app = express();
-  // Trust only local proxies (the CANAVO gateway, the ngrok agent) so req.ip is the real client.
-  app.set("trust proxy", "loopback, linklocal, uniquelocal");
+  // Trust only local/private proxies (the CANAVO gateway, ngrok, Render's load balancer) so req.ip is the real client.
+  app.set("trust proxy", env.TRUST_PROXY);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-  app.use(cors({ origin: env.CORS_ORIGINS.split(",").map((o) => o.trim()), exposedHeaders: ["content-disposition"] }));
+  app.use(cors({ origin: allowedOrigin(), exposedHeaders: ["content-disposition"] }));
   app.use(morgan(isProd ? "combined" : "dev"));
 
   // Public routes first: the Razorpay webhook needs the raw body.
@@ -40,6 +42,15 @@ export function createApp() {
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "canavo-api" }));
+  /** Readiness for the host's health check: the database must answer. */
+  app.get("/ready", async (_req, res) => {
+    try {
+      await platformPrisma.$queryRaw`SELECT 1`;
+      res.json({ ok: true, db: "up" });
+    } catch {
+      res.status(503).json({ ok: false, db: "down" });
+    }
+  });
   app.get("/openapi.json", (_req, res) => res.json(openapi));
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi));
 

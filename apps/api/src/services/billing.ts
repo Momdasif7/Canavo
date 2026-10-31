@@ -86,6 +86,9 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     const status = override?.status ?? item.status;
     if (checkAvailability) {
       if (status !== "AVAILABLE") throw badRequest(`${item.name} is not available`);
+      // Automatic out-of-stock (an ingredient can't cover one portion). Offline bills skip this
+      // check (checkAvailability=false): the sale already happened and must be recorded.
+      if (override?.stockOut) throw badRequest(`${item.name} is out of stock${override.stockOutReason ? ` (${override.stockOutReason} ran out)` : ""}`);
       if (item.availableFrom && item.availableTo) {
         const from = hhmmToMinutes(item.availableFrom);
         const to = hhmmToMinutes(item.availableTo);
@@ -95,6 +98,9 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     }
     const variant = line.variantId ? item.variants.find((v) => v.id === line.variantId) : undefined;
     if (line.variantId && !variant) throw badRequest(`Invalid size for ${item.name}`);
+    if (checkAvailability && variant && override?.stockOutVariantIds.includes(variant.id)) {
+      throw badRequest(`${item.name} (${variant.name}) is out of stock${override.stockOutReason ? ` (${override.stockOutReason} ran out)` : ""}`);
+    }
     const addons = line.addonIds.map((aid) => {
       const a = item.addons.find((x) => x.id === aid);
       if (!a) throw badRequest(`Invalid add-on for ${item.name}`);

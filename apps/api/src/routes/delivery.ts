@@ -29,6 +29,7 @@ import { authenticate, requireOutlet, requirePermission, requireModule } from ".
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
 import { deliveryStatusLink } from "../services/delivery-notify";
+import { getWaConfig, sendWhatsApp } from "../services/whatsapp";
 import { canTransitionDelivery, selectZone } from "../services/service-context";
 import { amountPaid, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
@@ -70,9 +71,17 @@ async function findDelivery(id: string, outletId: string) {
   return d;
 }
 
-async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>) {
+/** Statuses a customer is told about automatically (when the business turned it on). */
+const AUTO_UPDATE_STATUSES = new Set(["ACCEPTED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"]);
+
+/**
+ * Customer status message: always a wa.me link for staff; on a status change with
+ * "auto delivery updates" on and a WhatsApp provider set, it is also sent in the
+ * background through the provider (never delays or fails the request).
+ */
+async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>, opts: { autoSend?: boolean } = {}) {
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: d.outletId }, select: { name: true, timezone: true } });
-  return deliveryStatusLink({
+  const msg = deliveryStatusLink({
     phone: d.customerPhone,
     status: d.status,
     outletName: outlet.name,
@@ -81,6 +90,28 @@ async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>) {
     agentName: d.agent?.name,
     timezone: outlet.timezone,
   });
+  let autoSent = false;
+  if (opts.autoSend && d.customerPhone && AUTO_UPDATE_STATUSES.has(d.status)) {
+    const cfg = await getWaConfig();
+    if (cfg.autoDeliveryUpdates && cfg.provider !== "NONE") {
+      autoSent = true;
+      void sendWhatsApp(
+        {
+          to: d.customerPhone,
+          text: msg.text,
+          purpose: "delivery_update",
+          tag: `delivery_${d.order.invoiceNumber}`,
+          params: [
+            { name: "outlet", value: outlet.name },
+            { name: "invoice", value: d.order.invoiceNumber },
+            { name: "status", value: msg.text },
+          ],
+        },
+        cfg,
+      ).catch((e) => console.error("[whatsapp] delivery update failed", e));
+    }
+  }
+  return { ...msg, autoSent };
 }
 
 // ---------- Zones ----------
@@ -706,7 +737,7 @@ deliveryRouter.patch("/:id/status", async (req, res) => {
     const ids = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
     await notify(ids, "Delivery cancelled", `${d.order.invoiceNumber} · ${d.customerName}`, "delivery");
   }
-  res.json({ ...withExtras(updated), customerMessage: await customerLink(updated) });
+  res.json({ ...withExtras(updated), customerMessage: await customerLink(updated, { autoSend: true }) });
 });
 
 /** Only the assigned partner (or a manager on their behalf) may act on a delivery's money. */
@@ -768,7 +799,7 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   if (due > 0) void cashBalance(outletId, collectorId).then((bal) => alertPartnerCash(outletId, collectorId, bal));
   // The partner is free again: hand them any delivery that is waiting.
   assignWaitingDeliveries(outletId).catch((e) => console.error("[delivery] auto-assign failed", e));
-  return { ...withExtras(updated), cashCollected: due, customerMessage: await customerLink(updated) };
+  return { ...withExtras(updated), cashCollected: due, customerMessage: await customerLink(updated, { autoSend: true }) };
 }
 
 function assertMyDelivery(req: Request, d: { agentId: string | null }) {

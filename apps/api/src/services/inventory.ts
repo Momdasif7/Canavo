@@ -3,6 +3,7 @@ import { prisma } from "../db";
 import { badRequest } from "../lib/http";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "./notify";
+import { announceAvailability, refreshMenuAvailability } from "./stock-availability";
 
 type Tx = Prisma.TransactionClient;
 
@@ -129,6 +130,8 @@ export async function applyStockMovement(tx: Tx, m: StockMovement) {
   });
   const rounded = round3(stock.quantity);
   if (rounded !== stock.quantity) stock = await tx.inventoryStock.update({ where: key, data: { quantity: rounded } });
+  // Menu items that use this ingredient go out of / come back into stock automatically.
+  announceAvailability(m.outletId, await refreshMenuAvailability(tx, m.outletId, [m.inventoryItemId]));
   return tx.inventoryTransaction.create({
     data: {
       outletId: m.outletId,

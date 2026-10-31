@@ -9,6 +9,11 @@ const prisma = new PrismaClient();
 const rs = (n: number) => Math.round(n * 100);
 
 async function main() {
+  // The demo seed creates logins with a published password: never in production.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_SEED !== "1") {
+    console.error("Refusing to seed demo data in production (it creates demo logins with a known password). Set ALLOW_DEMO_SEED=1 only for a throwaway demo environment.");
+    process.exit(1);
+  }
   if (await prisma.outlet.count()) {
     console.info("Base data already seeded — skipping.");
   } else {

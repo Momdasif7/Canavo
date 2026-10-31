@@ -43,6 +43,7 @@ import {
   round3,
   updateWeightedCost,
 } from "../services/inventory";
+import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 
 type Tx = Prisma.TransactionClient;
 
@@ -426,6 +427,7 @@ inventoryRouter.put("/recipes/:menuItemId", manage, async (req, res) => {
     await audit(req, "inventory.recipe.replace", "MenuItem", menuItemId, { variantId, lines: merged.size }, tx);
     return tx.recipe.findMany({ where: { menuItemId, variantId }, include: { item: { select: { name: true, unit: true, costPerUnit: true } } } });
   });
+  announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
   res.json({ menuItemId, variantId, lines: recipes, cost: recipeCost(recipes.map((r) => ({ quantity: r.quantity, costPerUnit: r.item.costPerUnit }))) });
 });
 

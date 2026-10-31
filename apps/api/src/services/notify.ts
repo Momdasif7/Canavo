@@ -1,3 +1,4 @@
+import { getWaConfig, sendWhatsApp } from "./whatsapp";
 import { prisma } from "../db";
 import { currentBusinessId } from "../lib/tenant";
 import { env } from "../env";
@@ -108,7 +109,19 @@ async function deliverExternal(
           .catch((e) => console.warn("[notify] email", e)));
       }
     }
-    if (prefs.whatsapp) console.info(`[notify] whatsapp channel enabled for ${kind} — staff WhatsApp alerts are not implemented yet`);
+    if (prefs.whatsapp) {
+      // Staff alerts go only through the business's WhatsApp API (there is nobody to open a click-to-chat link).
+      const cfg = await getWaConfig();
+      if (cfg.provider !== "NONE" && cfg.staffAlerts) {
+        for (const u of users) {
+          jobs.push(
+            sendWhatsApp({ to: u.phone, text: `${title} - ${body}`, purpose: "staff_alert", tag: `alert_${kind}`, params: [{ name: "title", value: title }, { name: "body", value: body }] }, cfg)
+              .then((r) => r.method !== "sent" && console.warn(`[notify] whatsapp staff alert not sent: ${r.error ?? "no provider"}`))
+              .catch((e) => console.warn("[notify] whatsapp", e)),
+          );
+        }
+      }
+    }
   }
   await Promise.all(jobs);
 }

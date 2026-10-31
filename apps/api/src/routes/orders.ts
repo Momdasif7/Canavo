@@ -16,6 +16,7 @@ import { startOfLocalDay } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
+import { sendExport } from "../services/report-export";
 import { renderReceiptPdf } from "../services/pdf";
 import { shareReceipt } from "../services/whatsapp";
 import { emitToOutlet } from "../realtime";
@@ -57,20 +58,40 @@ ordersRouter.post("/sync", requirePermission("order:create"), async (req, res) =
   res.json({ results });
 });
 
-ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
-  const q = parse(
-    z.object({
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      status: z.enum(["OPEN", "PAID", "CANCELLED"]).optional(),
-      search: z.string().optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    }),
-    req.query,
-  );
-  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
-  const where = {
+// ---------- Bills list: filters shared by the list, its summary and its export ----------
+const ymdDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const billFilterSchema = z.object({
+  /** One day (kept for older clients); use from/to for a range */
+  date: ymdDate.optional(),
+  from: ymdDate.optional(),
+  to: ymdDate.optional(),
+  status: z.enum(["OPEN", "PAID", "CANCELLED"]).optional(),
+  /** COD = delivery orders paid cash on delivery */
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "KHATA", "COD"]).optional(),
+  orderType: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"]).optional(),
+  search: z.string().trim().max(100).optional(),
+});
+const MAX_RANGE_DAYS = 366;
+
+async function billWhere(req: Express.Request, q: z.infer<typeof billFilterSchema>) {
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { timezone: true } });
+  const from = q.from ?? q.date;
+  const to = q.to ?? q.from ?? q.date;
+  if (from && to && from > to) throw badRequest("'from' date is after 'to' date");
+  let createdAt: { gte: Date; lt: Date } | undefined;
+  if (from && to) {
+    const gte = startOfLocalDay(from, outlet.timezone);
+    const lt = new Date(startOfLocalDay(to, outlet.timezone).getTime() + 86_400_000);
+    if ((lt.getTime() - gte.getTime()) / 86_400_000 > MAX_RANGE_DAYS) throw badRequest(`Pick at most ${MAX_RANGE_DAYS} days`);
+    createdAt = { gte, lt };
+  }
+  return {
     outletId: req.outletId,
     ...(q.status && { status: q.status }),
+    ...(q.orderType && { orderType: q.orderType }),
+    ...(q.paymentMode === "COD"
+      ? { delivery: { is: { cod: true } } }
+      : q.paymentMode && { payments: { some: { mode: q.paymentMode, status: "SUCCESS" as const } } }),
     ...(q.search && {
       OR: [
         { invoiceNumber: { contains: q.search, mode: "insensitive" as const } },
@@ -78,21 +99,93 @@ ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
         { customerName: { contains: q.search, mode: "insensitive" as const } },
       ],
     }),
-    ...(q.date && {
-      createdAt: {
-        gte: startOfLocalDay(q.date, outlet.timezone),
-        lt: new Date(startOfLocalDay(q.date, outlet.timezone).getTime() + 86_400_000),
-      },
-    }),
+    ...(createdAt && { createdAt }),
   };
-  res.json(
-    await prisma.order.findMany({
-      where,
-      include: { items: true, payments: true, cashier: { select: { id: true, name: true } }, delivery: { select: { id: true, status: true, cod: true, agentId: true, cashSettledAt: true, agent: { select: { id: true, name: true } } } } },
-      orderBy: { createdAt: "desc" },
-      take: q.limit,
+}
+
+const billInclude = {
+  items: true,
+  payments: true,
+  cashier: { select: { id: true, name: true } },
+  delivery: { select: { id: true, status: true, cod: true, agentId: true, cashSettledAt: true, agent: { select: { id: true, name: true } } } },
+} as const;
+
+ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(
+    billFilterSchema.extend({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).max(100_000).default(0),
     }),
+    req.query,
   );
+  const where = await billWhere(req, q);
+  res.json(await prisma.order.findMany({ where, include: billInclude, orderBy: { createdAt: "desc" }, skip: q.offset, take: q.limit }));
+});
+
+/** Totals for the filtered bills: count, amounts, collected by payment mode (cancelled bills counted apart). */
+ordersRouter.get("/summary", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(billFilterSchema, req.query);
+  const where = await billWhere(req, q);
+  const [all, byStatus, byMode, cod] = await Promise.all([
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where, _count: true, _sum: { grandTotal: true } }),
+    // Only money actually received: failed / pending UPI QR attempts don't count (BUG-004)
+    prisma.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", order: { ...where, status: { not: "CANCELLED" } } }, _sum: { amount: true }, _count: true }),
+    prisma.order.aggregate({ where: { ...where, status: { not: "CANCELLED" }, delivery: { is: { cod: true } } }, _count: true, _sum: { grandTotal: true } }),
+  ]);
+  const st = (s: string) => byStatus.find((b) => b.status === s);
+  res.json({
+    count: all,
+    billed: (st("OPEN")?._sum.grandTotal ?? 0) + (st("PAID")?._sum.grandTotal ?? 0),
+    paidCount: st("PAID")?._count ?? 0,
+    openCount: st("OPEN")?._count ?? 0,
+    openAmount: st("OPEN")?._sum.grandTotal ?? 0,
+    cancelledCount: st("CANCELLED")?._count ?? 0,
+    cancelledAmount: st("CANCELLED")?._sum.grandTotal ?? 0,
+    byMode: Object.fromEntries(byMode.map((m) => [m.mode, { amount: m._sum.amount ?? 0, count: m._count }])),
+    cod: { count: cod._count, amount: cod._sum.grandTotal ?? 0 },
+  });
+});
+
+/** The filtered bills as an Excel file (up to 10,000 rows). */
+ordersRouter.get("/export", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(billFilterSchema, req.query);
+  const where = await billWhere(req, q);
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { name: true, timezone: true } });
+  const rows = await prisma.order.findMany({ where, include: billInclude, orderBy: { createdAt: "desc" }, take: 10_000 });
+  const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: outlet.timezone, dateStyle: "medium", timeStyle: "short" });
+  const modes = (o: (typeof rows)[number]) => [...new Set(o.payments.filter((p) => p.status === "SUCCESS").map((p) => p.mode))].join(" + ") || (o.delivery?.cod ? "COD" : "");
+  const range = q.from || q.date ? `${q.from ?? q.date}${q.to && q.to !== (q.from ?? q.date) ? ` to ${q.to}` : ""}` : "all dates";
+  await audit(req, "bills.export", "Order", undefined, { rows: rows.length, ...q });
+  await sendExport(res, "xlsx", `bills_${(q.from ?? q.date ?? "all")}${q.to ? `_${q.to}` : ""}`, [
+    {
+      title: `Bills · ${outlet.name}`,
+      subtitle: range,
+      columns: [
+        { key: "invoice", header: "Invoice", width: 18 },
+        { key: "date", header: "Date & time", width: 20 },
+        { key: "type", header: "Type", width: 11 },
+        { key: "customer", header: "Customer", width: 18 },
+        { key: "phone", header: "Phone", width: 13 },
+        { key: "mode", header: "Payment", width: 14 },
+        { key: "status", header: "Status", width: 11 },
+        { key: "cashier", header: "Cashier", width: 14 },
+        { key: "total", header: "Total", type: "money", width: 12 },
+      ],
+      rows: rows.map((o) => ({
+        invoice: o.invoiceNumber,
+        date: when(o.createdAt),
+        type: o.orderType.replace("_", "-"),
+        customer: o.customerName ?? "",
+        phone: o.customerPhone ?? "",
+        mode: modes(o),
+        status: o.status,
+        cashier: o.cashier?.name ?? "",
+        total: o.status === "CANCELLED" ? 0 : o.grandTotal,
+      })),
+      totals: true,
+    },
+  ]);
 });
 
 ordersRouter.get("/:id", requirePermission("order:view"), async (req, res) => {

@@ -7,7 +7,10 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(4000),
   DATABASE_URL: z.string().min(1),
+  /** Comma-separated browser origins; one "*" per entry for subdomains, e.g. https://*.vercel.app */
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
+  TRUST_PROXY: z.string().default("loopback, linklocal, uniquelocal"),
   PUBLIC_API_URL: z.string().default("http://localhost:4000"),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
@@ -20,6 +23,9 @@ const schema = z.object({
   WATI_API_URL: z.string().optional(),
   WATI_API_TOKEN: z.string().optional(),
   WATI_RECEIPT_TEMPLATE: z.string().default("receipt_share"),
+  /** WhatsApp Cloud API (Meta). Overridable for tests / a proxy. Per-business keys live in Settings → WhatsApp. */
+  WHATSAPP_META_BASE_URL: z.string().default("https://graph.facebook.com"),
+  WHATSAPP_META_GRAPH_VERSION: z.string().default("v21.0"),
   // --- Platform: SMS alerts, email, uploads, push, encryption, storage ---
   MSG91_ALERT_TEMPLATE_ID: z.string().optional(),
   SMTP_HOST: z.string().optional(),
