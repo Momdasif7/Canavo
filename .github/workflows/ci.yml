@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: canavo
+          POSTGRES_PASSWORD: canavo
+          POSTGRES_DB: canavo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U canavo" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdef0123456789
+      JWT_REFRESH_SECRET: ci-refresh-secret-0123456789abcdef012345678
+      RECEIPT_LINK_SECRET: ci-receipt-secret-0123456789abcdef01234567
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @canavo/shared
+      - run: npm test
+      - run: npm run typecheck
+      - run: npx prisma migrate deploy
+        working-directory: apps/api
+      - run: npm run build
+
+  mobile-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build -w @canavo/shared
+      - run: npm ci
+        working-directory: apps/mobile
+      - run: npx tsc --noEmit
+        working-directory: apps/mobile

@@ -1,0 +1,71 @@
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import swaggerUi from "swagger-ui-express";
+import { env, isProd } from "./env";
+import { errorHandler, notFound } from "./lib/http";
+import { openapi } from "./openapi";
+import { publicRouter } from "./routes/public";
+import { authRouter } from "./routes/auth";
+import { outletsRouter } from "./routes/outlets";
+import { staffRouter } from "./routes/staff";
+import { attendanceRouter } from "./routes/attendance";
+import { menuRouter } from "./routes/menu";
+import { ordersRouter } from "./routes/orders";
+import { kotRouter } from "./routes/kot";
+import { reportsRouter } from "./routes/reports";
+import { notificationsRouter } from "./routes/notifications";
+import { inventoryRouter } from "./routes/inventory";
+import { tablesRouter } from "./routes/tables";
+import { reservationsRouter } from "./routes/reservations";
+import { deliveryRouter } from "./routes/delivery";
+import { customersRouter } from "./routes/customers";
+import { offersRouter } from "./routes/offers";
+import { adminRouter } from "./routes/admin";
+import { uploadsRouter } from "./routes/uploads";
+import { platformRouter } from "./routes/platform";
+import { taxRatesRouter } from "./routes/tax-rates";
+
+export function createApp() {
+  const app = express();
+  // Trust only local proxies (the CANAVO gateway, the ngrok agent) so req.ip is the real client.
+  app.set("trust proxy", "loopback, linklocal, uniquelocal");
+  app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+  app.use(cors({ origin: env.CORS_ORIGINS.split(",").map((o) => o.trim()), exposedHeaders: ["content-disposition"] }));
+  app.use(morgan(isProd ? "combined" : "dev"));
+
+  // Public routes first: the Razorpay webhook needs the raw body.
+  app.use(publicRouter);
+  app.use(express.json({ limit: "1mb" }));
+
+  app.get("/health", (_req, res) => res.json({ ok: true, service: "canavo-api" }));
+  app.get("/openapi.json", (_req, res) => res.json(openapi));
+  app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi));
+
+  app.use("/auth", authRouter);
+  app.use("/outlets", outletsRouter);
+  app.use("/staff", staffRouter);
+  app.use("/attendance", attendanceRouter);
+  app.use("/menu", menuRouter);
+  app.use("/orders", ordersRouter);
+  app.use("/kot", kotRouter);
+  app.use("/reports", reportsRouter);
+  app.use("/notifications", notificationsRouter);
+  app.use("/inventory", inventoryRouter);
+  app.use("/tables", tablesRouter);
+  app.use("/reservations", reservationsRouter);
+  app.use("/delivery", deliveryRouter);
+  app.use("/customers", customersRouter);
+  app.use("/offers", offersRouter);
+  app.use("/admin", adminRouter);
+  app.use("/uploads", uploadsRouter);
+  app.use("/platform", platformRouter);
+  app.use("/tax-rates", taxRatesRouter);
+
+  app.use(() => {
+    throw notFound("Route");
+  });
+  app.use(errorHandler);
+  return app;
+}

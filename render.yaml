@@ -1,0 +1,39 @@
+# Render.com blueprint: API (Docker) + managed Postgres.
+# Web is deployed on Vercel (root directory apps/web); mobile via EAS.
+services:
+  - type: web
+    name: canavo-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: canavo-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: RECEIPT_LINK_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+    disk:
+      # uploads, backups and the email outbox when Cloudinary/SMTP are not configured
+      name: canavo-storage
+      mountPath: /repo/apps/api/storage
+      sizeGB: 5
+
+databases:
+  - name: canavo-db
+    plan: basic-256mb
+    databaseName: canavo
+    user: canavo

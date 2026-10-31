@@ -1,0 +1,499 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
+import { Bank, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Trash, WifiSlash } from "@phosphor-icons/react";
+import { formatINR } from "@canavo/shared";
+import { api, errorMessage, isNetworkError } from "@/lib/api";
+import { PAYMENT_MODE_LABELS, parseRupees, rupeesInput } from "@/lib/format";
+import type { QueuedPayment } from "@/lib/offline";
+import type { Order, PaymentMode, PaymentResult } from "@/lib/types";
+import { useHotkeys } from "@/hooks/useHotkeys";
+import { Dialog } from "@/components/ui/Dialog";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Alert } from "@/components/ui/States";
+import { UpiQrPanel } from "./UpiQrPanel";
+
+export type Checkout =
+  | { kind: "online"; order: Order }
+  | { kind: "offline"; total: number; customerPhone?: string };
+
+type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "COD";
+
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: "CASH", label: "Cash", icon: <Money size={22} /> },
+  { id: "UPI", label: "UPI", icon: <QrCode size={22} /> },
+  { id: "CARD", label: "Card", icon: <CreditCard size={22} /> },
+  { id: "SPLIT", label: "Split", icon: <SplitHorizontal size={22} /> },
+  { id: "KHATA", label: "Khata", icon: <Notebook size={22} /> },
+];
+
+interface SplitRow {
+  id: number;
+  mode: PaymentMode;
+  amount: string;
+}
+
+export const orderBalance = (order: Order) =>
+  order.balance ?? Math.max(0, order.grandTotal - order.payments.filter((p) => p.status === "SUCCESS").reduce((s, p) => s + p.amount, 0));
+
+/** A delivery bill that can still be switched to Cash on Delivery (open, run not finished). */
+export const codEligible = (order: Order) =>
+  order.orderType === "DELIVERY" && order.status === "OPEN" && !!order.delivery && order.delivery.status !== "DELIVERED" && order.delivery.status !== "CANCELLED";
+
+/** Suggested notes for the cash tender buttons. */
+export function cashSuggestions(amount: number): number[] {
+  const rupees = Math.ceil(amount / 100);
+  const out = new Set<number>();
+  for (const step of [10, 50, 100, 500, 2000]) {
+    const v = Math.ceil(rupees / step) * step;
+    if (v * 100 > amount) out.add(v * 100);
+  }
+  return [...out].sort((a, b) => a - b).slice(0, 4);
+}
+
+export function PaymentDialog({
+  checkout,
+  onClose,
+  onPaidOnline,
+  onPaidOffline,
+  onWentOffline,
+  onCod,
+  advance,
+  suggestedSplit,
+}: {
+  checkout: Checkout | null;
+  /** Advance taken at reservation time — offered as an "ADVANCE" payment on this bill */
+  advance?: number;
+  /** Pre-filled split amounts (e.g. equal split of a table bill) */
+  suggestedSplit?: number[];
+  onClose: () => void;
+  onPaidOnline: (order: Order, change: number) => void;
+  onPaidOffline: (payments: QueuedPayment[], tendered: number | undefined, change: number) => void;
+  /** Network dropped while recording payment for an online order */
+  onWentOffline?: () => void;
+  /**
+   * Offer "Cash on Delivery" for eligible delivery bills: marks the bill COD
+   * (POST /orders/:id/cod) and hands back the updated order. Omit to hide COD.
+   */
+  onCod?: (order: Order) => void;
+}) {
+  const [tab, setTab] = useState<Tab>("CASH");
+  const [tendered, setTendered] = useState("");
+  const [reference, setReference] = useState("");
+  const [split, setSplit] = useState<SplitRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** Latest server copy of the order (changes after an advance is recorded) */
+  const [current, setCurrent] = useState<Order | null>(null);
+  const [advanceMode, setAdvanceMode] = useState<PaymentMode>("UPI");
+  const [advanceApplied, setAdvanceApplied] = useState(false);
+
+  const offline = checkout?.kind === "offline";
+  const liveOrder = checkout?.kind === "online" ? (current?.id === checkout.order.id ? current : checkout.order) : null;
+  const amount = checkout ? (liveOrder ? orderBalance(liveOrder) : checkout.kind === "offline" ? checkout.total : 0) : 0;
+  const phone = checkout ? (checkout.kind === "online" ? checkout.order.customerPhone : checkout.customerPhone) : undefined;
+  const advanceDue = !offline && advance && advance > 0 && !advanceApplied ? Math.min(advance, amount) : 0;
+  const codOffered = !!onCod && !!liveOrder && codEligible(liveOrder);
+  const codPartner = liveOrder?.delivery?.agent?.name ?? "the delivery partner";
+
+  useEffect(() => {
+    if (!checkout) return;
+    const due = checkout.kind === "online" ? orderBalance(checkout.order) : checkout.total;
+    setCurrent(null);
+    setAdvanceApplied(false);
+    setTendered("");
+    setReference("");
+    setError(null);
+    if (suggestedSplit && suggestedSplit.length > 1) {
+      setTab("SPLIT");
+      setSplit(suggestedSplit.map((a, i) => ({ id: i + 1, mode: "CASH" as PaymentMode, amount: rupeesInput(a) })));
+    } else {
+      setTab("CASH");
+      setSplit([
+        { id: 1, mode: "CASH", amount: rupeesInput(due) },
+        { id: 2, mode: "UPI", amount: "" },
+      ]);
+    }
+    // Reset only when a new checkout opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkout]);
+
+  /** Record the reservation advance as a payment (reference "ADVANCE"). */
+  const applyAdvance = async () => {
+    if (checkout?.kind !== "online" || !advanceDue || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post<PaymentResult>(`/orders/${checkout.order.id}/payments`, {
+        payments: [{ mode: advanceMode, amount: advanceDue, reference: "ADVANCE" }],
+      });
+      setAdvanceApplied(true);
+      setCurrent(res.order);
+      if (res.paid) onPaidOnline(res.order, 0);
+      else {
+        const left = res.balance;
+        setSplit((rows) => (rows.length ? rows.map((r, i) => (i === 0 ? { ...r, amount: rupeesInput(left) } : { ...r, amount: "" })) : rows));
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tenderedPaise = parseRupees(tendered);
+  const change = tenderedPaise !== null ? tenderedPaise - amount : 0;
+  const splitTotal = split.reduce((s, r) => s + (parseRupees(r.amount) ?? 0), 0);
+  const splitRemaining = amount - splitTotal;
+  const suggestions = useMemo(() => cashSuggestions(amount), [amount]);
+
+  /** Payments for the active tab, or an error string. */
+  const build = (): { payments: QueuedPayment[]; tendered?: number } | string => {
+    switch (tab) {
+      case "CASH":
+        if (tenderedPaise !== null && tenderedPaise < amount) return "Cash received is less than the amount due";
+        return { payments: [{ mode: "CASH", amount }], tendered: tenderedPaise ?? amount };
+      case "CARD":
+        return { payments: [{ mode: "CARD", amount }] };
+      case "UPI":
+        return { payments: [{ mode: "UPI", amount }] };
+      case "COD":
+        return "Cash on Delivery takes no payment now";
+      case "KHATA":
+        if (!phone) return "Khata needs a customer phone number on the bill";
+        return { payments: [{ mode: "KHATA", amount }] };
+      case "SPLIT": {
+        const rows = split.map((r) => ({ mode: r.mode, amount: parseRupees(r.amount) ?? 0 })).filter((r) => r.amount > 0);
+        if (!rows.length) return "Add at least one payment";
+        if (splitRemaining !== 0) return `Split must add up to ${formatINR(amount)}`;
+        if (rows.some((r) => r.mode === "KHATA") && !phone) return "Khata needs a customer phone number on the bill";
+        return { payments: rows };
+      }
+    }
+  };
+
+  const confirm = async () => {
+    if (!checkout || busy) return;
+    if (tab === "UPI" && !offline) return; // QR flow confirms itself
+    if (tab === "COD") return void markCod();
+    const built = build();
+    if (typeof built === "string") {
+      setError(built);
+      return;
+    }
+    const cashPart = built.payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
+    const changeDue = built.tendered !== undefined ? built.tendered - cashPart : 0;
+    if (checkout.kind === "offline") {
+      onPaidOffline(built.payments, built.tendered, changeDue);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        payments: built.payments.map((p) => (tab === "CARD" && reference.trim() ? { ...p, reference: reference.trim() } : p)),
+        tendered: built.tendered,
+      };
+      const res = await api.post<PaymentResult>(`/orders/${checkout.order.id}/payments`, payload);
+      setCurrent(res.order);
+      if (res.paid) onPaidOnline(res.order, res.change);
+      else setError(`Recorded. ${formatINR(res.balance)} still due.`);
+    } catch (e) {
+      if (isNetworkError(e)) onWentOffline?.();
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** No payment now: the delivery partner collects the balance in cash at the door. */
+  const markCod = async () => {
+    if (checkout?.kind !== "online" || !onCod || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const order = await api.post<Order>(`/orders/${checkout.order.id}/cod`, {});
+      setCurrent(order);
+      onCod(order);
+    } catch (e) {
+      if (isNetworkError(e)) onWentOffline?.();
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const upiPaid = async () => {
+    if (checkout?.kind !== "online") return;
+    try {
+      onPaidOnline(await api.get<Order>(`/orders/${checkout.order.id}`), 0);
+    } catch {
+      onPaidOnline(checkout.order, 0);
+    }
+  };
+
+  useHotkeys({ F10: () => void confirm() }, !!checkout);
+
+  if (!checkout) return null;
+  const title = checkout.kind === "online" ? `Payment · ${checkout.order.invoiceNumber}` : "Payment (offline)";
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      size="md"
+      dismissible={!busy}
+      title={title}
+      footer={
+        tab === "UPI" && !offline ? (
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button size="lg" variant="secondary" onClick={confirm} loading={busy} className="min-w-[200px]" data-testid="payment-confirm">
+              {tab === "COD" ? "Confirm COD" : offline ? "Save offline" : "Collect"} <span className="tabular">{formatINR(amount)}</span>
+              <kbd className="ml-1 hidden rounded bg-white/20 px-1.5 text-xs lg:inline">F10</kbd>
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="mb-4 flex items-baseline justify-between">
+        <span className="text-sm font-semibold text-muted">Amount due</span>
+        <span className="tabular text-3xl font-extrabold">{formatINR(amount)}</span>
+      </div>
+
+      {advanceDue > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+          <span className="flex-1">
+            Advance of <strong className="tabular">{formatINR(advanceDue)}</strong> was paid at booking.
+          </span>
+          <select
+            aria-label="Advance paid via"
+            value={advanceMode}
+            onChange={(e) => setAdvanceMode(e.target.value as PaymentMode)}
+            className="min-h-[40px] rounded-lg border border-line bg-surface px-2 text-sm font-semibold text-fg"
+          >
+            {(["UPI", "CASH", "CARD"] as PaymentMode[]).map((m) => (
+              <option key={m} value={m}>
+                {PAYMENT_MODE_LABELS[m]}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" variant="secondary" onClick={applyAdvance} loading={busy}>
+            Apply advance
+          </Button>
+        </div>
+      )}
+
+      {offline && (
+        <div className="mb-4">
+          <Alert tone="warning">
+            <span className="flex items-center gap-2">
+              <WifiSlash size={18} /> No connection. The bill will be saved on this device and synced automatically.
+            </span>
+          </Alert>
+        </div>
+      )}
+
+      {codOffered && (
+        <button
+          type="button"
+          aria-pressed={tab === "COD"}
+          onClick={() => {
+            setTab("COD");
+            setError(null);
+          }}
+          className={clsx(
+            "mb-2 flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors",
+            tab === "COD"
+              ? "border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-400 dark:bg-amber-500/15 dark:text-amber-100"
+              : "border-dashed border-amber-400/70 bg-surface text-fg hover:bg-amber-50 dark:hover:bg-amber-500/10",
+          )}
+          data-testid="cod-option"
+        >
+          <HandCoins size={30} weight={tab === "COD" ? "fill" : "duotone"} className="shrink-0 text-amber-600 dark:text-amber-300" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-bold">Cash on Delivery (COD)</span>
+            <span className="block text-sm text-muted">
+              No payment now — {codPartner} collects <strong className="tabular text-fg">{formatINR(amount)}</strong> in cash at the door
+            </span>
+          </span>
+          {tab === "COD" && <CheckCircle size={24} weight="fill" className="shrink-0 text-amber-600 dark:text-amber-300" />}
+        </button>
+      )}
+
+      <div role="tablist" className="mb-4 grid grid-cols-5 gap-1.5">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => {
+              setTab(t.id);
+              setError(null);
+            }}
+            className={clsx(
+              "flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border text-sm font-semibold transition-colors",
+              tab === t.id ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:border-primary/60",
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mb-3">
+          <Alert>{error}</Alert>
+        </div>
+      )}
+
+      {tab === "COD" && liveOrder && (
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <p>
+            The bill stays <strong>unpaid</strong> until {codPartner} collects <strong className="tabular">{formatINR(amount)}</strong> in cash and marks it delivered.
+          </p>
+          {!liveOrder.delivery?.agentId && <p className="font-semibold">Waiting for a partner — will auto-assign when one clocks in.</p>}
+          {liveOrder.payments.some((p) => p.status === "PENDING") && <p>The pending UPI QR for this bill will be cancelled.</p>}
+        </div>
+      )}
+
+      {tab === "CASH" && (
+        <div className="space-y-3">
+          <Input
+            label="Cash received"
+            inputMode="decimal"
+            placeholder={rupeesInput(amount)}
+            value={tendered}
+            onChange={(e) => setTendered(e.target.value.replace(/[^\d.]/g, ""))}
+            prefix="₹"
+            className="tabular text-lg font-bold"
+            data-autofocus
+            onKeyDown={(e) => e.key === "Enter" && void confirm()}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setTendered(rupeesInput(amount))}>
+              Exact
+            </Button>
+            {suggestions.map((s) => (
+              <Button key={s} variant="outline" size="sm" className="tabular" onClick={() => setTendered(rupeesInput(s))}>
+                {formatINR(s)}
+              </Button>
+            ))}
+          </div>
+          <div
+            className={clsx(
+              "flex items-baseline justify-between rounded-xl px-4 py-3",
+              change < 0 ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200" : "bg-secondary-50 text-secondary-700 dark:bg-secondary/20 dark:text-green-200",
+            )}
+          >
+            <span className="font-semibold">{change < 0 ? "Short by" : "Change to return"}</span>
+            <span className="tabular text-2xl font-extrabold">{formatINR(Math.abs(change))}</span>
+          </div>
+        </div>
+      )}
+
+      {tab === "UPI" &&
+        (offline ? (
+          <p className="text-sm text-muted">
+            Dynamic QR needs a connection. Show the outlet&apos;s printed UPI QR and record the payment once you see it on the merchant app.
+          </p>
+        ) : (
+          <UpiQrPanel key={amount} orderId={checkout.order.id} onPaid={upiPaid} />
+        ))}
+
+      {tab === "CARD" && (
+        <Input
+          label="Card reference (optional)"
+          placeholder="Last 4 digits / approval code"
+          maxLength={100}
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          prefix={<Bank size={18} />}
+          disabled={offline}
+          hint={offline ? "Reference can be added later from Bills." : "Swipe on the card machine, then collect."}
+        />
+      )}
+
+      {tab === "KHATA" && (
+        <div className="space-y-2 text-sm">
+          {phone ? (
+            <p>
+              Add <strong className="tabular">{formatINR(amount)}</strong> to the credit account of <strong>+91 {phone}</strong>.
+            </p>
+          ) : (
+            <Alert tone="warning">Khata (credit) needs a customer phone number on the bill. Close this dialog, add the customer, and charge again.</Alert>
+          )}
+        </div>
+      )}
+
+      {tab === "SPLIT" && (
+        <div className="space-y-2">
+          {split.map((row) => (
+            <div key={row.id} className="flex items-center gap-2">
+              <select
+                aria-label="Payment mode"
+                value={row.mode}
+                onChange={(e) => setSplit((rows) => rows.map((r) => (r.id === row.id ? { ...r, mode: e.target.value as PaymentMode } : r)))}
+                className="min-h-tap w-32 rounded-xl border border-line bg-surface px-3 font-semibold"
+              >
+                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+              <Input
+                wrapperClassName="flex-1"
+                aria-label="Amount"
+                inputMode="decimal"
+                prefix="₹"
+                className="tabular font-bold"
+                value={row.amount}
+                onChange={(e) => setSplit((rows) => rows.map((r) => (r.id === row.id ? { ...r, amount: e.target.value.replace(/[^\d.]/g, "") } : r)))}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={splitRemaining <= 0}
+                onClick={() =>
+                  setSplit((rows) =>
+                    rows.map((r) => (r.id === row.id ? { ...r, amount: rupeesInput((parseRupees(r.amount) ?? 0) + splitRemaining) } : r)),
+                  )
+                }
+              >
+                Rest
+              </Button>
+              <IconButton label="Remove" disabled={split.length <= 1} onClick={() => setSplit((rows) => rows.filter((r) => r.id !== row.id))}>
+                <Trash size={20} />
+              </IconButton>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Plus size={18} />}
+              onClick={() => setSplit((rows) => [...rows, { id: Date.now(), mode: "CARD", amount: splitRemaining > 0 ? rupeesInput(splitRemaining) : "" }])}
+            >
+              Add payment
+            </Button>
+            <span className={clsx("tabular text-sm font-bold", splitRemaining === 0 ? "text-secondary dark:text-green-300" : "text-red-600")}>
+              {splitRemaining === 0 ? "Balanced" : splitRemaining > 0 ? `${formatINR(splitRemaining)} remaining` : `${formatINR(-splitRemaining)} over`}
+            </span>
+          </div>
+          {!offline && <p className="text-xs text-muted">UPI in a split is recorded as received (no QR).</p>}
+        </div>
+      )}
+    </Dialog>
+  );
+}

@@ -1,0 +1,14 @@
+{
+  "name": "CANAVO POS",
+  "short_name": "CANAVO",
+  "description": "Point of sale and management for canteens",
+  "start_url": "/pos",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAFAF8",
+  "theme_color": "#FF6B35",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

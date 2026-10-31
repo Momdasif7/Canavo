@@ -1,0 +1,227 @@
+# CANAVO — Canteen Avatar Order
+
+*From Order to Receipt in Seconds.* POS and business management for Indian canteens and food service: GST billing, kitchen tickets, tables, delivery, inventory, customers and loyalty, staff attendance, and reports. It runs on the web (desktop/tablet, installable as a PWA) and on Android/iOS.
+
+All three phases of the master spec are implemented.
+
+## Repository layout
+
+```
+packages/shared   GST engine, invoice numbering, RBAC, zod schemas for every module, receipt / ESC-POS formatter
+apps/api          Express 5 + Prisma (PostgreSQL) + Socket.io REST API, background jobs — Swagger UI at /docs
+apps/web          Next.js 14 POS + management web app (PWA, offline billing via IndexedDB)
+apps/mobile       Expo SDK 51 app — POS, waiter tables, KOT, attendance, delivery agent, inventory, reports
+```
+
+All money is stored and computed as **integer paise** (₹1 = 100).
+
+## Modules
+
+| Module | Web | Mobile | Highlights |
+|---|---|---|---|
+| Auth & staff | ✓ | ✓ | OTP + password login, token rotation with reuse detection, lockout, RBAC (6 roles), forced logout on role change, encrypted Aadhaar |
+| Attendance | ✓ | ✓ | GPS-geofenced clock-in with PIN/biometric, shifts (incl. overnight), late/early/overtime alerts, leave workflow, calendar, salary sheet, xlsx export |
+| Outlets | ✓ | ✓ | Multi-outlet, per-outlet GST/tax settings, menu price/availability overrides, inter-outlet stock transfers, central overview dashboard |
+| Menu | ✓ | – | Categories/sub-categories, variants, add-ons, veg/non-veg/egg, GST rate & HSN, time slots, CSV import, image upload |
+| Offers | ✓ | chips | Combos, happy hour, buy X get Y, item & bill discounts, coupons with usage limits, personal birthday coupons |
+| Billing / POS | ✓ | ✓ | Dine-in / takeaway / delivery / pre-order, live promotions preview, split payments, UPI QR (Razorpay), khata, offline queue, keyboard shortcuts |
+| Tables | ✓ | ✓ | Drag-and-drop floor editor, running tabs with per-round KOTs, transfer, merge, split by seat / items / equal, waiter assignment, auto-close on payment |
+| Kitchen (KOT/KDS) | ✓ | ✓ | Station routing, live display, timers, voids, pre-order hold & release, reprint |
+| Receipts | ✓ | ✓ | Thermal 58/80 mm (Bluetooth ESC/POS), PDF, WhatsApp link / WATI |
+| Delivery | ✓ | ✓ | Radius zones with fee/min order/ETA, agent assignment, status flow, agent app with live location, customer WhatsApp status |
+| Reservations | ✓ | – | Table booking with capacity/overlap checks, pre-selected menu, advance payment, seat → tab |
+| Inventory | ✓ | ✓ | Ingredients with units, recipes → automatic stock deduction per sale, purchases & vendor payments, wastage, stock audits, transfers, low-stock alerts, barcode lookup, food-cost costing |
+| Customers & loyalty | ✓ | ✓ | Auto-created profiles, points earn/redeem, tiers, khata ledger & reminders, visit heatmap, blacklist |
+| Reports | ✓ | summary | Sales, items, categories, peak-hour heatmap, GST, **GSTR-1 JSON**, profit/food cost, staff, customers, inventory, delivery — Excel + PDF export, scheduled email |
+| Admin | ✓ | – | Audit log viewer, backups (daily auto + restore), full data export, notification preferences, IP whitelist |
+| Notifications | bell | push | In-app, Expo push, SMS (MSG91), email (SMTP), WhatsApp |
+
+## Quick start
+
+Requires Node 20+ and Docker.
+
+```bash
+npm install
+npm run build -w @canavo/shared
+npm run db:up                      # Postgres 16 on localhost:5433
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
+npm run db:migrate                 # prisma migrate dev
+npm run db:seed                    # demo outlet, staff, menu, tables, inventory, customers, offers, 30 days of history
+npm run dev                        # API :4000 + web :3000
+```
+
+If port 3000 is taken, run the web app with `npx next dev -p 3001` in `apps/web`, and add `http://localhost:3001` to `CORS_ORIGINS` in `apps/api/.env`.
+
+Demo logins (password `Canavo@123`, staff PIN `1234`):
+
+| Role | Email | Phone (OTP) |
+|---|---|---|
+| Super Admin (platform) | admin@canavo.local | 9876500000 |
+| Business Owner (Demo Hotel) | owner@canavo.local | 9876500005 |
+| Outlet Manager | manager@canavo.local | 9876500001 |
+| Cashier | cashier@canavo.local | 9876500002 |
+| Kitchen | kitchen@canavo.local | 9876500003 |
+| Delivery | delivery@canavo.local | 9876500004 |
+| Inventory Manager | inventory@canavo.local | 9876500006 |
+
+In development, OTPs are printed in the API log and returned as `devCode`. Demo coupons: `WELCOME50`, `FEST10`.
+
+**Mobile:**
+1. Run `cd apps/mobile && npm install && cp .env.example .env`.
+2. Set `EXPO_PUBLIC_API_URL` to your machine's LAN IP, then run `npx expo start`.
+
+Bluetooth printing, camera scanning and real push notifications need a development build (`eas build --profile development -p android`). See [apps/mobile/README.md](apps/mobile/README.md) and [apps/mobile/STORE_RELEASE.md](apps/mobile/STORE_RELEASE.md).
+
+## Multi-business (SaaS) model
+
+CANAVO serves many client businesses from one installation. Each business's data is fully isolated.
+
+```
+Super Admin (platform operator)   — /platform console: onboard businesses, pick modules, suspend, create / reset OWNER accounts
+ └─ Business (hotel / restaurant / shop) — enabled modules, its own menu, customers, stock, tax rates
+     ├─ Business Owner             — every outlet, staff and setting of that business; creates managers and staff; exports its data
+     └─ Outlet
+         ├─ Outlet Manager         — the outlet, including GST & tax settings; creates cashier/kitchen/delivery/inventory staff
+         └─ Cashier · Kitchen · Delivery · Inventory staff
+```
+
+- **Privacy:** the Super Admin can't open any hotel.
+  - It has only `platform:manage`, `admin:backup` and `audit:view`, no outlets, and no business context. `X-Outlet-Id` and `X-Business-Id` are refused or ignored for it.
+  - In the platform console it sees account information only: hotel name and contact, status, modules, outlet names and owner accounts. It never sees sales, bills, staff, customers, Aadhaar or reports.
+  - Its audit log shows platform actions only.
+- **Who creates whom:**
+  - The Super Admin creates owners and resets their passwords; a reset signs the owner out.
+  - The Owner creates managers and staff, but not another owner.
+  - A Manager creates cashier, kitchen, delivery and inventory staff, but not managers or owners.
+- **Staff Aadhaar:**
+  - The Owner can view and reveal Aadhaar for anyone in the business.
+  - A Manager can do so only for staff below them in their own outlets.
+  - Every reveal is audited, and the Super Admin can't see it.
+- **Backups and export:**
+  - The Super Admin creates and restores whole-platform backups for disaster recovery. Backups can't be downloaded from the app.
+  - Each Owner downloads its own business's data under Admin → Export data, as JSON or CSV. Passwords and Aadhaar are left out.
+
+- **Isolation** is enforced in `apps/api/src/db.ts`: inside a request, every query on a business-owned model is automatically filtered by `businessId`.
+- **Modules** are switched per business by the Super Admin: Billing, Kitchen (KOT), Tables, Delivery, Reservations, Inventory, Customers & Loyalty, Offers, Attendance and Reports. Logins, staff and settings are always on.
+  - Dependencies are added automatically; for example, Tables needs Billing.
+  - Disabled modules disappear from the web and mobile apps, and the API rejects them.
+  - `/auth/me` returns each user's effective permissions (role ∩ modules).
+- **GST** is set per outlet by the Manager or Owner, under Settings → GST & Taxes:
+  - GST registered on/off. When off, the outlet issues plain bills with no tax and no GSTIN, charged at menu price.
+  - Composition scheme, legal name, GSTIN and invoice prefix.
+  - Custom tax rates with separate CGST, SGST and IGST percentages, cess, and named extra taxes (e.g. VAT), assigned per menu item.
+
+## Who sees what
+
+- **Bills** and **Settings** are only available to the Owner, Outlet Manager and Cashier. This uses the `bills:view` and `settings:view` permissions, enforced by the API.
+  - Kitchen, Delivery and Inventory staff get only basic outlet details: no GSTIN, UPI ID or billing configuration.
+- **Delivery partner portal** (web at `/delivery`, and the mobile app's Home / Deliveries / Cash / History tabs):
+  - **Duty:** clock in at the outlet (GPS + PIN). Partners may clock out from anywhere.
+  - **Upcoming deliveries** with Call and Navigate, and no payment options:
+    - A **COD** order shows **"Collect ₹X cash"** and one button, **"Cash collected & delivered"**.
+    - A prepaid order shows just **"Delivered"**.
+  - **Cash handover:** cash still with the partner, the orders it came from, and the handovers recorded by the outlet.
+  - **Dashboard and history.**
+- **Cash on Delivery:** the cashier picks COD in the payment step, or with the delivery switch in the cart. The cash then counts against the delivery partner who collects it.
+- **Delivery partners** page (managers): per partner, per day:
+  - Clock-in/out, deliveries, cash collected, cash received, and **cash still to receive**.
+  - **Manual "Record cash received"** entries (partial amounts OK) that can be edited or deleted, a day timeline, and CSV export.
+  - Cash in hand = cash collected − cash received.
+- **Delivery dispatch limit** (Settings → Outlet → "Max orders per delivery partner", default **2**):
+  - A partner holds at most that many orders. While at the outlet, POS auto-assign gives them orders up to the limit, so two orders can go on one trip. Partners who already have one order are filled first.
+  - Once a partner picks up an order (Out for delivery), they are **on a run**. They get no new orders until every picked-up order is delivered **and** they are back at the outlet.
+  - **Back at the outlet** is detected automatically from the partner app's GPS: the app posts `/delivery/me/location` while the partner is on duty, and arrival within the attendance geofence counts.
+    - Clocking in at the outlet also counts as back.
+    - A manager can press **Mark back at outlet** if the partner's phone isn't sharing location.
+  - Orders that nobody can take wait unassigned. Managers are told why, and the order is assigned the moment a partner is back (a job also retries every minute).
+  - **Manual assignment** of a busy or away partner is refused for cashiers. Managers and owners see a warning and can **Assign anyway**.
+
+## Share on every device (one link)
+
+```bash
+./scripts/share.sh           # app + API behind one port (8080) and a public https ngrok link
+./scripts/share.sh --local   # no ngrok: devices on the same Wi-Fi open http://<this-computer-ip>:8080
+```
+
+- `scripts/gateway.mjs` serves the web app and the API on one address. The API is under `/api`, and live updates use `/socket.io`.
+  - It listens on **8080** (for ngrok / Wi-Fi) and **3001** (the original local address); the web app itself runs internally on 3100.
+- The web app is built with `NEXT_PUBLIC_API_URL=/api`, so it works on any address: localhost, LAN IP or ngrok.
+- **One-time ngrok setup:** sign up at https://dashboard.ngrok.com, then run `ngrok config add-authtoken <YOUR_TOKEN>`.
+- GPS clock-in and "use my location" need **https**, so phones should use the ngrok link rather than the LAN address.
+- For the mobile app, set `EXPO_PUBLIC_API_URL=https://<your-ngrok-domain>/api`.
+
+## Integrations
+
+Everything is optional in development. Configure in `apps/api/.env`:
+
+| Service | Variables | Without them |
+|---|---|---|
+| MSG91 (OTP, SMS alerts) | `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, `MSG91_ALERT_TEMPLATE_ID` | OTP/SMS logged; OTP returned as `devCode` |
+| Razorpay UPI QR | `RAZORPAY_KEY_ID/SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Plain `upi://pay` QR; cashier confirms, or the dev "simulate" endpoint |
+| WhatsApp (WATI) | `WATI_API_URL`, `WATI_API_TOKEN` | `wa.me` click-to-chat links |
+| Cloudinary | `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET` | Images stored under `apps/api/storage/uploads` |
+| SMTP email | `SMTP_HOST/PORT/USER/PASS/FROM` | Emails written to `apps/api/storage/outbox` |
+| Expo push | `EXPO_ACCESS_TOKEN` (optional) | Push sent without an access token |
+| PII encryption | `DATA_ENCRYPTION_KEY` | Dev derives a key (warning); **required in production** |
+
+Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/razorpay`.
+
+## Key behaviours
+
+- **GST:**
+  - Handles prices with or without GST included, CGST/SGST or IGST, and composition scheme (Bill of Supply, no tax).
+  - Discounts reduce the taxable value. Service charge, delivery fee and packaging are taxed at each line's rate.
+  - Rounds to the nearest rupee.
+  - Invoice numbers follow the financial year (`INV-2026-00234`, ≤ 16 characters).
+  - The server always recomputes the bill.
+- **Promotions** are evaluated server-side in a fixed order: item offers by priority (a unit is never discounted twice), then the best bill offer, the coupon, and points. The POS shows the exact server preview before charging.
+- **Menu bulk upload** (Menu → Bulk upload):
+  - Download the Excel template. It includes your GST rates, categories and stock items.
+  - Fill in one row per item and upload it (.xlsx or .csv). A per-row preview shows New / Update / Error before anything is saved.
+  - Category + item name matches update the existing item, so the sheet also works for bulk price changes. Missing categories and sub-categories are created.
+  - **Sizes:** `Regular=15; Large=25`.
+  - **Ingredients:** `Potato=0.08; Pav=1`, in each stock item's unit. They become the item's recipe.
+  - **Defaults:** blank GST = 0%. New items default to GST 0% everywhere, and existing items keep their rate.
+- **Menu photos:**
+  - Uploaded photos load from whatever address the app is opened on (localhost, Wi-Fi IP or ngrok).
+  - POS item cards show photos unless Settings → "Show item photos on POS" is off.
+- **Kitchen tickets:**
+  - The KOT paper width (58/80 mm) is set separately from the receipt width, per device.
+  - The Kitchen screen refetches tickets after a reconnect or wake-up, and every 15 s. It shows a Live / Reconnecting indicator.
+- **Inventory:**
+  - Every sale deducts recipe ingredients; a variant's recipe overrides the item's. Cancelling a bill restores them.
+  - Set the ingredients in the menu item form, in Inventory → Recipes (amounts per size), or in the bulk-upload sheet.
+  - Inventory staff see stock reports (consumption, movement, valuation, wastage, purchases) only. Sales, profit, GST reports, the dashboard and food cost / margins are for the Owner and Manager only.
+  - Stock may go negative (billing never blocks) and raises low-stock alerts.
+  - Purchases update a weighted-average cost.
+- **Dine-in tabs:** each round fires KOTs immediately and items are billed at the end. When the last bill is paid, the tab closes itself and its tickets leave the kitchen display.
+- **Offline billing:** queued bills carry a client UUID, so syncing is idempotent.
+- **Audit log:** records every billing, payment, stock, staff and settings change.
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run build` / `typecheck` / `test` | Turbo across shared, api and web (99 unit tests) |
+| `npm run seed -w @canavo/api` | Seed demo data; each module's seed is idempotent |
+| `docker build -f apps/api/Dockerfile -t canavo-api .` | Production API image (runs `prisma migrate deploy` on start) |
+
+CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+## Deployment
+
+- **API + database:** [render.yaml](render.yaml) is a Render blueprint (Docker API, managed Postgres, a persistent disk for uploads/backups).
+  - Set `CORS_ORIGINS`, `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
+  - Background jobs run in-process, so run a **single** API instance, or move the jobs to a worker before scaling out.
+- **Web:** Vercel with root `apps/web` and `NEXT_PUBLIC_API_URL`.
+- **Mobile:** `eas build -p android --profile production`, then `eas submit`. Store listing steps are in [apps/mobile/STORE_RELEASE.md](apps/mobile/STORE_RELEASE.md). Publishing needs your Google Play and Apple developer accounts.
+
+## Known limitations
+
+- **Delivery agents can't record payments.** Cash on delivery is shown as due and settled at the counter.
+- **Agent live location** is in memory only and uses foreground GPS only.
+- **GSTR-1** covers B2CS, HSN and the document summary. B2B, B2CL and credit notes aren't generated, because buyer GSTINs aren't captured.
+- **Face-recognition clock-in** isn't implemented; PIN and biometric are.
+- **Flat coupons and points** reduce the pre-tax value, so "₹50 off" saves the customer about ₹52.50 including 5% GST.
+- **Splitting a tab into several bills** isn't atomic across the bills. If one fails, the others stay and the tab refreshes.

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.expo/
+coverage/
+*.log
+.env
+.env.local
+!.env.example
+apps/api/storage/
+.DS_Store
+.share-logs/
+
+# QA artefacts
+playwright-report/
+test-results/
+.next-verify/
+apps/mobile/.env
