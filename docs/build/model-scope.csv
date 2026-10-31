@@ -1,0 +1,52 @@
+Model,businessId,outletId,Auto-filtered by tenant extension,Tenant path
+Outlet,yes,,yes,businessId
+User,yes,,yes,businessId
+UserOutlet,,yes,,outletId → Outlet.businessId
+RefreshToken,,,,via User
+OtpCode,,,,—
+Shift,,yes,,outletId → Outlet.businessId
+StaffAttendance,,yes,,outletId → Outlet.businessId
+LeaveRequest,,,,via User
+MenuCategory,yes,,yes,businessId
+MenuItem,yes,,yes,businessId
+ItemVariant,,,,via MenuItem
+ItemAddon,,,,via MenuItem
+OutletItemOverride,,yes,,outletId → Outlet.businessId
+InvoiceCounter,,yes,,outletId → Outlet.businessId
+Order,,yes,,outletId → Outlet.businessId
+OrderItem,,,,"via MenuItem, Order"
+KotTicket,,yes,,outletId → Outlet.businessId
+Payment,,,,via Order
+AuditLog,yes,yes,yes,businessId
+Notification,,yes,,outletId → Outlet.businessId
+Setting,,,,—
+DiningArea,,yes,,outletId → Outlet.businessId
+DiningTable,,yes,,outletId → Outlet.businessId
+TableSession,,yes,,outletId → Outlet.businessId
+TableSessionItem,,,,via TableSession
+Reservation,,yes,,outletId → Outlet.businessId
+DeliveryZone,,yes,,outletId → Outlet.businessId
+Delivery,,yes,,outletId → Outlet.businessId
+Customer,yes,,yes,businessId
+LoyaltyTransaction,,,,via Customer
+KhataTransaction,,yes,,outletId → Outlet.businessId
+Offer,yes,,yes,businessId
+Coupon,yes,,yes,businessId
+CouponRedemption,,,,via Coupon
+InventoryItem,yes,,yes,businessId
+InventoryStock,,yes,,outletId → Outlet.businessId
+InventoryTransaction,,yes,,outletId → Outlet.businessId
+Recipe,,,,"via InventoryItem, MenuItem"
+Vendor,yes,,yes,businessId
+Purchase,,yes,,outletId → Outlet.businessId
+PurchasePayment,,,,via Purchase
+PurchaseItem,,,,via Purchase
+StockAudit,,yes,,outletId → Outlet.businessId
+StockAuditLine,,,,via StockAudit
+StockTransfer,,,,via 
+StockTransferItem,,,,via StockTransfer
+DeviceToken,,,,via User
+ReportSchedule,,yes,,outletId → Outlet.businessId
+Business,,,,"via Coupon, Customer, InventoryItem, MenuItem, Offer, Outlet, User, Vendor"
+TaxRate,yes,,yes,businessId
+DeliveryCashHandover,,yes,,outletId → Outlet.businessId
