@@ -7,6 +7,8 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
+    // Unit tests only; live-stack suites (test/smoke, …) have their own configs.
+    include: ["src/**/*.test.ts"],
     env: {
       NODE_ENV: "test",
       DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://canavo:canavo@localhost:5433/canavo_test?schema=public",
