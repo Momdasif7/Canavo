@@ -163,6 +163,30 @@ export function makeLine(item: MenuItem, variantId?: string, addonIds: string[] 
   };
 }
 
+/** "Pav buns ran out" for an item that went out of stock automatically, else null. */
+export const stockOutNote = (item: Pick<MenuItem, "stockOut" | "stockOutReason">): string | null =>
+  item.stockOut ? (item.stockOutReason ? `${item.stockOutReason} ran out` : "An ingredient ran out") : null;
+
+/** The size is out of stock while others still sell. */
+export const variantUnavailable = (item: Pick<MenuItem, "unavailableVariantIds">, variantId: string | undefined) =>
+  !!variantId && !!item.unavailableVariantIds?.includes(variantId);
+
+/**
+ * Warning for a cart line whose item (or size) can't be billed any more
+ * (e.g. a restored cart after an ingredient ran out). Null when it's fine.
+ */
+export function lineStockWarning(line: CartLine, items: MenuItem[]): string | null {
+  const item = items.find((i) => i.id === line.itemId);
+  if (!item) return null;
+  if (item.status === "HIDDEN") return "No longer on the menu — remove it";
+  if (item.status === "OUT_OF_STOCK") {
+    const note = stockOutNote(item);
+    return `Out of stock${note ? ` (${note})` : ""} — remove it`;
+  }
+  if (variantUnavailable(item, line.variantId)) return `${line.variantName ?? "This size"} is out of stock — remove it or pick another size`;
+  return null;
+}
+
 /** Badge text for an auto-added offer line. */
 export const freeBadge = (f: FreeOffer) => `${f.percent >= 100 ? "FREE" : `${f.percent}% OFF`} · ${f.offerName}`;
 

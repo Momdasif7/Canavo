@@ -30,6 +30,7 @@ import {
   deliveryCoords,
   freeBadge,
   isBlankCart,
+  lineStockWarning,
   loadSavedCart,
   makeLine,
   metaError,
@@ -303,7 +304,18 @@ export default function PosPage() {
   const pointsError = pointsWarnings.join(" · ") || (currentErr && !couponError && /point/i.test(currentErr) ? currentErr : null) || null;
   /** Charging with a rejected coupon / points would fail at the server: fix it first */
   const promoBlocker = online && meta.couponCode.trim() && couponError ? "Fix or remove the coupon to charge" : online && pointsError && meta.redeemPoints.trim() ? "Fix the points to redeem" : null;
-  const chargeBlocker = blocker ?? promoBlocker;
+  /** Lines whose item / size ran out (e.g. a restored cart, or the bill was refused): line key → warning */
+  const stockWarnings = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!menu) return m;
+    for (const l of lines) {
+      const w = lineStockWarning(l, menu.items);
+      if (w) m.set(l.key, w);
+    }
+    return m;
+  }, [lines, menu]);
+  const stockBlocker = stockWarnings.size ? "Remove the out-of-stock items to charge" : null;
+  const chargeBlocker = blocker ?? stockBlocker ?? promoBlocker;
 
   // GST: never show tax rows for an outlet that isn't GST registered or a plain BILL — including
   // the local fallback, a stale outlet and the first render before the outlet has loaded.
@@ -468,7 +480,11 @@ export default function PosPage() {
       else setCheckout({ kind: "online", order });
     } catch (e) {
       if (isNetworkError(e)) setCheckout({ kind: "offline", total: localBill.grandTotal, customerPhone: input.customerPhone });
-      else toast(errorMessage(e), "error");
+      else {
+        toast(errorMessage(e), "error");
+        // "Vada Pav is out of stock (Pav buns ran out)": refresh the menu so the line gets flagged.
+        if (/out of stock/i.test(errorMessage(e))) void fetchMenu();
+      }
     } finally {
       setCharging(false);
     }
@@ -588,6 +604,7 @@ export default function PosPage() {
         <CartPanel
           orderTypes={allowedOrderTypes(me?.modules)}
           lines={lines}
+          stockWarnings={stockWarnings}
           meta={meta}
           totals={totals}
           previewing={!!previewKey && online && pending}

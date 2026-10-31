@@ -37,6 +37,8 @@ export interface CartTotals {
 
 interface Props {
   lines: CartLine[];
+  /** Line key → why it can't be billed (item / size ran out) */
+  stockWarnings?: Map<string, string>;
   meta: CartMeta;
   totals: CartTotals;
   /** Preview request in flight */
@@ -161,7 +163,7 @@ export function CartPanel(p: Props) {
         ) : (
           <ul className="divide-y divide-line">
             {lines.map((l) => (
-              <li key={l.key} className={clsx("px-3 py-2.5", l.free && "bg-secondary-50/60 dark:bg-secondary/10")} data-testid={l.free ? "free-line" : "cart-line"} data-item={l.name}>
+              <li key={l.key} className={clsx("px-3 py-2.5", l.free && "bg-secondary-50/60 dark:bg-secondary/10", p.stockWarnings?.has(l.key) && "bg-red-50/40 dark:bg-red-500/5")} data-testid={l.free ? "free-line" : "cart-line"} data-item={l.name}>
                 <div className="flex items-start gap-2">
                   <FoodMark type={l.foodType} size={12} className="mt-1.5" />
                   <div className="min-w-0 flex-1">
@@ -226,6 +228,16 @@ export function CartPanel(p: Props) {
                     <Trash size={20} />
                   </IconButton>
                 </div>
+                )}
+                {p.stockWarnings?.get(l.key) && (
+                  <p
+                    className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-200"
+                    role="alert"
+                    data-testid="line-stock-warning"
+                  >
+                    <Warning size={14} weight="fill" className="mt-px shrink-0" />
+                    {p.stockWarnings.get(l.key)}
+                  </p>
                 )}
                 {(noteOpen === l.key || l.notes) && (
                   <input

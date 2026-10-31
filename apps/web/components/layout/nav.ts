@@ -18,6 +18,7 @@ import {
   SquaresFour,
   Tag,
   UserList,
+  WhatsappLogo,
   UsersThree,
   ArrowsLeftRight,
   Storefront,
@@ -169,6 +170,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/settings", label: "Outlet settings", icon: GearSix, anyOf: ["settings:view"] },
       { href: "/settings/taxes", label: "GST & Taxes", icon: Percent, anyOf: ["settings:billing"], allOf: ["settings:view"] },
+      { href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
       { href: "/outlets", label: "Outlets", icon: Storefront, anyOf: ["outlet:manage"] },
     ],
   },

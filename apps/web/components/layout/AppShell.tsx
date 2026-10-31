@@ -98,7 +98,7 @@ function NotAvailableState({ home }: { home: string }) {
 
 function Shell({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   const toast = useToast();
-  const { me, outletId, setOutlet, logout, switching } = useSession();
+  const { me, outletId, outlet, setOutlet, logout, switching } = useSession();
   const { theme, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -142,6 +142,12 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
   // Delivery partners mostly use a phone browser: bottom tabs instead of hunting in the drawer.
   const partnerTabs = isDeliveryPartner({ me, outletId }) ? (groups.find((g) => g.id === "partner")?.items ?? []) : [];
   const roleLabel = me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role];
+  // Hotel staff see their own hotel's logo and name; the platform console keeps CANAVO's.
+  // `outlet` reloads on outlet switch and after Settings saves (reloadOutlet).
+  const brand: Brand =
+    me.platformAdmin || !me.business
+      ? { name: "CANAVO", logoUrl: null, canavo: true }
+      : { name: me.business.name, logoUrl: outlet?.id === outletId ? (outlet?.logoUrl ?? null) : null, canavo: false };
 
   const changeOutlet = async (value: string) => {
     const next = value || null;
@@ -172,15 +178,16 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
             tabIndex={-1}
             className={clsx("shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]", collapsed ? "rotate-[360deg] hover:scale-110" : "rotate-0")}
           >
-            <Logo size={34} />
+            <BrandMark brand={brand} size={34} />
           </button>
           <span
+            title={brand.name}
             className={clsx(
-              "whitespace-nowrap text-lg font-extrabold tracking-tight transition-all duration-300",
+              "min-w-0 truncate whitespace-nowrap text-lg font-extrabold tracking-tight transition-all duration-300",
               collapsed ? "pointer-events-none -translate-x-3 opacity-0" : "translate-x-0 opacity-100 delay-100",
             )}
           >
-            CANAVO
+            {brand.name}
           </span>
         </div>
         <SidebarToggle collapsed={collapsed} onToggle={toggleCollapsed} />
@@ -193,8 +200,10 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="relative flex h-full w-64 animate-fade-in flex-col bg-surface">
             <div className="flex h-16 items-center gap-2.5 border-b border-line px-4">
-              <Logo size={34} />
-              <span className="text-lg font-extrabold">CANAVO</span>
+              <BrandMark brand={brand} size={34} />
+              <span className="min-w-0 truncate text-lg font-extrabold" title={brand.name}>
+                {brand.name}
+              </span>
             </div>
             {nav(false)}
           </aside>
@@ -245,6 +254,51 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
         )}
       </div>
     </div>
+  );
+}
+
+interface Brand {
+  name: string;
+  logoUrl: string | null;
+  /** Platform console: CANAVO's own logo */
+  canavo: boolean;
+}
+
+/** Sidebar logo: CANAVO's for the platform console, else the outlet's uploaded logo or the business initials. */
+function BrandMark({ brand, size }: { brand: Brand; size: number }) {
+  const [failed, setFailed] = useState(false);
+  const src = brand.logoUrl ? mediaUrl(brand.logoUrl) : "";
+  useEffect(() => setFailed(false), [src]);
+  if (brand.canavo) return <Logo size={size} />;
+  if (src && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        onError={() => setFailed(true)}
+        className="block shrink-0 rounded-[10px] bg-surface object-contain"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  const initials =
+    brand.name
+      .split(/\s+/)
+      .filter((w) => /[\p{L}\p{N}]/u.test(w))
+      .slice(0, 2)
+      .map((w) => [...w.replace(/[^\p{L}\p{N}]/gu, "")][0]?.toUpperCase() ?? "")
+      .join("") || "?";
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center rounded-[10px] bg-primary/15 text-sm font-extrabold text-primary"
+      style={{ width: size, height: size }}
+    >
+      {initials}
+    </span>
   );
 }
 
@@ -391,7 +445,7 @@ function CategoryTabs({ groups, pathname }: { groups: NavGroup[]; pathname: stri
 }
 
 /**
- * Header context: business name + outlet picker. Platform admins have no
+ * Header context: outlet picker (the business name and logo are in the sidebar). Platform admins have no
  * outlets (hotel data is private), so they just see "Platform console".
  */
 function OutletSwitcher({ value, disabled, onChange }: { value: string | null; disabled: boolean; onChange: (v: string) => void }) {
@@ -416,9 +470,8 @@ function OutletSwitcher({ value, disabled, onChange }: { value: string | null; d
     <div className="flex min-w-0 items-center gap-2">
       <Storefront size={22} className="shrink-0 text-muted" />
       <div className="flex min-w-0 flex-col">
-        {me.business && <span className="truncate text-[11px] font-bold uppercase leading-tight tracking-wider text-muted">{me.business.name}</span>}
         {me.outlets.length > 1 ? (
-          <select aria-label="Outlet" value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={clsx(selectCls, me.business && "min-h-[30px] border-0 px-0 focus:ring-0")}>
+          <select aria-label="Outlet" value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={clsx(selectCls, "border-0 px-0 focus:ring-0")}>
             {me.outlets.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}

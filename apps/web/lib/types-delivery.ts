@@ -36,7 +36,7 @@ export interface DeliverySummary {
 }
 
 /** POST /delivery/:id/complete */
-export type DeliveryCompleteResult = Delivery & { cashCollected: number; customerMessage?: { waLink: string; text: string } };
+export type DeliveryCompleteResult = Delivery & { cashCollected: number; customerMessage?: { waLink: string; text: string; autoSent?: boolean } };
 
 export const DELIVERY_ISSUES = ["CUSTOMER_UNREACHABLE", "WRONG_ADDRESS", "CUSTOMER_REFUSED", "VEHICLE_PROBLEM", "OTHER"] as const;
 export type DeliveryIssueReason = (typeof DELIVERY_ISSUES)[number];

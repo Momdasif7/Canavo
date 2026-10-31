@@ -166,7 +166,16 @@ export interface MenuItem {
   taxRate?: TaxRateRef | null;
   hsnCode: string;
   imageUrl: string | null;
+  /** Effective status at this outlet: OUT_OF_STOCK also when an ingredient ran out (see stockOut) */
   status: ItemStatus;
+  /** Status a manager set (outlet override or the item's own) — edit this, never the effective `status` */
+  manualStatus?: ItemStatus;
+  /** Automatically out of stock because an ingredient ran out; comes back when restocked */
+  stockOut?: boolean;
+  /** Ingredient names that ran out, e.g. "Pav buns" */
+  stockOutReason?: string | null;
+  /** Sizes that are out of stock while the others still sell */
+  unavailableVariantIds?: string[];
   hasOverride: boolean;
   allergens: string[];
   availableFrom: string | null;
@@ -344,9 +353,19 @@ export interface PaymentStatusResponse {
   payments: Payment[];
 }
 
-export interface ShareResult {
+export type WhatsAppProvider = "NONE" | "META" | "WATI";
+
+/** Any WhatsApp send: "sent" by the business's provider, or "link" = open waLink (click-to-chat). */
+export interface WhatsAppSendResult {
   method: "sent" | "link";
+  provider?: WhatsAppProvider;
   waLink: string;
+  messageId?: string;
+  /** Provider error when the API send failed and the link is the fallback */
+  error?: string;
+}
+
+export interface ShareResult extends WhatsAppSendResult {
   receiptUrl: string;
 }
 

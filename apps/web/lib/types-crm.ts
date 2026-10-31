@@ -1,6 +1,6 @@
 /** Response shapes for the CRM module (customers, khata, loyalty, offers, coupons). Money is integer paise. */
 import type { LoyaltyTierName, OfferTypeName } from "@canavo/shared";
-import type { OrderStatus, OrderType } from "./types";
+import type { OrderStatus, OrderType, WhatsAppSendResult } from "./types";
 
 export type LoyaltyTxnType = "EARN" | "REDEEM" | "ADJUST" | "EXPIRE" | "REVERSE";
 export type KhataTxnType = "DEBIT" | "CREDIT";
@@ -133,10 +133,7 @@ export interface LoyaltyAdjustResult {
   transaction: LoyaltyTransaction;
 }
 
-export interface KhataRemindResult {
-  /** "sent" via WhatsApp Business API; "link" = open the wa.me link */
-  method: "sent" | "link";
-  waLink: string;
+export interface KhataRemindResult extends WhatsAppSendResult {
   balance: number;
   text: string;
 }

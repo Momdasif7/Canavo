@@ -7,6 +7,7 @@ import { formatINR } from "@canavo/shared";
 import { mediaUrl } from "@/lib/media";
 import type { MenuItem } from "@/lib/types";
 import { FoodMark } from "@/components/ui/FoodMark";
+import { stockOutNote } from "./cart";
 
 export const ItemCard = memo(function ItemCard({
   item,
@@ -25,6 +26,8 @@ export const ItemCard = memo(function ItemCard({
   const [broken, setBroken] = useState(false);
   const photo = showImage && !broken ? mediaUrl(item.imageUrl) : "";
   const outOfStock = item.status !== "AVAILABLE";
+  /** "Pav buns ran out" when an ingredient ran out (automatic, comes back when restocked) */
+  const stockNote = outOfStock ? stockOutNote(item) : null;
   const disabled = outOfStock || outsideWindow;
   const hasOptions = item.variants.length > 0 || item.addons.length > 0;
   const fromPrice = item.variants.length ? Math.min(...item.variants.map((v) => v.price)) : item.price;
@@ -34,6 +37,8 @@ export const ItemCard = memo(function ItemCard({
       type="button"
       onClick={() => onSelect(item)}
       disabled={disabled}
+      title={outOfStock ? `${item.name} — out of stock${stockNote ? ` (${stockNote})` : ""}` : undefined}
+      aria-label={outOfStock ? `${item.name}, out of stock${stockNote ? `, ${stockNote}` : ""}` : undefined}
       data-testid="item-card"
       className={clsx(
         "group relative flex min-h-[108px] w-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-surface p-3 text-left shadow-sm transition",
@@ -79,6 +84,11 @@ export const ItemCard = memo(function ItemCard({
           <Plus size={18} className="ml-auto shrink-0 text-muted group-hover:text-primary" />
         )}
       </div>
+      {stockNote && (
+        <span className="mt-1 line-clamp-2 break-words text-[11px] font-medium leading-tight text-red-700 dark:text-red-300" data-testid="item-stock-note">
+          {stockNote}
+        </span>
+      )}
       {inCart > 0 && (
         <span className="absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-white shadow">
           {inCart}

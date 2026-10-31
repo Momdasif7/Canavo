@@ -75,7 +75,7 @@ export function MenuBrowser({
                 e.stopPropagation();
                 setQuery("");
               }
-              if (e.key === "Enter" && visibleItems[0] && !outside(visibleItems[0])) onSelect(visibleItems[0]);
+              if (e.key === "Enter" && visibleItems[0] && visibleItems[0].status === "AVAILABLE" && !outside(visibleItems[0])) onSelect(visibleItems[0]);
             }}
             placeholder="Search menu…  ( / )"
             aria-label="Search menu"

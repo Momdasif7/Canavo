@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { KHATA_SETTLE_MODES, formatINR, khataSettleSchema, loyaltyAdjustSchema } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { openPendingTab } from "@/lib/download";
+import { handleWhatsAppResult } from "@/lib/whatsapp";
 import { parseRupees, rupeesInput, titleCase } from "@/lib/format";
 import type { KhataRemindResult, KhataSettleResult, LoyaltyAdjustResult } from "@/lib/types-crm";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -244,13 +245,7 @@ export function useKhataReminder() {
       setSending(customer.id);
       try {
         const r = await api.post<KhataRemindResult>(`/customers/${customer.id}/khata/remind`);
-        if (r.method === "link" && r.waLink) {
-          if (!tab.go(r.waLink)) toast("Allow pop-ups to open WhatsApp", "error");
-          else toast("WhatsApp opened with the reminder", "info");
-        } else {
-          tab.cancel();
-          toast(`Reminder sent to ${displayName(customer)} on WhatsApp`, "success");
-        }
+        handleWhatsAppResult(r, tab, toast, { sent: `Sent on WhatsApp — reminder to ${displayName(customer)}`, opened: "WhatsApp opened with the reminder" });
       } catch (e) {
         tab.cancel();
         toast(errorMessage(e), "error");

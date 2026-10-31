@@ -206,7 +206,8 @@ export interface Delivery {
   amountDue?: number;
   amountPaid?: number;
   agentLocation?: AgentLocation | null;
-  customerMessage?: { waLink: string; text: string };
+  /** WhatsApp status update for the customer; autoSent = already sent through the business's provider */
+  customerMessage?: { waLink: string; text: string; autoSent?: boolean };
 }
 
 // ---------- Tables ----------

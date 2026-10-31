@@ -8,6 +8,7 @@ import { openPendingTab } from "@/lib/download";
 import { getPaperWidth, setPaperWidth } from "@/lib/prefs";
 import { printReceiptText } from "@/lib/print";
 import type { ShareResult } from "@/lib/types";
+import { handleWhatsAppResult } from "@/lib/whatsapp";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -86,11 +87,7 @@ export function ReceiptActions({
     setShareBusy(true);
     try {
       const res = await api.post<ShareResult>(`/orders/${orderId}/share/whatsapp`, { phone: parsed.data });
-      if (res.method === "link") tab.go(res.waLink);
-      else {
-        tab.cancel();
-        toast("Receipt sent on WhatsApp", "success");
-      }
+      handleWhatsAppResult(res, tab, toast, { sent: "Sent on WhatsApp" });
     } catch (e) {
       tab.cancel();
       toast(errorMessage(e), "error");

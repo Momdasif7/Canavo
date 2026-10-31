@@ -1,15 +1,16 @@
 "use client";
 
-import { BellRinging, GearSix, Percent, Storefront } from "@phosphor-icons/react";
+import { BellRinging, GearSix, Percent, Storefront, WhatsappLogo } from "@phosphor-icons/react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { TabNav, type TabLink } from "@/components/reports/TabNav";
 
-/** Sub-navigation of the Settings category: outlet profile, GST & taxes, notifications, outlets. */
+/** Sub-navigation of the Settings category: outlet profile, GST & taxes, WhatsApp, notifications, outlets. */
 export function SettingsTabs() {
   const { can } = useSession();
   const tabs: TabLink[] = [];
   if (can("settings:view")) tabs.push({ href: "/settings", label: "Outlet & devices", icon: GearSix });
   if (can("settings:view") && can("settings:billing")) tabs.push({ href: "/settings/taxes", label: "GST & Taxes", icon: Percent });
+  if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo });
   if (can("settings:view")) tabs.push({ href: "/settings/notifications", label: "Notifications", icon: BellRinging });
   if (can("outlet:manage")) tabs.push({ href: "/outlets", label: "Outlets", icon: Storefront });
   if (tabs.length < 2) return null;
