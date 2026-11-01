@@ -49,6 +49,13 @@ export interface CreateOrderOptions {
    * caller to run after its transaction commits, instead of being run here.
    */
   tx?: Prisma.TransactionClient;
+  /**
+   * Server-set base price (paise) per menu item, replacing the menu price. Internal only:
+   * canteen subscriptions bill the plan's meal price upfront and each day's meal at 0.
+   */
+  unitPrices?: Record<string, number>;
+  /** Don't tag a meal slot (a subscription's upfront bill isn't a sale in today's slot) */
+  noMealSlot?: boolean;
 }
 
 const orderInclude = {
@@ -108,7 +115,24 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   });
   const byId = new Map(menuItems.map((m) => [m.id, m]));
   const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
-  const nowMinutes = zonedParts(createdAt, outlet.timezone).minutes;
+  const canteen = moduleEnabled("CANTEEN");
+  // Canteen pre-orders are checked against the serving time they're booked for, not "now".
+  const serveTime = canteen && input.orderType === "PRE_ORDER" && input.scheduledFor ? new Date(input.scheduledFor) : createdAt;
+  const nowMinutes = zonedParts(serveTime, outlet.timezone).minutes;
+
+  // Phase 5 (CANTEEN): tag the bill with its meal slot (chosen for pre-orders, else open at serving time).
+  let mealSlotId: string | null = null;
+  if (canteen && !opts.noMealSlot) {
+    if (input.mealSlotId) {
+      if (!(await prisma.mealSlot.findFirst({ where: { id: input.mealSlotId, outletId }, select: { id: true } }))) throw badRequest("Unknown meal slot");
+      mealSlotId = input.mealSlotId;
+    } else mealSlotId = (await slotAt(outletId, serveTime, outlet.timezone))?.id ?? null;
+  }
+  // Phase 5.3 slot menus: an item on some slots sells only in those slots (at the slot price, if set);
+  // an item on no slot sells all day.
+  const slotRows = canteen
+    ? await prisma.mealSlotItem.findMany({ where: { menuItemId: { in: ids }, slot: { outletId, active: true } }, include: { slot: { select: { name: true } } } })
+    : [];
 
   const autoStock = featureOn("AUTO_STOCK_OUT");
   const lines = input.items.map((line) => {
@@ -128,6 +152,11 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
         if (!inWindow) throw badRequest(`${item.name} is only served ${item.availableFrom}–${item.availableTo}`);
       }
     }
+    const onSlots = slotRows.filter((r) => r.menuItemId === item.id);
+    const slotRow = onSlots.find((r) => r.slotId === mealSlotId);
+    if (checkAvailability && onSlots.length && !slotRow && !opts.unitPrices) {
+      throw badRequest(`${item.name} is only served at ${onSlots.map((r) => r.slot.name).join(", ")}`);
+    }
     const variant = line.variantId ? item.variants.find((v) => v.id === line.variantId) : undefined;
     if (line.variantId && !variant) throw badRequest(`Invalid size for ${item.name}`);
     if (checkAvailability && autoStock && variant && override?.stockOutVariantIds.includes(variant.id)) {
@@ -138,7 +167,8 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       if (!a) throw badRequest(`Invalid add-on for ${item.name}`);
       return a;
     });
-    const basePrice = variant?.price ?? override?.price ?? item.price;
+    // Sizes keep their own price; the slot price replaces the item's (and outlet's) price.
+    const basePrice = opts.unitPrices?.[item.id] ?? variant?.price ?? slotRow?.price ?? override?.price ?? item.price;
     const unitPrice = basePrice + addons.reduce((s, a) => s + a.price, 0);
     const displayName = [item.name, variant && `(${variant.name})`].filter(Boolean).join(" ");
     return { line, item, variant, addons, unitPrice, displayName };
@@ -162,7 +192,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   });
   const service = await prepareServiceContext(req, input, outlet);
   if (input.orderType === "DELIVERY" && !moduleEnabled("DELIVERY")) throw badRequest("Delivery is not enabled for this business");
-  if (input.orderType === "PRE_ORDER" && !moduleEnabled("RESERVATIONS")) throw badRequest("Pre-orders are not enabled for this business");
+  if (input.orderType === "PRE_ORDER" && !moduleEnabled("RESERVATIONS") && !canteen) throw badRequest("Pre-orders are not enabled for this business");
 
   // Tax composition per item: its tax rate → business default → legacy gstRate.
   const taxes = await resolveItemTax(menuItems);
@@ -179,15 +209,6 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   );
 
   const fy = financialYearStart(createdAt, outlet.timezone);
-
-  // Phase 5 (CANTEEN): tag the bill with its meal slot (chosen for pre-orders, else open now).
-  let mealSlotId: string | null = null;
-  if (moduleEnabled("CANTEEN")) {
-    if (input.mealSlotId) {
-      if (!(await prisma.mealSlot.findFirst({ where: { id: input.mealSlotId, outletId }, select: { id: true } }))) throw badRequest("Unknown meal slot");
-      mealSlotId = input.mealSlotId;
-    } else mealSlotId = (await slotAt(outletId, createdAt, outlet.timezone))?.id ?? null;
-  }
 
   // Phase 3.3: a manual discount above the outlet's limit needs a manager (APPROVAL_PINS).
   const manualBill = input.discount ? (input.discount.type === "FLAT" ? input.discount.value : Math.round((bill.subtotal * input.discount.value) / 100)) : 0;

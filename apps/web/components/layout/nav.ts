@@ -26,6 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { Briefcase, IdentificationBadge } from "@phosphor-icons/react";
 import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
+import { ForkKnife, Clock, Repeat } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
 export interface NavItem {
@@ -112,6 +113,18 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/kitchen", label: "Kitchen display", icon: CookingPot, anyOf: ["kot:view"] },
       { href: "/menu", label: "Menu", icon: BookOpenText, anyOf: ["menu:manage"] },
+    ],
+  },
+  {
+    // Phase 5 (CANTEEN): institutional canteens. Corporate accounts / members join this group.
+    id: "canteen",
+    label: "Canteen",
+    icon: ForkKnife,
+    items: [
+      { href: "/canteen/slots", label: "Meal slots", icon: Clock, anyOf: ["canteen:manage"] },
+      { href: "/canteen/preorders", label: "Pre-orders", icon: CalendarPlus, anyOf: ["canteen:manage"] },
+      { href: "/canteen/production", label: "Production plan", icon: ClipboardText, anyOf: ["canteen:manage"] },
+      { href: "/canteen/subscriptions", label: "Meal plans", icon: Repeat, anyOf: ["canteen:manage"] },
     ],
   },
   {

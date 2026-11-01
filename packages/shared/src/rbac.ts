@@ -167,5 +167,5 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "settings:view": "See settings",
   "data:export": "Download all business data",
   "approval:grant": "Approve voids, refunds and discounts with a PIN",
-  "canteen:manage": "Manage canteen (corporate accounts, members, wallets)",
+  "canteen:manage": "Canteen: corporate accounts, members, wallets, meal slots and subscriptions",
 };

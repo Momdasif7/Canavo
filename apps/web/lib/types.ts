@@ -218,6 +218,8 @@ export type RawMenuItem = Omit<MenuItem, "basePrice" | "hasOverride">;
 export interface Menu {
   categories: MenuCategory[];
   items: MenuItem[];
+  /** POS menu with CANTEEN meal slots: the slot open now (null between slots); absent without slots */
+  mealSlot?: { id: string; name: string; startTime: string; endTime: string } | null;
 }
 
 export interface Payment {
