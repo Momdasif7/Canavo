@@ -18,6 +18,8 @@ import type { Response } from "express";
 import archiver from "archiver";
 import { Prisma } from "@prisma/client";
 import { platformPrisma, prisma as tenantPrisma } from "../db";
+import { offsiteStore } from "./backup-store";
+import { reportError } from "../lib/observability";
 
 /** Whole-platform backup/restore crosses every hotel: it runs with RLS bypassed. */
 const prisma = platformPrisma;
@@ -33,6 +35,16 @@ const PAGE = 1000;
 const BACKUP_RE = /^canavo-backup-(auto|manual)-\d{8}-\d{6}\.ndjson\.gz$/;
 
 export const backupsDir = () => storageDir("backups");
+
+/**
+ * BigInt columns (e.g. OutboxEvent.seq) can't go through JSON as numbers: they are
+ * written as {"$bigint":"123"} and turned back into BigInt on restore.
+ */
+export const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint" ? { $bigint: v.toString() } : v);
+export const bigintReviver = (_k: string, v: unknown) =>
+  v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof (v as { $bigint?: unknown }).$bigint === "string"
+    ? BigInt((v as { $bigint: string }).$bigint)
+    : v;
 
 // ---------- Schema introspection ----------
 
@@ -127,7 +139,7 @@ export async function createBackup(kind: "auto" | "manual" = "manual") {
   const out = createWriteStream(full);
   gzip.pipe(out);
   const write = async (obj: unknown) => {
-    if (!gzip.write(JSON.stringify(obj) + "\n")) await once(gzip, "drain");
+    if (!gzip.write(JSON.stringify(obj, bigintReplacer) + "\n")) await once(gzip, "drain");
   };
   const counts: Record<string, number> = {};
   try {
@@ -168,7 +180,21 @@ export async function createBackup(kind: "auto" | "manual" = "manual") {
   const { size } = await stat(full);
   const rows = Object.values(counts).reduce((a, b) => a + b, 0);
   console.info(`[backup] wrote ${file} (${rows} rows, ${size} bytes)`);
-  return { file, size, rows, counts };
+  // Off-site copy (Phase 1.7): a failure is reported but keeps the local backup.
+  const store = offsiteStore();
+  let offsite: string | null = null;
+  if (store) {
+    try {
+      await store.put(file, full);
+      offsite = `${store.location}${file}`;
+      console.info(`[backup] copied off-site to ${offsite}`);
+    } catch (e) {
+      reportError(e, { kind: "backup.offsite", file });
+    }
+  } else if (env.NODE_ENV === "production") {
+    console.warn("[backup] no off-site store configured (BACKUP_S3_BUCKET / BACKUP_OFFSITE_DIR): backups exist on this server's disk only");
+  }
+  return { file, size, rows, counts, offsite };
 }
 
 export async function listBackups() {
@@ -256,7 +282,7 @@ export async function restoreBackup(file: string) {
       };
       for (let n = await iter.next(); !n.done; n = await iter.next()) {
         if (!n.value.trim()) continue;
-        const rec = JSON.parse(n.value) as { m?: string; r?: Row; type?: string; counts?: Record<string, number> };
+        const rec = JSON.parse(n.value, bigintReviver) as { m?: string; r?: Row; type?: string; counts?: Record<string, number> };
         if (rec.type === "end") {
           await flush();
           for (const [name, c] of Object.entries(rec.counts ?? {})) {
@@ -357,7 +383,7 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
         m,
         async (rows) => {
           for (const r of rows) {
-            await w((firstRow ? "" : ",") + JSON.stringify(redact(r)));
+            await w((firstRow ? "" : ",") + JSON.stringify(redact(r), (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
             firstRow = false;
           }
         },

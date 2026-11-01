@@ -45,6 +45,15 @@ const schema = z.object({
   DATA_ENCRYPTION_KEY: z.string().optional(),
   STORAGE_DIR: z.string().optional(),
   BACKUP_RETENTION: optNum(14),
+  // --- Off-site backup copies (Phase 1.7): S3-compatible storage, or a mounted directory ---
+  BACKUP_S3_BUCKET: z.string().optional(),
+  BACKUP_S3_REGION: z.string().default("ap-south-1"),
+  /** Custom endpoint for R2 / Backblaze / MinIO (path-style) */
+  BACKUP_S3_ENDPOINT: z.string().url().optional(),
+  BACKUP_S3_PREFIX: z.string().default("canavo-backups/"),
+  BACKUP_S3_ACCESS_KEY_ID: z.string().optional(),
+  BACKUP_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  BACKUP_OFFSITE_DIR: z.string().optional(),
   // --- Observability ---
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   /** "pretty" = short dev lines (morgan); "json" = structured logs (always JSON in production) */
