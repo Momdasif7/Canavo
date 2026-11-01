@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MODULES } from "./modules";
+import { FEATURE_KEYS, type FeatureKey } from "./features";
 import { indianPhone } from "./schemas";
 
 const moduleList = z.array(z.enum(MODULES)).min(1, "Enable at least one module");
@@ -39,6 +40,8 @@ export const businessUpdateSchema = z.object({
   notes: z.string().max(1000).nullable().optional(),
   modules: moduleList.optional(),
   status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+  /** Feature flags to change (others keep their value) */
+  features: z.record(z.enum(FEATURE_KEYS as [FeatureKey, ...FeatureKey[]]), z.boolean()).optional(),
 });
 
 /**

@@ -1,7 +1,7 @@
 // Background jobs for the inventory module. Register with registerJob(name, everyMs, fn).
 import { prisma } from "./db";
 import { registerJob } from "./jobs";
-import { moduleEnabled, runForOutlet } from "./lib/tenant";
+import { featureOn, moduleEnabled, runForOutlet } from "./lib/tenant";
 import { zonedParts } from "./lib/time";
 import { notify } from "./services/notify";
 import { inventoryRecipients, lowStockItems } from "./services/inventory";
@@ -70,7 +70,7 @@ export async function refreshAllMenuAvailability(opts: { silent?: boolean } = {}
   let changed = 0;
   for (const outlet of outlets) {
     changed += await runForOutlet(outlet.id, async () => {
-      if (!moduleEnabled("INVENTORY")) return 0;
+      if (!featureOn("AUTO_STOCK_OUT")) return 0;
       const c = await refreshMenuAvailability(prisma, outlet.id);
       if (opts.silent) {
         if (c.length) emitToOutlet(outlet.id, "menu:changed", { ids: c.map((x) => x.id), stock: true });

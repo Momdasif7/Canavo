@@ -7,7 +7,7 @@ import { audit } from "../lib/audit";
 import { badRequest, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireAnyModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
-import { requireBusinessId } from "../lib/tenant";
+import { featureOn, requireBusinessId } from "../lib/tenant";
 import { defaultTaxRate, taxRateBrief } from "../services/tax";
 import multer from "multer";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
@@ -63,6 +63,7 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
     }),
   ]);
   const def = taxRateBrief(await defaultTaxRate());
+  const autoStock = featureOn("AUTO_STOCK_OUT");
   res.json({
     categories,
     items: items.map(({ overrides, ...item }) => ({
@@ -72,14 +73,14 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
       basePrice: item.price,
       price: overrides[0]?.price ?? item.price,
       /** Effective status at this outlet: an ingredient that ran out makes an available item OUT_OF_STOCK */
-      status: overrides[0]?.stockOut && (overrides[0]?.status ?? item.status) === "AVAILABLE" ? "OUT_OF_STOCK" : (overrides[0]?.status ?? item.status),
+      status: autoStock && overrides[0]?.stockOut && (overrides[0]?.status ?? item.status) === "AVAILABLE" ? "OUT_OF_STOCK" : (overrides[0]?.status ?? item.status),
       /** The status a manager set (outlet override or the item's own) */
       manualStatus: overrides[0]?.status ?? item.status,
       /** Automatic out-of-stock from inventory (comes back by itself when restocked) */
-      stockOut: overrides[0]?.stockOut ?? false,
-      stockOutReason: overrides[0]?.stockOutReason ?? null,
+      stockOut: autoStock && (overrides[0]?.stockOut ?? false),
+      stockOutReason: autoStock ? (overrides[0]?.stockOutReason ?? null) : null,
       /** Sizes that can't be sold right now (ingredient ran out) */
-      unavailableVariantIds: overrides[0]?.stockOutVariantIds ?? [],
+      unavailableVariantIds: autoStock ? (overrides[0]?.stockOutVariantIds ?? []) : [],
       hasOverride: overrides[0]?.price != null || overrides[0]?.status != null,
     })),
   });
@@ -229,7 +230,7 @@ menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single
     if (!planned.some((r) => r.action !== "error")) throw badRequest("No valid rows to import");
     await applyImport(planned);
     // Imported ingredients may already be out of stock at this outlet
-    announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
+    if (featureOn("AUTO_STOCK_OUT")) announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
     const result = summarize(planned, true);
     await audit(req, "menu.import", "MenuItem", undefined, result.summary);
     emitToOutlet(req.outletId!, "menu:changed", { import: true });

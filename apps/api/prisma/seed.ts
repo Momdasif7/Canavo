@@ -51,7 +51,8 @@ async function seedBase() {
   // The multi-business migration already inserts the demo business and its GST rates; upsert so a fresh DB seeds cleanly.
   await prisma.business.upsert({
     where: { id: businessId },
-    create: { id: businessId, name: "Demo Hotel", ownerName: "Omkar Owner", modules: ALL_MODULES },
+    // The demo hotel shows off flagged features; real hotels start with every flag off.
+    create: { id: businessId, name: "Demo Hotel", ownerName: "Omkar Owner", modules: ALL_MODULES, features: { AUTO_STOCK_OUT: true } },
     update: { ownerName: "Omkar Owner", modules: ALL_MODULES },
   });
   for (const [rate, name] of [[0, "GST 0% (Exempt)"], [5, "GST 5%"], [12, "GST 12%"], [18, "GST 18%"], [28, "GST 28%"]] as const) {

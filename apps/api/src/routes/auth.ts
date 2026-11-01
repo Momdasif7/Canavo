@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import {
+import { FEATURE_KEYS, featureEnabled, normalizeFeatures,
   otpRequestSchema,
   otpVerifySchema,
   passwordLoginSchema,
@@ -150,15 +150,20 @@ authRouter.get("/me", authenticate, async (req, res) => {
   // Which business is this session acting in?
   const businessId = user.businessId ?? null;
   const business = businessId
-    ? await platformPrisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, status: true, modules: true } })
+    ? await platformPrisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, status: true, modules: true, features: true } })
     : null;
   const modules = business ? normalizeModules(business.modules) : null;
+  // Effective flags only (on AND the required modules enabled), so clients can gate UI directly
+  const features = business
+    ? Object.fromEntries(FEATURE_KEYS.filter((k) => featureEnabled(normalizeFeatures(business.features), k, modules)).map((k) => [k, true]))
+    : {};
   const { outlets: _assigned, ...profile } = user;
   res.json({
     ...profile,
     platformAdmin,
-    business: business ? { ...business, modules } : null,
+    business: business ? { id: business.id, name: business.name, status: business.status, modules } : null,
     modules,
+    features,
     outlets,
     permissions: effectivePermissions(user.role, modules),
   });

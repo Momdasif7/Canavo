@@ -2,6 +2,8 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import {
   businessCreateSchema,
+  FEATURES,
+  normalizeFeatures,
   businessUpdateSchema,
   MODULE_INFO,
   normalizeModules,
@@ -16,6 +18,7 @@ import { forceLogout } from "../lib/tokens";
 import { authenticate, requirePlatformAdmin } from "../middleware/auth";
 import { createDefaultTaxRates } from "../services/tax-defaults";
 import { alertModulesChanged } from "../services/alerts";
+import { onFeaturesChanged } from "../services/features";
 
 /**
  * Platform console (CANAVO operator / super admin): onboard client businesses,
@@ -123,7 +126,7 @@ platformRouter.get("/businesses/:id", async (req, res) => {
   });
   if (!business) throw notFound("Business");
   const { users, ...rest } = business;
-  res.json({ ...rest, modules: normalizeModules(business.modules), owners: users });
+  res.json({ ...rest, modules: normalizeModules(business.modules), features: normalizeFeatures(business.features), featureCatalog: FEATURES, owners: users });
 });
 
 platformRouter.patch("/businesses/:id", async (req, res) => {
@@ -131,10 +134,13 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
   const data = parse(businessUpdateSchema, req.body);
   const before = await db.business.findUnique({ where: { id } });
   if (!before) throw notFound("Business");
+  const { features: featureChanges, ...rest } = data;
+  const features = featureChanges ? { ...normalizeFeatures(before.features), ...featureChanges } : undefined;
   const business = await db.business.update({
     where: { id },
-    data: { ...data, ...(data.modules && { modules: normalizeModules(data.modules) }) },
+    data: { ...rest, ...(data.modules && { modules: normalizeModules(data.modules) }), ...(features && { features }) },
   });
+  if (featureChanges) await onFeaturesChanged(id, normalizeFeatures(before.features), features!);
   if (data.modules) {
     void alertModulesChanged(id, normalizeModules(data.modules).map((m) => MODULE_INFO[m].label));
   }
@@ -143,8 +149,8 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
     const users = await db.user.findMany({ where: { businessId: id }, select: { id: true } });
     for (const u of users) await forceLogout(u.id);
   }
-  await audit(req, "platform.business.update", "Business", id, { fields: Object.keys(data), modules: business.modules, status: business.status });
-  res.json({ ...business, modules: normalizeModules(business.modules) });
+  await audit(req, "platform.business.update", "Business", id, { fields: Object.keys(data), modules: business.modules, status: business.status, ...(featureChanges && { features: featureChanges }) });
+  res.json({ ...business, modules: normalizeModules(business.modules), features: normalizeFeatures(business.features) });
 });
 
 /** Add an owner account to a business (owners then create their managers and staff). */

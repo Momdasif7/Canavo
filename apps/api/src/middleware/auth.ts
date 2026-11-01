@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
+import { normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { verifyAccess } from "../lib/tokens";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/http";
@@ -30,15 +30,16 @@ declare global {
 const isPlatformAdmin = (u: AuthUser) => u.role === "SUPER_ADMIN" && !u.businessId;
 
 async function loadBusiness(id: string) {
-  const b = await platformPrisma.business.findUnique({ where: { id }, select: { id: true, status: true, modules: true } });
+  const b = await platformPrisma.business.findUnique({ where: { id }, select: { id: true, status: true, modules: true, features: true } });
   if (!b) throw notFound("Business");
   return b;
 }
 
-function enterBusiness(req: Request, ctx: TenantContext, b: { id: string; status: string; modules: string[] }) {
+function enterBusiness(req: Request, ctx: TenantContext, b: { id: string; status: string; modules: string[]; features: unknown }) {
   if (b.status !== "ACTIVE") throw forbidden("This business account is suspended. Contact your CANAVO administrator.");
   ctx.businessId = b.id;
   ctx.modules = normalizeModules(b.modules);
+  ctx.features = normalizeFeatures(b.features);
   req.businessId = b.id;
 }
 

@@ -16,13 +16,15 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Toggle, Input, Textarea } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessStatusBadge, ModulePicker } from "@/components/platform/modules";
 import { AddOwnerDialog, ResetOwnerPasswordDialog } from "@/components/platform/OwnerDialogs";
 
-type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt">;
+type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt"> & {
+  features?: BusinessDetail["features"];
+};
 
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -77,6 +79,7 @@ export default function BusinessDetailPage() {
       <div className="grid gap-5 xl:grid-cols-[1fr_440px]">
         <div className="space-y-5">
           <ModulesCard business={b} onSaved={applyUpdate} />
+          <FeaturesCard business={b} onSaved={applyUpdate} />
           <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} />
         </div>
         <div className="space-y-5">
@@ -179,6 +182,47 @@ function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved:
           }}
         />
       </div>
+    </Card>
+  );
+}
+
+/** Per-hotel feature flags: new capabilities stay off until switched on here. */
+function FeaturesCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const entries = Object.entries(business.featureCatalog ?? {});
+  if (!entries.length) return null;
+  const flip = async (key: string, on: boolean) => {
+    setBusy(key);
+    try {
+      const updated = await platformApi.patch<BusinessMeta>(`/platform/businesses/${business.id}`, { features: { [key]: on } });
+      onSaved(updated);
+      toast(`${business.featureCatalog[key]!.label} ${on ? "switched on" : "switched off"}`, "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader title="Feature switches" subtitle="New capabilities are off for existing hotels until you switch them on. A switch only works when its modules are enabled." />
+      <ul className="divide-y divide-line">
+        {entries.map(([key, f]) => {
+          const missing = f.requires.filter((m) => !business.modules.includes(m));
+          const on = Boolean(business.features?.[key]);
+          return (
+            <li key={key} className="flex items-start justify-between gap-4 p-5">
+              <div className="min-w-0">
+                <p className="font-semibold">{f.label}</p>
+                <p className="mt-0.5 text-sm text-muted">{f.description}</p>
+                {missing.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Needs the {missing.join(", ")} module — no effect until it's enabled.</p>}
+              </div>
+              <Toggle checked={on} disabled={busy === key} onChange={(v) => void flip(key, v)} label={f.label} />
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }

@@ -30,7 +30,7 @@ import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
-import { requireBusinessId } from "../lib/tenant";
+import { featureOn, requireBusinessId } from "../lib/tenant";
 import {
   alertLowStock,
   applyStockMovement,
@@ -427,7 +427,7 @@ inventoryRouter.put("/recipes/:menuItemId", manage, async (req, res) => {
     await audit(req, "inventory.recipe.replace", "MenuItem", menuItemId, { variantId, lines: merged.size }, tx);
     return tx.recipe.findMany({ where: { menuItemId, variantId }, include: { item: { select: { name: true, unit: true, costPerUnit: true } } } });
   });
-  announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
+  if (featureOn("AUTO_STOCK_OUT")) announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
   res.json({ menuItemId, variantId, lines: recipes, cost: recipeCost(recipes.map((r) => ({ quantity: r.quantity, costPerUnit: r.item.costPerUnit }))) });
 });
 

@@ -73,6 +73,10 @@ export interface BusinessOutlet {
 export interface BusinessDetail extends BusinessBase {
   outlets: BusinessOutlet[];
   owners: BusinessOwner[];
+  /** Per-hotel feature flags that are on */
+  features: Partial<Record<string, boolean>>;
+  /** Every flag the platform offers: label, description, required modules */
+  featureCatalog: Record<string, { label: string; description: string; requires: ModuleKey[] }>;
 }
 
 /** POST /platform/businesses response */

@@ -1196,6 +1196,8 @@ model Business {
   status         BusinessStatus  @default(ACTIVE)
   /// Enabled feature modules (see MODULES in @canavo/shared)
   modules        String[]
+  /// Per-hotel feature flags { FLAG: true } (see FEATURES in @canavo/shared); absent = off
+  features       Json            @default("{}")
   notes          String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
