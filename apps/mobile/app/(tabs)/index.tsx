@@ -9,6 +9,7 @@ import { DeliveryHome } from "../../src/delivery/DeliveryHome";
 import { useSignedIn } from "../../src/auth/AuthContext";
 import { BusinessBrandRow } from "../../src/components/BusinessBrand";
 import { PinPad } from "../../src/components/PinPad";
+import { SelfieCapture } from "../../src/attendance/SelfieCapture";
 import { Screen } from "../../src/components/Screen";
 import { AppText, Button, Card, Kpi, Notice, Row } from "../../src/components/ui";
 import { endpoints } from "../../src/lib/api";
@@ -286,6 +287,7 @@ function StaffHome() {
         onSubmit={c.submitPin}
         onClose={c.cancelPin}
       />
+      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
     </Screen>
   );
 }

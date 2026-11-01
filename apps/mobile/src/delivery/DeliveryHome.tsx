@@ -7,6 +7,7 @@ import { useClock } from "../attendance/useClock";
 import { useSignedIn } from "../auth/AuthContext";
 import { BusinessBrandRow } from "../components/BusinessBrand";
 import { PinPad } from "../components/PinPad";
+import { SelfieCapture } from "../attendance/SelfieCapture";
 import { Screen } from "../components/Screen";
 import { AppText, Button, Card, Loading, Notice, Row, Segmented } from "../components/ui";
 import { endpoints, errorMessage } from "../lib/api";
@@ -297,6 +298,7 @@ export function DeliveryHome() {
         onSubmit={c.submitPin}
         onClose={c.cancelPin}
       />
+      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
     </Screen>
   );
 }

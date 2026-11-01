@@ -449,6 +449,12 @@ export interface AttendanceRecord {
   clockInAt: string;
   clockOutAt: string | null;
   clockInDistance: number;
+  /** GPS accuracy (m) at clock-in */
+  clockInAccuracy?: number | null;
+  clockInMocked?: boolean;
+  clockInSelfieUrl?: string | null;
+  /** MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY — for the manager to review */
+  clockInFlags?: string[];
   workedMinutes: number | null;
   overtimeMinutes: number;
   lateByMinutes: number;

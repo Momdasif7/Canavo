@@ -19,6 +19,16 @@ export const FEATURES = {
     description: "Menu items (or sizes) whose ingredient stock can't cover one portion become unavailable on the POS, and come back when restocked.",
     requires: ["INVENTORY"],
   },
+  STRICT_CLOCK_IN: {
+    label: "Strict clock-in location",
+    description: "Refuse clock-ins from fake (mock) GPS locations and from weak GPS fixes, instead of widening the outlet's allowed distance by the phone's GPS error.",
+    requires: ["ATTENDANCE"],
+  },
+  CLOCK_IN_SELFIE: {
+    label: "Selfie at clock-in",
+    description: "Staff take a selfie when they clock in on the app. Managers can see it with the attendance record. (No face matching.)",
+    requires: ["ATTENDANCE"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",

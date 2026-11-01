@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowCounterClockwise, CheckCircle, FloppyDisk, LockSimple, MapPin, PencilSimple, Plus, UserCheck } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Camera, CheckCircle, FloppyDisk, LockSimple, MapPin, PencilSimple, Plus, UserCheck, WarningCircle } from "@phosphor-icons/react";
 import { ROLE_LABELS } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { addDaysISO, todayISO } from "@/lib/dates";
@@ -18,6 +18,10 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { AddAttendanceDialog } from "./AddAttendanceDialog";
 import { DEFAULT_SHIFT, STATUS_META, STATUS_ORDER, StatusPicker, TimeField, needsTimes, toHHMM } from "./shared";
+import { mediaUrl } from "@/lib/media";
+
+/** Clock-in evidence the manager should look at (Phase 2.6). */
+const CLOCK_FLAG_LABELS: Record<string, string> = { MOCK_LOCATION: "Fake GPS", LOW_ACCURACY: "Weak GPS", NO_ACCURACY: "GPS accuracy unknown" };
 
 interface Draft {
   status: AttendanceStatus | null;
@@ -407,6 +411,21 @@ function RegisterRowItem({
                     <PencilSimple size={12} weight="bold" />
                     Edited by {r.markedBy?.name ?? "manager"}
                   </Badge>
+                )}
+                {(r.clockInFlags ?? []).map((f) => (
+                  <Badge key={f} tone={f === "MOCK_LOCATION" ? "danger" : "warning"}>
+                    <WarningCircle size={12} weight="bold" />
+                    {CLOCK_FLAG_LABELS[f] ?? f}
+                    {f === "LOW_ACCURACY" && r.clockInAccuracy != null && ` (±${r.clockInAccuracy} m)`}
+                  </Badge>
+                ))}
+                {r.clockInSelfieUrl && (
+                  <a href={mediaUrl(r.clockInSelfieUrl)} target="_blank" rel="noreferrer" className="inline-flex">
+                    <Badge tone="neutral">
+                      <Camera size={12} weight="bold" />
+                      Selfie
+                    </Badge>
+                  </a>
                 )}
               </span>
             ) : (

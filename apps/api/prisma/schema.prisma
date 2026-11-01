@@ -95,6 +95,9 @@ model User {
   tokenVersion          Int         @default(0)
   failedLogins          Int         @default(0)
   lockedUntil           DateTime?
+  /// Clock-in PIN lockout (Phase 2.6): 5 wrong PINs lock clock-in for 15 minutes
+  pinFailedAttempts     Int         @default(0)
+  pinLockedUntil        DateTime?
   /// AES-256-GCM encrypted full Aadhaar number (only when the hotel keeps full numbers: aadhaarMode FULL)
   aadhaarEnc            String?
   /// Last 4 digits of the Aadhaar (Phase 2.5: the default; enough to identify a staff record)
@@ -222,32 +225,40 @@ enum AttendanceStatus {
 }
 
 model StaffAttendance {
-  id              String           @id @default(cuid())
-  userId          String
-  outletId        String
+  id               String           @id @default(cuid())
+  userId           String
+  outletId         String
   /// Local calendar date (YYYY-MM-DD) in outlet timezone
-  workDate        String
-  clockInAt       DateTime
-  clockOutAt      DateTime?
-  clockInLat      Float?
-  clockInLng      Float?
-  clockInDistance Int
-  clockOutLat     Float?
-  clockOutLng     Float?
-  workedMinutes   Int?
-  overtimeMinutes Int              @default(0)
-  lateByMinutes   Int              @default(0)
-  earlyByMinutes  Int              @default(0)
-  status          AttendanceStatus @default(PRESENT)
+  workDate         String
+  clockInAt        DateTime
+  clockOutAt       DateTime?
+  clockInLat       Float?
+  clockInLng       Float?
+  clockInDistance  Int
+  /// GPS accuracy (m) reported by the phone at clock-in
+  clockInAccuracy  Int?
+  /// The phone reported a fake (mock) location at clock-in
+  clockInMocked    Boolean          @default(false)
+  /// Selfie taken at clock-in (feature CLOCK_IN_SELFIE); stored for the manager to review, no face matching
+  clockInSelfieUrl String?
+  /// Things the manager should look at: MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY
+  clockInFlags     String[]         @default([])
+  clockOutLat      Float?
+  clockOutLng      Float?
+  workedMinutes    Int?
+  overtimeMinutes  Int              @default(0)
+  lateByMinutes    Int              @default(0)
+  earlyByMinutes   Int              @default(0)
+  status           AttendanceStatus @default(PRESENT)
   /// SELF = clocked in by the employee (GPS); MANUAL = added / corrected by a manager or owner
-  source          String           @default("SELF")
-  note            String?
+  source           String           @default("SELF")
+  note             String?
   /// Manager / owner who added or last edited this record
-  markedById      String?
-  editedAt        DateTime?
-  createdAt       DateTime         @default(now())
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  outlet          Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  markedById       String?
+  editedAt         DateTime?
+  createdAt        DateTime         @default(now())
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outlet           Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@index([userId, workDate])
   @@index([outletId, workDate])

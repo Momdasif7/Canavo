@@ -225,6 +225,32 @@ class ApiClient {
     return h;
   }
 
+  /** Upload a photo from the device (multipart field "file"); returns its URL. */
+  async uploadImage(uri: string, name = "photo.jpg", type = "image/jpeg"): Promise<string> {
+    const token = await this.freshAccessToken();
+    const form = new FormData();
+    // React Native's FormData takes { uri, name, type } for local files.
+    form.append("file", { uri, name, type } as unknown as Blob);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
+    let res: Response;
+    try {
+      res = await fetch(this.buildUrl("/uploads/image"), {
+        method: "POST",
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}`, ...(this.outletId && { "X-Outlet-Id": this.outletId }) },
+        body: form,
+        signal: controller.signal,
+      });
+    } catch {
+      throw new ApiError("Couldn't upload the photo. Check your connection.", 0);
+    } finally {
+      clearTimeout(timer);
+    }
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !data.url) throw new ApiError(data.error ?? `Upload failed (${res.status})`, res.status);
+    return data.url;
+  }
+
   /** One HTTP round-trip with no auth recovery. */
   private async raw<T>(method: Method, path: string, opts: RequestOptions, token: string | null = null): Promise<T> {
     const controller = new AbortController();
@@ -329,6 +355,10 @@ export interface ClockInput {
   accuracy?: number;
   pin?: string;
   outletId?: string;
+  /** The phone reports the location as fake (Android mock location) */
+  mocked?: boolean;
+  /** Selfie uploaded just before clocking in (when the hotel requires it) */
+  selfieUrl?: string;
 }
 
 export const endpoints = {

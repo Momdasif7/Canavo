@@ -95,6 +95,10 @@ export const clockSchema = z.object({
   accuracy: z.number().nonnegative().optional(),
   pin: z.string().regex(/^\d{4,6}$/).optional(),
   outletId: z.string().optional(),
+  /** The phone says the location is fake (Android "mock location" apps) */
+  mocked: z.boolean().optional(),
+  /** Selfie uploaded via POST /uploads/image just before clocking in (feature CLOCK_IN_SELFIE) */
+  selfieUrl: z.string().url().max(500).optional(),
 });
 
 /** Manager / owner attendance entry for one employee on one day. Times are HH:MM in outlet time. */
