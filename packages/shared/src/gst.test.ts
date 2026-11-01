@@ -277,3 +277,28 @@ describe("computeBill — custom tax compositions", () => {
     expect(r.otherTaxes).toBe(4850);
   });
 });
+
+describe("flat discounts and GST (D1, Phase 3.6)", () => {
+  const cfg: TaxConfig = { pricesIncludeTax: false, interState: false, compositionScheme: false, serviceChargeEnabled: false, serviceChargePercent: 0, roundOff: false };
+  const lines = [{ unitPrice: 20000, quantity: 1, tax: { cgst: 2.5, sgst: 2.5, igst: 5 } }];
+
+  it("default (pre-tax): ₹50 off takes ₹50 off the taxable value, saving ₹52.50 incl. GST", () => {
+    const full = computeBill(lines, cfg);
+    const b = computeBill(lines, cfg, { type: "FLAT", value: 5000 });
+    expect(b.taxableValue).toBe(15000);
+    expect(full.grandTotal - b.grandTotal).toBe(5250);
+  });
+
+  it("GST-inclusive: ₹50 off takes exactly ₹50 off the total", () => {
+    const full = computeBill(lines, cfg);
+    const b = computeBill(lines, { ...cfg, flatDiscountsIncludeTax: true }, { type: "FLAT", value: 5000 });
+    expect(full.grandTotal - b.grandTotal).toBe(5000);
+  });
+
+  it("percent discounts are the same either way, and bills without GST ignore the option", () => {
+    const pct = { type: "PERCENT" as const, value: 10 };
+    expect(computeBill(lines, { ...cfg, flatDiscountsIncludeTax: true }, pct).grandTotal).toBe(computeBill(lines, cfg, pct).grandTotal);
+    const noGst = { ...cfg, taxEnabled: false };
+    expect(computeBill(lines, { ...noGst, flatDiscountsIncludeTax: true }, { type: "FLAT", value: 5000 }).grandTotal).toBe(15000);
+  });
+});

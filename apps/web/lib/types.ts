@@ -136,6 +136,8 @@ export interface Outlet {
   geofenceMeters: number;
   timezone: string;
   invoicePrefix: string;
+  /** D1 (Phase 3.6): flat ₹ discounts are GST-inclusive (default: pre-tax) */
+  flatDiscountsIncludeTax?: boolean;
   /** Phase 3.3: manual discount above this % needs a manager PIN (APPROVAL_PINS) */
   approvalDiscountPercent?: number;
   pricesIncludeTax: boolean;

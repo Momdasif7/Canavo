@@ -11,6 +11,9 @@ beforeAll(async () => {
   srv = await startServer();
   h = await createHotel("Money", { gst: true });
   await db.user.update({ where: { id: h.users.manager.id }, data: { pinHash: await bcrypt.hash("2468", 4) } });
+  // Real 5% GST on the food, so tax reversal is actually exercised.
+  const gst5 = await db.taxRate.findFirstOrThrow({ where: { businessId: h.businessId, cgst: 2.5, sgst: 2.5 } });
+  await db.menuItem.updateMany({ where: { id: { in: Object.values(h.items) } }, data: { taxRateId: gst5.id } });
   cashier = await login(srv.base, h.users.cashier.email, h.outletId);
   manager = await login(srv.base, h.users.manager.email, h.outletId);
 });
@@ -36,6 +39,7 @@ describe("credit notes (refunds)", () => {
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     expect(r.body.number).toMatch(/^CNINV-\d{4}-00001$/);
     expect(r.body.amount).toBe(Math.round(samosa.total / 4));
+    expect(samosa.cgst).toBeGreaterThan(0);
     expect(r.body.cgst).toBe(Math.round(samosa.cgst / 4));
     // Can't refund more than was sold.
     expect((await manager.call("POST", `/orders/${bill.id}/refunds`, { reason: "QUALITY", refundMode: "CASH", items: [{ orderItemId: samosa.id, quantity: 4 }] })).status).toBe(400);
@@ -58,6 +62,7 @@ describe("credit notes (refunds)", () => {
     expect((await manager.call("POST", `/orders/${bill.id}/refunds`, { reason: "OVERCHARGED", refundMode: "CASH", amount: bill.grandTotal + 1 })).status).toBe(400);
     const v = await manager.call("POST", `/orders/${bill.id}/refunds`, { reason: "OVERCHARGED", refundMode: "CASH", amount: 2000 });
     expect(v.body.amount).toBe(2000);
+    expect(v.body.cgst).toBeGreaterThan(0);
     expect(v.body.taxableValue + v.body.cgst + v.body.sgst + v.body.igst).toBe(2000);
     const open = await manager.call("POST", "/orders", { orderType: "TAKEAWAY", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
     expect((await manager.call("POST", `/orders/${open.body.id}/refunds`, { reason: "OTHER", note: "test", refundMode: "CASH", amount: 100 })).status).toBe(409);

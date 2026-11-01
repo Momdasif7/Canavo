@@ -57,6 +57,8 @@ export const outletSchema = z.object({
   gstEnabled: z.boolean().default(true),
   /** Registered legal name printed on tax invoices; empty clears it */
   legalName: z.string().trim().max(200).nullable().optional(),
+  /** D1: flat ₹ discounts (coupons, flat offers, points, manual flat) are GST-inclusive */
+  flatDiscountsIncludeTax: z.boolean().optional(),
   /** Manual discount above this % of the bill needs a manager PIN (APPROVAL_PINS); owner only */
   approvalDiscountPercent: z.number().int().min(0).max(100).optional(),
 });

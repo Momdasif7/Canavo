@@ -18,7 +18,7 @@ import { Input, Select, Toggle } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { FoodMark } from "@/components/ui/FoodMark";
 import { Table, THead, Th, Td, Tr } from "@/components/ui/Table";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
+import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { CategoryManager } from "@/components/menu/CategoryManager";
 import { ItemForm } from "@/components/menu/ItemForm";
 import { ImportDialog } from "@/components/menu/ImportDialog";
@@ -34,6 +34,10 @@ export default function MenuPage() {
   const { outletId } = useSession();
   const toast = useToast();
   const menu = useApiQuery<Menu>(outletId ? `menu-admin:${outletId}` : null, () => api.get<Menu>("/menu"));
+  // 0% GST safeguard (Phase 3.6)
+  const taxCheck = useApiQuery<{ applies: boolean; zeroRated: { id: string; name: string }[] }>(outletId ? `menu-tax-check:${outletId}:${menu.data?.items.length ?? 0}` : null, () =>
+    api.get("/menu/tax-check"),
+  );
   const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter | "">("");
@@ -108,6 +112,15 @@ export default function MenuPage() {
           </>
         }
       />
+      {(taxCheck.data?.zeroRated.length ?? 0) > 0 && (
+        <div className="mb-4">
+          <Alert tone="warning">
+            <b>{taxCheck.data!.zeroRated.length} item{taxCheck.data!.zeroRated.length === 1 ? " is" : "s are"} billed at 0% GST</b> though this outlet is GST-registered:{" "}
+            {taxCheck.data!.zeroRated.slice(0, 8).map((i) => i.name).join(", ")}
+            {taxCheck.data!.zeroRated.length > 8 ? "…" : ""}. Set the right tax rate unless they are really exempt.
+          </Alert>
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
         <div>
           <CategoryManager categories={categories} items={menu.data?.items ?? []} selected={category} onSelect={setCategory} onChanged={menu.reload} />

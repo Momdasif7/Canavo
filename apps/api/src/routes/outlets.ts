@@ -11,7 +11,7 @@ export const outletsRouter = Router();
 outletsRouter.use(authenticate);
 
 /** Fields that change how bills are taxed/numbered: need settings:billing. */
-const BILLING_FIELDS = ["gstEnabled", "invoicePrefix", "compositionScheme", "pricesIncludeTax"] as const;
+const BILLING_FIELDS = ["gstEnabled", "invoicePrefix", "compositionScheme", "pricesIncludeTax", "flatDiscountsIncludeTax"] as const;
 
 /**
  * Cross-field GST rules on the resulting outlet state. Composition is a

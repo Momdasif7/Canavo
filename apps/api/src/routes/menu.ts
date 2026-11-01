@@ -1,14 +1,14 @@
 import express, { Router } from "express";
 import { z } from "zod";
 import type { TaxRate } from "@prisma/client";
-import { categorySchema, effectiveGstRate, menuItemSchema, roundRate, taxFromRate, toPaise } from "@canavo/shared";
+import { categorySchema, totalTaxPercent, effectiveGstRate, menuItemSchema, roundRate, taxFromRate, toPaise } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireAnyModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { featureOn, requireBusinessId } from "../lib/tenant";
-import { defaultTaxRate, taxRateBrief } from "../services/tax";
+import { defaultTaxRate, resolveItemTax, taxRateBrief } from "../services/tax";
 import multer from "multer";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 import { applyImport, buildTemplate, parseSheet, planImport, summarize } from "../services/menu-import";
@@ -54,6 +54,20 @@ async function resolveTaxFields(data: { taxRateId?: string | null; gstRate?: num
 }
 
 /** Full menu for the active outlet with outlet overrides applied. */
+/**
+ * 0% GST safeguard (Phase 3.6): on a GST-registered outlet, list menu items whose tax
+ * works out to 0%. New items default to 0% (owner request 2026-10-31), so this catches
+ * items nobody set a rate for. Only food that is really exempt should stay at 0%.
+ */
+menuRouter.get("/tax-check", requirePermission("menu:view"), async (req, res) => {
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { gstEnabled: true, compositionScheme: true } });
+  if (!outlet.gstEnabled || outlet.compositionScheme) return res.json({ applies: false, zeroRated: [] });
+  const items = await prisma.menuItem.findMany({ where: {}, select: { id: true, name: true, taxRateId: true, gstRate: true } });
+  const taxes = await resolveItemTax(items, requireBusinessId());
+  const zeroRated = items.filter((i) => totalTaxPercent(taxes.get(i.id)!, false) === 0).map((i) => ({ id: i.id, name: i.name }));
+  res.json({ applies: true, zeroRated });
+});
+
 menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
   const [categories, items] = await Promise.all([
     prisma.menuCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),

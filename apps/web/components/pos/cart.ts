@@ -275,6 +275,7 @@ export function taxConfig(outlet: Outlet | null, orderType: OrderType): TaxConfi
     serviceChargePercent: base.serviceChargePercent,
     roundOff: base.roundOff,
     interState: false,
+    flatDiscountsIncludeTax: outlet?.flatDiscountsIncludeTax ?? false,
   };
 }
 

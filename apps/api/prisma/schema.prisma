@@ -72,6 +72,8 @@ model Outlet {
   itemOverrides           OutletItemOverride[]
   shifts                  Shift[]
   business                Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// D1 (Phase 3.6): flat ₹ discounts are GST-inclusive (false = pre-tax, the default)
+  flatDiscountsIncludeTax Boolean              @default(false)
   /// Phase 3.3 (APPROVAL_PINS): a manual discount above this % of the bill needs a manager PIN
   approvalDiscountPercent Int                  @default(10)
   approvals               ApprovalLog[]
