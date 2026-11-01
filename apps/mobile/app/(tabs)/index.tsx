@@ -111,7 +111,7 @@ function StaffHome() {
           {/* Hotel logo + name (initials when there's no logo); platform admins keep CANAVO. */}
           <BusinessBrandRow />
           <AppText variant="small">
-            {me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role]}
+            {me.platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : (me.customRole?.name ?? ROLE_LABELS[me.role])}
             {outlet ? ` · ${outlet.name}` : ""}
           </AppText>
         </View>

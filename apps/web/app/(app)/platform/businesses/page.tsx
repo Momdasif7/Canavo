@@ -6,6 +6,8 @@ import { MagnifyingGlass, Plus } from "@phosphor-icons/react";
 import { platformApi } from "@/lib/platform";
 import type { BusinessListItem } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { useDebouncedValue } from "@/hooks/useDebounced";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -17,6 +19,7 @@ import { BusinessTable } from "@/components/platform/BusinessTable";
 type StatusFilter = "ALL" | "ACTIVE" | "SUSPENDED";
 
 export default function BusinessesPage() {
+  const { me } = useSession();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const q = useDebouncedValue(search.trim(), 300);
@@ -29,9 +32,11 @@ export default function BusinessesPage() {
         title="Businesses"
         subtitle={list.data ? `${list.data.length} client business${list.data.length === 1 ? "" : "es"}` : undefined}
         actions={
-          <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
-            <Plus size={20} /> New business
-          </Link>
+          canManagePlatform(me) ? (
+            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
+              <Plus size={20} /> New business
+            </Link>
+          ) : undefined
         }
       />
       <Card>

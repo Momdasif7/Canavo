@@ -71,7 +71,7 @@ export function permissionEnabled(permission: Permission, modules: readonly stri
   return !m || modules.includes(m);
 }
 
-/** Effective permissions = role permissions ∩ enabled modules. */
-export function effectivePermissions(role: Role, modules: readonly string[] | null): Permission[] {
-  return PERMISSIONS.filter((p) => ROLE_PERMISSIONS[role].includes(p) && permissionEnabled(p, modules));
+/** Effective permissions = role permissions ∩ custom role (if any) ∩ enabled modules. */
+export function effectivePermissions(role: Role, modules: readonly string[] | null, custom?: readonly string[] | null): Permission[] {
+  return PERMISSIONS.filter((p) => ROLE_PERMISSIONS[role].includes(p) && (!custom || custom.includes(p)) && permissionEnabled(p, modules));
 }

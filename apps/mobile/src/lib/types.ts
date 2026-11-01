@@ -72,6 +72,10 @@ export interface Me {
   shift: Shift | null;
   /** Platform super admin (no business of their own); manages businesses on the web console */
   platformAdmin?: boolean;
+  /** Platform support users can only look (Phase 4.2) */
+  platformRole?: "SUPER_ADMIN" | "PLATFORM_SUPPORT" | null;
+  /** The business's custom role this user has, if any (narrows `role`) */
+  customRole?: { id: string; name: string; baseRole: Role } | null;
   /** Business the session is acting in; null for platform admins until an outlet is chosen */
   business?: BusinessRef | null;
   /** Enabled modules of that business; null = platform context (everything) */

@@ -14,7 +14,7 @@ import { platformPrisma as db } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
 import { forceLogout } from "../lib/tokens";
-import { authenticate, requirePlatformAdmin } from "../middleware/auth";
+import { authenticate, requirePlatformUser } from "../middleware/auth";
 import { createDefaultTaxRates } from "../services/tax-defaults";
 import { alertModulesChanged } from "../services/alerts";
 import { onFeaturesChanged } from "../services/features";
@@ -27,9 +27,10 @@ import { disableTwoFactor } from "../services/two-factor";
  * Privacy: only account information leaves these routes — never a hotel's
  * sales, bills, staff, customers or reports. Owners create their own staff.
  * Uses the unfiltered client and always names the business explicitly.
+ * Platform support users (Phase 4.2) may read every route here; writes are super admin only.
  */
 export const platformRouter = Router();
-platformRouter.use(authenticate, requirePlatformAdmin);
+platformRouter.use(authenticate, requirePlatformUser);
 
 const userFields = {
   id: true,
@@ -216,17 +217,18 @@ platformRouter.get("/support-grants", async (_req, res) => {
   res.json(grants.map((g) => ({ id: g.id, business: g.business, reason: g.reason, expiresAt: g.expiresAt, createdAt: g.createdAt, grantedBy: ownerName.get(g.grantedById) ?? null })));
 });
 
+/** Platform accounts: super admins and platform support users. */
 platformRouter.get("/admins", async (_req, res) => {
-  res.json(await db.user.findMany({ where: { role: "SUPER_ADMIN", businessId: null }, select: userFields, orderBy: { name: "asc" } }));
+  res.json(await db.user.findMany({ where: { role: { in: ["SUPER_ADMIN", "PLATFORM_SUPPORT"] }, businessId: null }, select: userFields, orderBy: { name: "asc" } }));
 });
 
 platformRouter.post("/admins", async (req, res) => {
   const data = parse(platformAdminCreateSchema, req.body);
   await assertLoginFree(data.phone, data.email);
   const user = await db.user.create({
-    data: { role: "SUPER_ADMIN", name: data.name, phone: data.phone, email: data.email, passwordHash: await bcrypt.hash(data.password, 10) },
+    data: { role: data.role, name: data.name, phone: data.phone, email: data.email, passwordHash: await bcrypt.hash(data.password, 10) },
     select: userFields,
   });
-  await audit(req, "platform.admin.create", "User", user.id);
+  await audit(req, "platform.admin.create", "User", user.id, { role: data.role });
   res.status(201).json(user);
 });

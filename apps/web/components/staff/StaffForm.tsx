@@ -5,7 +5,7 @@ import { ROLE_LABELS, staffCreateSchema, staffUpdateSchema, type Role } from "@c
 import { assignableRoles, businessOutlets, canManageRole, isBusinessWideRole } from "@/lib/roles";
 import { api, errorMessage } from "@/lib/api";
 import { parseRupees, rupeesInput } from "@/lib/format";
-import type { SalaryType, Shift, Staff } from "@/lib/types";
+import type { CustomRole, SalaryType, Shift, Staff } from "@/lib/types";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Dialog } from "@/components/ui/Dialog";
@@ -19,6 +19,8 @@ interface FormState {
   phone: string;
   email: string;
   role: Role;
+  /** "" = the standard built-in role */
+  customRoleId: string;
   outletIds: string[];
   shiftId: string;
   salaryType: SalaryType;
@@ -31,11 +33,13 @@ interface FormState {
 export function StaffForm({
   staff,
   shifts,
+  customRoles = [],
   onClose,
   onSaved,
 }: {
   staff: Staff | null | undefined;
   shifts: Shift[];
+  customRoles?: CustomRole[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -56,6 +60,7 @@ export function StaffForm({
             phone: staff.phone,
             email: staff.email ?? "",
             role: staff.role,
+            customRoleId: staff.customRoleId ?? "",
             outletIds: staff.outlets.map((o) => o.outletId),
             shiftId: staff.shiftId ?? "",
             salaryType: staff.salaryType,
@@ -68,6 +73,7 @@ export function StaffForm({
             phone: "",
             email: "",
             role: "CASHIER",
+            customRoleId: "",
             outletIds: outletId ? [outletId] : [],
             shiftId: "",
             salaryType: "MONTHLY",
@@ -87,6 +93,8 @@ export function StaffForm({
   const roles = staff && !assignable.includes(staff.role) ? [staff.role, ...assignable] : assignable;
   const outlets = businessOutlets(me);
   const wide = isBusinessWideRole(form.role);
+  // Custom roles built on the chosen role (they can only narrow it).
+  const roleOptions = customRoles.filter((r) => r.baseRole === form.role);
 
   const save = async () => {
     if (readOnly) return;
@@ -95,6 +103,8 @@ export function StaffForm({
       phone: form.phone.trim(),
       email: form.email.trim() || undefined,
       role: form.role,
+      // Only send it when there's something to say (keeps old payloads unchanged).
+      ...(form.customRoleId || staff?.customRoleId ? { customRoleId: form.customRoleId || null } : {}),
       outletIds: form.outletIds,
       shiftId: form.shiftId || undefined,
       salaryType: form.salaryType,
@@ -161,13 +171,23 @@ export function StaffForm({
             onChange={(e) => set("phone", e.target.value.replace(/\D/g, ""))}
           />
           <Input label="Email (for password login)" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
-          <Select label="Role" value={form.role} onChange={(e) => set("role", e.target.value as Role)}>
+          <Select label="Role" value={form.role} onChange={(e) => setForm((f) => (f ? { ...f, role: e.target.value as Role, customRoleId: "" } : f))}>
             {roles.map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABELS[r]}
               </option>
             ))}
           </Select>
+          {roleOptions.length > 0 && (
+            <Select label="Custom role" hint="Limits what this role can do; never adds to it." value={form.customRoleId} onChange={(e) => set("customRoleId", e.target.value)}>
+              <option value="">Standard {ROLE_LABELS[form.role]}</option>
+              {roleOptions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          )}
         </div>
 
         <fieldset>

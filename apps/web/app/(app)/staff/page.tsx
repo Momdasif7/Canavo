@@ -6,7 +6,7 @@ import { ROLE_LABELS, formatINR } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import { formatMinutes } from "@/lib/format";
-import type { Shift, Staff, StaffPerformance, StaffStatus } from "@/lib/types";
+import type { CustomRole, Shift, Staff, StaffPerformance, StaffStatus } from "@/lib/types";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -19,6 +19,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Table, THead, Th, Td, Tr } from "@/components/ui/Table";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { StaffForm } from "@/components/staff/StaffForm";
+import { CustomRolesCard } from "@/components/staff/CustomRoles";
 import { Badge } from "@/components/ui/Badge";
 import { canManageRole, isBusinessWideRole } from "@/lib/roles";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -37,6 +38,10 @@ export default function StaffPage() {
     api.get<Staff[]>("/staff", { query: { scope: effectiveScope === "business" ? "business" : undefined } }),
   );
   const outletName = useMemo(() => new Map((me?.outlets ?? []).map((o) => [o.id, o.name])), [me?.outlets]);
+  // Custom roles (Phase 4.2): owners edit them; managers pick from them when adding staff.
+  const ownsRoles = can("outlet:manage");
+  const customRoles = useApiQuery<CustomRole[]>(outletId && manage ? `custom-roles:${outletId}` : null, () => api.get<CustomRole[]>("/staff/roles"));
+  const customRoleName = useMemo(() => new Map((customRoles.data ?? []).map((r) => [r.id, r.name])), [customRoles.data]);
   const shifts = useApiQuery<Shift[]>(outletId ? `shifts:${outletId}` : null, () => api.get<Shift[]>("/outlets/current/shifts"));
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Staff | null | undefined>(null);
@@ -116,7 +121,7 @@ export default function StaffPage() {
                       </p>
                     </Td>
                     <Td>
-                      {isBusinessWideRole(s.role) ? <Badge tone="primary">{ROLE_LABELS[s.role]}</Badge> : ROLE_LABELS[s.role]}
+                      {isBusinessWideRole(s.role) ? <Badge tone="primary">{ROLE_LABELS[s.role]}</Badge> : (s.customRoleId && customRoleName.get(s.customRoleId)) || ROLE_LABELS[s.role]}
                       {s.totpEnabledAt && (
                         <Badge tone="info" className="ml-1">
                           2-step
@@ -175,7 +180,9 @@ export default function StaffPage() {
         )}
       </Card>
 
-      <StaffForm staff={editing} shifts={shifts.data ?? []} onClose={() => setEditing(null)} onSaved={staff.reload} />
+      {ownsRoles && <CustomRolesCard roles={customRoles.data} loading={customRoles.loading} error={customRoles.error} onReload={() => void customRoles.reload()} />}
+
+      <StaffForm staff={editing} shifts={shifts.data ?? []} customRoles={customRoles.data ?? []} onClose={() => setEditing(null)} onSaved={staff.reload} />
       <PerformanceDialog staff={perf} onClose={() => setPerf(null)} />
       <ResetLinkDialog staff={linkFor} onClose={() => setLinkFor(null)} />
       <ConfirmDialog

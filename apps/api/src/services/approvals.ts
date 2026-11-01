@@ -1,11 +1,12 @@
 import type { Request } from "express";
 import type { ApprovalAction, Prisma } from "@prisma/client";
-import { can, type Permission } from "@canavo/shared";
+import { canWith, type Permission } from "@canavo/shared";
 import { platformPrisma, prisma } from "../db";
 import { HttpError } from "../lib/http";
 import { verifyPin } from "../lib/pin";
 import { featureOn } from "../lib/tenant";
 import { notify, outletManagers } from "./notify";
+import { userCan } from "../middleware/auth";
 
 /**
  * Manager approvals at the counter (Phase 3.3, feature APPROVAL_PINS).
@@ -40,7 +41,7 @@ const LABELS: Record<ApprovalAction, string> = { DISCOUNT: "this discount", VOID
 export async function requireApproval(req: Request, r: ApprovalRequest, tx: Prisma.TransactionClient = prisma): Promise<string> {
   const me = req.user!;
   let approverId: string;
-  if (can(me.role, "approval:grant")) {
+  if (userCan(req, "approval:grant")) {
     approverId = me.id;
   } else {
     if (!r.approval) {
@@ -48,10 +49,10 @@ export async function requireApproval(req: Request, r: ApprovalRequest, tx: Pris
     }
     const approver = await platformPrisma.user.findFirst({
       where: { id: r.approval.approverId, businessId: me.businessId, status: "ACTIVE" },
-      select: { id: true, name: true, role: true, pinHash: true, pinFailedAttempts: true, pinLockedUntil: true, outlets: { select: { outletId: true } } },
+      select: { id: true, name: true, role: true, customRole: { select: { permissions: true } }, pinHash: true, pinFailedAttempts: true, pinLockedUntil: true, outlets: { select: { outletId: true } } },
     });
     const worksHere = approver && (approver.role === "BUSINESS_OWNER" || approver.outlets.some((o) => o.outletId === r.outletId));
-    if (!approver || !worksHere || !can(approver.role, "approval:grant")) {
+    if (!approver || !worksHere || !canWith(approver.role, "approval:grant", approver.customRole?.permissions)) {
       throw new HttpError(403, "That person can't approve at this outlet.", { code: "APPROVER_INVALID" });
     }
     await verifyPin(approver, r.approval.pin, {
@@ -73,8 +74,8 @@ export async function requireApproval(req: Request, r: ApprovalRequest, tx: Pris
  * (e.g. payment:collect) whose request is approved.
  */
 export function canActWithApproval(req: Request, permission: Permission, fallback: Permission): "direct" | "approval" | false {
-  if (can(req.user!.role, permission)) return "direct";
-  if (approvalsOn() && can(req.user!.role, fallback)) return "approval";
+  if (userCan(req, permission)) return "direct";
+  if (approvalsOn() && userCan(req, fallback)) return "approval";
   return false;
 }
 
@@ -94,8 +95,9 @@ export async function approversFor(outletId: string, businessId: string) {
       pinHash: { not: null },
       OR: [{ role: "BUSINESS_OWNER" }, { role: "OUTLET_MANAGER", outlets: { some: { outletId } } }],
     },
-    select: { id: true, name: true, role: true },
+    select: { id: true, name: true, role: true, customRole: { select: { permissions: true } } },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
-  return users;
+  // A custom role may have taken approvals away (Phase 4.2).
+  return users.filter((u) => canWith(u.role, "approval:grant", u.customRole?.permissions)).map(({ customRole: _c, ...u }) => u);
 }

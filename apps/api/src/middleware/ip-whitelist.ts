@@ -50,7 +50,7 @@ export async function loadIpWhitelist(): Promise<string[]> {
  * (Uses req.ip, so `trust proxy` must be configured correctly behind a proxy.)
  */
 export async function superAdminIpWhitelist(req: Request, _res: Response, next: NextFunction) {
-  if (req.user?.role !== "SUPER_ADMIN") return next();
+  if (req.user?.role !== "SUPER_ADMIN" && req.user?.role !== "PLATFORM_SUPPORT") return next();
   const list = await loadIpWhitelist();
   if (!ipAllowed(req.ip ?? "", list)) throw forbidden(`Super admin access is not allowed from ${normalizeIp(req.ip ?? "unknown")}`);
   next();

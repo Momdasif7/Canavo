@@ -14,6 +14,7 @@ export const BUSINESS_SCOPED_MODELS = new Set([
   "Coupon",
   "TaxRate",
   "AuditLog",
+  "CustomRole",
 ]);
 
 const FILTERED_OPS = new Set([

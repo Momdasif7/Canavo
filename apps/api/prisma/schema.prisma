@@ -17,6 +17,10 @@ enum Role {
   KITCHEN
   DELIVERY
   INVENTORY_MANAGER
+  WAITER
+  ACCOUNTANT
+  AUDITOR
+  PLATFORM_SUPPORT
 }
 
 enum StaffStatus {
@@ -125,9 +129,12 @@ model User {
   lastLat               Float?
   lastLng               Float?
   lastLocationAt        DateTime?
+  /// Custom role (Phase 4.2): narrows the base `role`'s permissions; null = the full base role
+  customRoleId          String?
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
 
+  customRole     CustomRole?          @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
   shift          Shift?               @relation(fields: [shiftId], references: [id])
   outlets        UserOutlet[]
   refreshTokens  RefreshToken[]
@@ -1287,6 +1294,7 @@ model Business {
   coupons        Coupon[]
   taxRates       TaxRate[]
   supportGrants  SupportGrant[]
+  customRoles    CustomRole[]
   /// Staff Aadhaar storage (Phase 2.5): LAST4 = only the last 4 digits (default); FULL = full number, encrypted
   aadhaarMode    AadhaarMode     @default(LAST4)
 }
@@ -1599,4 +1607,21 @@ model OfflineSeries {
 
   @@unique([outletId, deviceId])
   @@unique([outletId, code])
+}
+
+/// A business's own role (Phase 4.2): a named subset of a built-in base role's permissions.
+/// It can only remove permissions — effective = permissions ∩ base role ∩ modules.
+model CustomRole {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  baseRole    Role
+  permissions String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  users    User[]
+
+  @@unique([businessId, name])
 }

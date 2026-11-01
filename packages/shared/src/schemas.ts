@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { newPasswordSchema } from "./password";
-import { ROLES } from "./rbac";
+import { CUSTOM_ROLE_BASES, PERMISSIONS, ROLES } from "./rbac";
 
 export const indianPhone = z
   .string()
@@ -77,6 +77,8 @@ const staffBaseSchema = z.object({
   salaryType: z.enum(["DAILY", "MONTHLY"]).default("MONTHLY"),
   salaryAmount: paise.default(0),
   shiftId: z.string().optional(),
+  /** Custom role (Phase 4.2): must belong to the business and be based on `role`; null clears it */
+  customRoleId: z.string().nullable().optional(),
 });
 export const staffCreateSchema = staffBaseSchema.refine(
   (s) => s.role === "BUSINESS_OWNER" || s.role === "SUPER_ADMIN" || s.outletIds.length > 0,
@@ -85,6 +87,15 @@ export const staffCreateSchema = staffBaseSchema.refine(
 export const staffUpdateSchema = staffBaseSchema
   .partial()
   .extend({ status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).optional() });
+
+/** A business's custom role: a name, a built-in base role and the base role's permissions to keep. */
+export const customRoleSchema = z.object({
+  name: z.string().trim().min(2, "Give the role a name").max(50),
+  baseRole: z.enum(CUSTOM_ROLE_BASES),
+  permissions: z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length),
+});
+export const customRoleUpdateSchema = customRoleSchema.partial();
+export type CustomRoleInput = z.infer<typeof customRoleSchema>;
 
 export const shiftSchema = z.object({
   name: z.string().min(1).max(50),

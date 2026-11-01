@@ -150,7 +150,8 @@ export async function openSession(
         outletId,
         tableId: table.id,
         guests: body.guests,
-        waiterId: body.waiterId ?? table.waiterId,
+        // A waiter opening a table serves it unless someone else was named (Phase 4.1).
+        waiterId: body.waiterId ?? table.waiterId ?? (req.user!.role === "WAITER" ? req.user!.id : null),
         customerName: body.customerName,
         customerPhone: body.customerPhone,
       },
@@ -633,7 +634,8 @@ tablesRouter.post("/sessions/:id/merge", requirePermission("table:serve"), async
  * - EQUAL: one bill with everything + `equalSplit` amounts (summing exactly to
  *   the grand total) for the client to record as split payments on that bill.
  */
-tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:create"), async (req, res) => {
+/** Billing stays with whoever collects payment (cashier, manager); waiters only serve. */
+tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:create", "payment:collect"), async (req, res) => {
   const body = parse(sessionBillSchema, req.body ?? {});
   const outletId = req.outletId!;
   const session = await loadOpenSession(param(req, "id"), outletId);

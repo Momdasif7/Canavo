@@ -67,9 +67,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Platform",
     icon: ShieldStar,
     items: [
-      { href: "/platform", label: "Overview", icon: Gauge, anyOf: ["platform:manage"], scope: "platform" },
-      { href: "/platform/businesses", label: "Businesses", icon: Buildings, anyOf: ["platform:manage"], scope: "platform" },
-      { href: "/platform/admins", label: "Platform admins", icon: ShieldStar, anyOf: ["platform:manage"], scope: "platform" },
+      { href: "/platform", label: "Overview", icon: Gauge, anyOf: ["platform:view"], scope: "platform" },
+      { href: "/platform/businesses", label: "Businesses", icon: Buildings, anyOf: ["platform:view"], scope: "platform" },
+      { href: "/platform/admins", label: "Platform admins", icon: ShieldStar, anyOf: ["platform:view"], scope: "platform" },
     ],
   },
   {
@@ -95,7 +95,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Billing & orders",
     icon: CashRegister,
     items: [
-      { href: "/pos", label: "POS", icon: CashRegister, anyOf: ["order:create"] },
+      // Waiters take orders on the Tables screen; the POS is for whoever collects payment.
+      { href: "/pos", label: "POS", icon: CashRegister, anyOf: ["order:create"], allOf: ["payment:collect"] },
       { href: "/tables", label: "Tables", icon: SquaresFour, anyOf: ["table:serve", "table:manage"] },
       { href: "/bills", label: "Bills", icon: Receipt, anyOf: ["bills:view"] },
       { href: "/cash-drawer", label: "Cash drawer", icon: Vault, anyOf: ["payment:collect"] },
@@ -219,14 +220,17 @@ export function navGroupsFor(ctx: NavContext): NavGroup[] {
 
 export function firstAllowedRoute(ctx: NavContext): string {
   // Platform admins land on the console; owners and managers on the dashboard,
-  // cashiers on the POS, kitchen on the KDS, delivery partners on their runs,
-  // inventory staff on Stock. `settings:outlet` marks management roles (always on).
+  // cashiers on the POS, waiters on Tables, kitchen on the KDS, delivery partners on their runs,
+  // accountants / auditors on the dashboard, inventory staff on Stock.
+  // `settings:outlet` marks management roles (always on).
   if (ctx.me.platformAdmin) return "/platform";
   const order: [boolean, string][] = [
     [has(ctx, "report:view") && has(ctx, "settings:outlet"), "/dashboard"],
-    [has(ctx, "order:create"), "/pos"],
+    [has(ctx, "order:create") && has(ctx, "payment:collect"), "/pos"],
+    [has(ctx, "table:serve"), "/tables"],
     [has(ctx, "kot:view"), "/kitchen"],
     [isDeliveryPartner(ctx), "/delivery"],
+    [has(ctx, "report:view") && has(ctx, "bills:view"), "/dashboard"],
     [has(ctx, "inventory:view") || has(ctx, "inventory:manage"), "/inventory"],
     [has(ctx, "report:view"), "/dashboard"],
   ];

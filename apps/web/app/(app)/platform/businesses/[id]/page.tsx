@@ -10,6 +10,8 @@ import { formatDate } from "@/lib/format";
 import { platformApi } from "@/lib/platform";
 import type { BusinessDetail, BusinessOwner } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { useToast } from "@/components/providers/ToastProvider";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -19,7 +21,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Toggle, Input, Textarea } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
-import { BusinessStatusBadge, ModulePicker } from "@/components/platform/modules";
+import { BusinessStatusBadge, ModuleChips, ModulePicker } from "@/components/platform/modules";
 import { AddOwnerDialog, SendResetLinkDialog } from "@/components/platform/OwnerDialogs";
 
 type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt"> & {
@@ -29,6 +31,9 @@ type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" |
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
+  const { me } = useSession();
+  // Platform support users see everything here read-only (Phase 4.2).
+  const readOnly = !canManagePlatform(me);
   const detail = useApiQuery<BusinessDetail>(`platform-business:${id}`, () => platformApi.get<BusinessDetail>(`/platform/businesses/${id}`));
   const [statusOpen, setStatusOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -66,9 +71,11 @@ export default function BusinessDetailPage() {
           </span>
         }
         actions={
-          <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
-            {suspended ? "Reactivate" : "Suspend"}
-          </Button>
+          readOnly ? undefined : (
+            <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
+              {suspended ? "Reactivate" : "Suspend"}
+            </Button>
+          )
         }
       />
       {suspended && (
@@ -79,12 +86,12 @@ export default function BusinessDetailPage() {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_440px]">
         <div className="space-y-5">
-          <ModulesCard business={b} onSaved={applyUpdate} />
-          <FeaturesCard business={b} onSaved={applyUpdate} />
-          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} onReset2fa={setResetting2fa} />
+          <ModulesCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
+          <FeaturesCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
+          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} onReset2fa={setResetting2fa} readOnly={readOnly} />
         </div>
         <div className="space-y-5">
-          <DetailsCard business={b} onSaved={applyUpdate} />
+          <DetailsCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
           <OutletsCard business={b} />
         </div>
       </div>
@@ -144,7 +151,7 @@ export default function BusinessDetailPage() {
   );
 }
 
-function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+function ModulesCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
   const toast = useToast();
   const [modules, setModules] = useState<ModuleKey[]>(business.modules);
   const [note, setNote] = useState<string | null>(null);
@@ -176,7 +183,7 @@ function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved:
         title="Modules"
         subtitle="Features this business pays for. Turning one off hides it for every user immediately."
         action={
-          <div className="flex gap-2">
+          readOnly ? undefined : <div className="flex gap-2">
             {dirty && (
               <Button variant="ghost" onClick={() => setModules(business.modules)} disabled={saving}>
                 Reset
@@ -190,21 +197,25 @@ function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved:
       />
       <div className="space-y-3 p-5">
         {error && <Alert>{error}</Alert>}
-        <ModulePicker
-          value={modules}
-          note={note}
-          onChange={(m, n) => {
-            setModules(m);
-            setNote(n);
-          }}
-        />
+        {readOnly ? (
+          <ModuleChips modules={business.modules} />
+        ) : (
+          <ModulePicker
+            value={modules}
+            note={note}
+            onChange={(m, n) => {
+              setModules(m);
+              setNote(n);
+            }}
+          />
+        )}
       </div>
     </Card>
   );
 }
 
 /** Per-hotel feature flags: new capabilities stay off until switched on here. */
-function FeaturesCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+function FeaturesCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const entries = Object.entries(business.featureCatalog ?? {});
@@ -235,7 +246,7 @@ function FeaturesCard({ business, onSaved }: { business: BusinessDetail; onSaved
                 <p className="mt-0.5 text-sm text-muted">{f.description}</p>
                 {missing.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Needs the {missing.join(", ")} module — no effect until it&apos;s enabled.</p>}
               </div>
-              <Toggle checked={on} disabled={busy === key} onChange={(v) => void flip(key, v)} label={f.label} />
+              <Toggle checked={on} disabled={readOnly || busy === key} onChange={(v) => void flip(key, v)} label={f.label} />
             </li>
           );
         })}
@@ -244,7 +255,7 @@ function FeaturesCard({ business, onSaved }: { business: BusinessDetail; onSaved
   );
 }
 
-function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+function DetailsCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
   const toast = useToast();
   const init = () => ({
     name: business.name,
@@ -294,12 +305,12 @@ function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved:
       <CardHeader
         title="Details"
         action={
-          <Button size="sm" icon={<FloppyDisk size={18} />} onClick={save} loading={saving} disabled={!dirty}>
+          readOnly ? undefined : <Button size="sm" icon={<FloppyDisk size={18} />} onClick={save} loading={saving} disabled={!dirty}>
             Save
           </Button>
         }
       />
-      <div className="space-y-4 p-5">
+      <fieldset disabled={readOnly} className="space-y-4 p-5">
         {error && <Alert>{error}</Alert>}
         <Input label="Business name" maxLength={120} value={form.name} onChange={(e) => set("name", e.target.value)} />
         <Input label="Legal name" maxLength={200} value={form.legalName} onChange={(e) => set("legalName", e.target.value)} />
@@ -308,7 +319,7 @@ function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved:
           <Input label="Email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </div>
         <Textarea label="Notes (internal)" maxLength={1000} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
-      </div>
+      </fieldset>
     </Card>
   );
 }
@@ -338,11 +349,13 @@ function OwnersCard({
   onCreate,
   onReset,
   onReset2fa,
+  readOnly,
 }: {
   business: BusinessDetail;
   onCreate: () => void;
   onReset: (o: BusinessOwner) => void;
   onReset2fa: (o: BusinessOwner) => void;
+  readOnly: boolean;
 }) {
   return (
     <Card>
@@ -350,9 +363,11 @@ function OwnersCard({
         title="Owners"
         subtitle="The owner creates managers, cashiers, kitchen, delivery and inventory staff from their own login."
         action={
-          <Button icon={<UserPlus size={20} />} onClick={onCreate}>
-            Add owner
-          </Button>
+          readOnly ? undefined : (
+            <Button icon={<UserPlus size={20} />} onClick={onCreate}>
+              Add owner
+            </Button>
+          )
         }
       />
       {business.owners.length === 0 ? (
@@ -364,7 +379,7 @@ function OwnersCard({
               <Th>Name</Th>
               <Th>Status</Th>
               <Th>Since</Th>
-              <Th className="text-right">Actions</Th>
+              {!readOnly && <Th className="text-right">Actions</Th>}
             </tr>
           </THead>
           <tbody>
@@ -384,18 +399,20 @@ function OwnersCard({
                   </div>
                 </Td>
                 <Td className="whitespace-nowrap text-muted">{formatDate(u.createdAt)}</Td>
-                <Td className="text-right">
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {u.totpEnabledAt && (
-                      <Button size="sm" variant="ghost" onClick={() => onReset2fa(u)}>
-                        Reset 2-step
+                {!readOnly && (
+                  <Td className="text-right">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {u.totpEnabledAt && (
+                        <Button size="sm" variant="ghost" onClick={() => onReset2fa(u)}>
+                          Reset 2-step
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
+                        Send reset link
                       </Button>
-                    )}
-                    <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
-                      Send reset link
-                    </Button>
-                  </div>
-                </Td>
+                    </div>
+                  </Td>
+                )}
               </tr>
             ))}
           </tbody>
