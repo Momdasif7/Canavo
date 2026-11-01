@@ -57,6 +57,8 @@ export const PERMISSIONS = [
   "settings:view",
   /** Download all of the business's own data (owner only) */
   "data:export",
+  /** Approve voids, refunds and large discounts with a PIN at the counter (owner, manager) — Phase 3.3 */
+  "approval:grant",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

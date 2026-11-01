@@ -665,6 +665,7 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
             notes: [i.seat ? `Seat ${i.seat}` : null, i.notes].filter(Boolean).join(" · ") || undefined,
           })),
           discount: body.discount,
+          approval: body.approval,
           couponCode: body.couponCode,
           redeemPoints: body.redeemPoints,
           notes: [body.notes, groups.length > 1 ? g.label : null].filter(Boolean).join(" · ") || undefined,

@@ -4,6 +4,7 @@ import {
   computeBill,
   financialYearStart,
   formatInvoiceNumber,
+  formatINR,
   gstPercent,
   OrderCreateInput,
   ReceiptData,
@@ -16,6 +17,7 @@ import { audit } from "../lib/audit";
 import { badRequest, notFound } from "../lib/http";
 import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
 import { emitToOutlet } from "../realtime";
+import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { applyPromotions, onOrderCreated, onOrderPaid } from "./promotions";
 import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from "./service-context";
@@ -163,6 +165,11 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
 
   const fy = financialYearStart(createdAt, outlet.timezone);
 
+  // Phase 3.3: a manual discount above the outlet's limit needs a manager (APPROVAL_PINS).
+  const manualBill = input.discount ? (input.discount.type === "FLAT" ? input.discount.value : Math.round((bill.subtotal * input.discount.value) / 100)) : 0;
+  const manualDiscount = manualBill + lines.reduce((s, l) => s + (l.line.discount ?? 0), 0);
+  const discountNeedsApproval = approvalsOn() && manualDiscount > 0 && manualDiscount * 100 > bill.subtotal * outlet.approvalDiscountPercent;
+
   const persist = async (tx: Prisma.TransactionClient) => {
     const counter = await tx.invoiceCounter.upsert({
       where: { outletId_fyStart: { outletId, fyStart: fy } },
@@ -269,6 +276,12 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       });
     }
 
+    if (discountNeedsApproval) {
+      const reason = `Discount ${formatINR(manualDiscount)} on ${formatINR(bill.subtotal)} (limit ${outlet.approvalDiscountPercent}%)`;
+      // An offline bill already happened: record it for the exceptions report instead of refusing it.
+      if (offline) await logUnapproved(tx, { action: "DISCOUNT", outletId, orderId: created.id, amount: manualDiscount, requestedById: req.user!.id, reason });
+      else await requireApproval(req, { action: "DISCOUNT", outletId, orderId: created.id, amount: manualDiscount, reason, approval: input.approval }, tx);
+    }
     await audit(req, "order.create", "Order", created.id, { invoiceNumber, grandTotal: bill.grandTotal, offline }, tx);
     const full = await tx.order.findUniqueOrThrow({ where: { id: created.id }, include: orderInclude });
     // Post-commit effects go through the outbox in THIS transaction: nothing is sent for a

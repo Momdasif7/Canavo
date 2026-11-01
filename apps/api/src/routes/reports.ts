@@ -549,7 +549,17 @@ export async function gstr1For(outlet: Outlet, month: string) {
       },
     },
   });
+  // Credit notes issued in the month (Phase 3.1) → negative lines at the original items' rates.
+  const cns = await prisma.creditNote.findMany({
+    where: window(ctx),
+    select: {
+      number: true, items: true, amount: true, taxableValue: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true,
+      order: { select: { documentType: true, interState: true, items: { select: { id: true, hsnCode: true, gstRate: true, quantity: true, taxableValue: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, taxRates: true, total: true } } } },
+    },
+  });
+  const creditNotes = cns.map((c) => ({ number: c.number, documentType: c.order.documentType, interState: c.order.interState, items: creditLines(c) }));
   const result = buildGstr1({
+    creditNotes,
     gstin: outlet.gstin,
     stateCode: outlet.stateCode,
     month,
@@ -1095,6 +1105,104 @@ async function deliveryReport(ctx: ReportCtx): Promise<BuiltReport> {
 }
 
 // =====================================================================
+// Exceptions (Phase 3.3): voids, refunds, big discounts, approvals, reprints
+// =====================================================================
+
+async function exceptionsReport(ctx: ReportCtx): Promise<BuiltReport> {
+  const w = window(ctx);
+  const outletId = ctx.outlet.id;
+  const limit = ctx.outlet.approvalDiscountPercent;
+  const [voids, refunds, discounted, approvals, reprints] = await Promise.all([
+    prisma.order.findMany({
+      where: { outletId, cancelledAt: { gte: ctx.start, lt: ctx.end } },
+      select: { id: true, invoiceNumber: true, grandTotal: true, cancelledAt: true, cancelReason: true, paidAt: true, cashier: { select: { name: true } } },
+      orderBy: { cancelledAt: "asc" },
+    }),
+    prisma.creditNote.findMany({ where: w, select: { id: true, number: true, amount: true, reason: true, note: true, refundMode: true, createdAt: true, createdById: true, approvedById: true, order: { select: { invoiceNumber: true } } }, orderBy: { createdAt: "asc" } }),
+    prisma.order.findMany({
+      where: { ...w, status: { not: "CANCELLED" }, discount: { gt: 0 } },
+      select: { id: true, invoiceNumber: true, subtotal: true, discount: true, createdAt: true, cashier: { select: { name: true } } },
+    }),
+    prisma.approvalLog.findMany({ where: w, orderBy: { createdAt: "asc" } }),
+    prisma.auditLog.findMany({ where: { ...w, action: "kot.reprint" }, select: { createdAt: true, entityId: true, user: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+  ]);
+  // Who cancelled: from the audit log.
+  const cancelAudit = await prisma.auditLog.findMany({ where: { action: "order.cancel", entityId: { in: voids.map((v) => v.id) } }, select: { entityId: true, user: { select: { name: true } } } });
+  const cancelledBy = new Map(cancelAudit.map((a) => [a.entityId, a.user?.name ?? ""]));
+  const userIds = [...new Set([...approvals.flatMap((a) => [a.requestedById, a.approvedById]), ...refunds.flatMap((r) => [r.createdById, r.approvedById])].filter((x): x is string => !!x))];
+  const names = new Map((await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+  const name = (id: string | null) => (id ? (names.get(id) ?? "") : "");
+  const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: ctx.outlet.timezone, dateStyle: "medium", timeStyle: "short" });
+  const bigDiscounts = discounted.filter((o) => o.discount * 100 > o.subtotal * limit);
+  const unapproved = approvals.filter((a) => !a.approvedById);
+
+  const data = {
+    discountLimitPercent: limit,
+    totals: {
+      voids: { count: voids.length, amount: voids.reduce((s, v) => s + v.grandTotal, 0), afterPayment: voids.filter((v) => v.paidAt).length },
+      refunds: { count: refunds.length, amount: refunds.reduce((s, r) => s + r.amount, 0) },
+      bigDiscounts: { count: bigDiscounts.length, amount: bigDiscounts.reduce((s, o) => s + o.discount, 0) },
+      approvals: approvals.length,
+      unapproved: unapproved.length,
+      reprints: reprints.length,
+    },
+    voids: voids.map((v) => ({ invoiceNumber: v.invoiceNumber, at: when(v.cancelledAt!), amount: v.grandTotal, reason: v.cancelReason ?? "", wasPaid: Boolean(v.paidAt), cashier: v.cashier.name, by: cancelledBy.get(v.id) ?? "" })),
+    refunds: refunds.map((r) => ({ number: r.number, invoiceNumber: r.order.invoiceNumber, at: when(r.createdAt), amount: r.amount, reason: r.reason, note: r.note ?? "", mode: r.refundMode, by: name(r.createdById), approvedBy: name(r.approvedById) })),
+    bigDiscounts: bigDiscounts.map((o) => ({ invoiceNumber: o.invoiceNumber, at: when(o.createdAt), subtotal: o.subtotal, discount: o.discount, percent: pct(o.discount, o.subtotal), cashier: o.cashier.name })),
+    approvals: approvals.map((a) => ({ at: when(a.createdAt), action: a.action, amount: a.amount, reason: a.reason ?? "", requestedBy: name(a.requestedById), approvedBy: a.approvedById ? name(a.approvedById) : "NOT APPROVED (offline)" })),
+    reprints: reprints.map((r) => ({ at: when(r.createdAt), kot: r.entityId ?? "", by: r.user?.name ?? "" })),
+  };
+  return {
+    title: "Exceptions",
+    data,
+    tables: [
+      {
+        title: "Voided bills",
+        subtitle: subtitle(ctx),
+        columns: [
+          { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Voided", width: 20 }, { key: "amount", header: "Amount", type: "money" },
+          { key: "reason", header: "Reason", width: 30 }, { key: "cashier", header: "Billed by", width: 16 }, { key: "by", header: "Voided by", width: 16 },
+        ],
+        rows: data.voids,
+        totals: true,
+      },
+      {
+        title: "Refunds (credit notes)",
+        columns: [
+          { key: "number", header: "Credit note", width: 16 }, { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Issued", width: 20 },
+          { key: "amount", header: "Amount", type: "money" }, { key: "mode", header: "Mode" }, { key: "reason", header: "Reason", width: 18 },
+          { key: "by", header: "By", width: 16 }, { key: "approvedBy", header: "Approved by", width: 16 },
+        ],
+        rows: data.refunds,
+        totals: true,
+      },
+      {
+        title: `Discounts above ${limit}%`,
+        columns: [
+          { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Billed", width: 20 }, { key: "subtotal", header: "Subtotal", type: "money" },
+          { key: "discount", header: "Discount", type: "money" }, { key: "percent", header: "%", type: "number" }, { key: "cashier", header: "Cashier", width: 16 },
+        ],
+        rows: data.bigDiscounts,
+        totals: true,
+      },
+      {
+        title: "Approvals",
+        columns: [
+          { key: "at", header: "When", width: 20 }, { key: "action", header: "Action" }, { key: "amount", header: "Amount", type: "money" },
+          { key: "requestedBy", header: "Requested by", width: 16 }, { key: "approvedBy", header: "Approved by", width: 22 }, { key: "reason", header: "Reason", width: 30 },
+        ],
+        rows: data.approvals,
+      },
+      {
+        title: "KOT reprints",
+        columns: [{ key: "at", header: "When", width: 20 }, { key: "kot", header: "KOT", width: 26 }, { key: "by", header: "By", width: 16 }],
+        rows: data.reprints,
+      },
+    ],
+  };
+}
+
+// =====================================================================
 // Registry (also used by scheduled emails)
 // =====================================================================
 
@@ -1109,6 +1217,7 @@ export const REPORTS: Record<ReportKey, { title: string; build: (ctx: ReportCtx)
   customers: { title: "Customers", build: customersReport },
   inventory: { title: "Inventory", build: inventoryReport },
   delivery: { title: "Delivery", build: deliveryReport },
+  exceptions: { title: "Exceptions", build: exceptionsReport },
 };
 
 export async function buildReport(key: ReportKey, outlet: Outlet, from: string, to: string, q: Record<string, unknown> = {}) {
@@ -1197,6 +1306,26 @@ for (const key of REPORT_KEYS) {
 }
 
 /** GSTR-1 for a month. format=json returns {gstr1, totals, notes, warnings}; add download=1 for the bare GSTN payload file. */
+type CnLine = { orderItemId: string; quantity: number; taxableValue: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; total: number };
+type OrderLine = { id: string; hsnCode: string; gstRate: number; quantity: number; taxableValue: number; serviceCharge: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; taxRates: unknown; total: number };
+
+/** A credit note as negative GSTR-1 lines; value-only credits are spread over the bill's lines by taxable value. */
+function creditLines(c: { items: unknown; amount: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; order: { items: OrderLine[] } }) {
+  const neg = (l: OrderLine, v: Omit<CnLine, "orderItemId">) => ({
+    hsnCode: l.hsnCode, gstRate: l.gstRate, taxRates: l.taxRates, serviceCharge: 0,
+    quantity: -v.quantity, taxableValue: -v.taxableValue, cgst: -v.cgst, sgst: -v.sgst, igst: -v.igst, cess: -v.cess, otherTaxes: -v.otherTaxes, total: -v.total,
+  });
+  const lines = c.items as CnLine[];
+  const byId = new Map(c.order.items.map((l) => [l.id, l]));
+  if (lines.length) return lines.filter((l) => byId.has(l.orderItemId)).map((l) => neg(byId.get(l.orderItemId)!, l));
+  const base = c.order.items.reduce((s, l) => s + l.total, 0) || 1;
+  return c.order.items.map((l) => {
+    const share = l.total / base;
+    const part = (v: number) => Math.round(v * share);
+    return neg(l, { quantity: 0, taxableValue: 0, cgst: part(c.cgst), sgst: part(c.sgst), igst: part(c.igst), cess: part(c.cess), otherTaxes: part(c.otherTaxes), total: part(c.amount) });
+  });
+}
+
 reportsRouter.get("/gstr1", async (req, res) => {
   const q = parse(
     z.object({
@@ -1312,6 +1441,10 @@ reportsRouter.get("/daily", async (req, res) => {
     daySales(req.outletId!, addDays(date, -1), outlet.timezone),
     daySales(req.outletId!, addDays(date, -7), outlet.timezone),
   ]);
+  // Credit notes issued on this day (Phase 3.1), whatever day the bill was from.
+  const refundRows = await prisma.creditNote.groupBy({ by: ["refundMode"], where: window, _sum: { amount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true }, _count: true });
+  const refundTotal = refundRows.reduce((s, r) => s + (r._sum.amount ?? 0), 0);
+  const refundTax = refundRows.reduce((s, r) => s + (r._sum.cgst ?? 0) + (r._sum.sgst ?? 0) + (r._sum.igst ?? 0) + (r._sum.cess ?? 0) + (r._sum.otherTaxes ?? 0), 0);
 
   const sum = (f: (o: (typeof orders)[number]) => number) => orders.reduce((s, o) => s + f(o), 0);
   const gross = sum((o) => o.grandTotal);
@@ -1341,6 +1474,14 @@ reportsRouter.get("/daily", async (req, res) => {
     serviceCharge: sum((o) => o.serviceCharge),
     orders: orders.length,
     cancelledOrders: cancelled,
+    refunds: {
+      count: refundRows.reduce((s, r) => s + r._count, 0),
+      amount: refundTotal,
+      tax: refundTax,
+      byMode: Object.fromEntries(refundRows.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
+    },
+    /** Gross sales minus refunds issued today */
+    salesAfterRefunds: gross - refundTotal,
     averageOrderValue: orders.length ? Math.round(gross / orders.length) : 0,
     byOrderType: byType,
     byPaymentMode: Object.fromEntries(payments.map((p) => [p.mode, { count: p._count, amount: p._sum.amount ?? 0 }])),
@@ -1370,6 +1511,8 @@ reportsRouter.get("/daily", async (req, res) => {
         { metric: "Service charge", value: data.serviceCharge },
         { metric: "Average order value", value: data.averageOrderValue },
         { metric: "Cancelled orders", count: data.cancelledOrders },
+        { metric: "Refunds (credit notes)", value: data.refunds.amount, count: data.refunds.count },
+        { metric: "Sales after refunds", value: data.salesAfterRefunds },
         { metric: `Yesterday (${data.comparison.yesterday.changePercent ?? "-"}%)`, value: yesterday.gross, count: yesterday.orders },
         { metric: `Same day last week (${data.comparison.lastWeek.changePercent ?? "-"}%)`, value: lastWeek.gross, count: lastWeek.orders },
       ],

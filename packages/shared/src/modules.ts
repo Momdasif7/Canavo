@@ -34,6 +34,7 @@ export const PERMISSION_MODULE: Partial<Record<Permission, ModuleKey>> = {
   "order:view": "BILLING",
   "bills:view": "BILLING",
   "order:cancel": "BILLING",
+  "approval:grant": "BILLING",
   "payment:collect": "BILLING",
   "kot:view": "KOT",
   "kot:update": "KOT",

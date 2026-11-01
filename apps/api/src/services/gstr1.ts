@@ -23,8 +23,9 @@
  *
  * Bills of supply (composition scheme) are excluded: composition dealers file
  * CMP-08 / GSTR-4, not GSTR-1. B2B (registered buyer GSTIN), B2CL (inter-state
- * > ₹1 lakh) and credit notes are not produced because the POS does not capture
- * buyer GSTINs or issue credit notes.
+ * > ₹1 lakh) are not produced because the POS does not capture buyer GSTINs.
+ * Credit notes on B2C bills (Phase 3.1) reduce b2cs and hsn in the month they're issued
+ * (GST rules for unregistered buyers); CDNR/CDNUR need buyer GSTINs (Phase 8.4).
  */
 
 export interface Gstr1Line {
@@ -61,6 +62,8 @@ export interface Gstr1Input {
   month: string;
   compositionScheme: boolean;
   orders: Gstr1Order[];
+  /** Credit notes issued in the month, as negative lines at the original rates (Phase 3.1) */
+  creditNotes?: { number: string; documentType: Gstr1Order["documentType"]; interState: boolean; items: Gstr1Line[] }[];
   /** HSN code → description (defaults to a restaurant-service description) */
   hsnDescriptions?: Record<string, string>;
 }
@@ -192,8 +195,10 @@ export function buildGstr1(input: Gstr1Input): Gstr1Result {
   const hsn = new Map<string, { hsn: string; rt: number; qty: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
   const tot = { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 };
   const interInvoices: string[] = [];
-  for (const o of supplies) {
-    if (o.interState) interInvoices.push(o.invoiceNumber);
+  const credits = (input.creditNotes ?? []).filter((c) => c.documentType === "TAX_INVOICE");
+  if (credits.length) notes.push(`${credits.length} credit note(s) issued this month reduce B2CS and HSN.`);
+  for (const o of [...supplies, ...credits.map((c) => ({ ...c, invoiceNumber: c.number }))]) {
+    if (o.interState && !credits.some((c) => c.number === o.invoiceNumber)) interInvoices.push(o.invoiceNumber);
     for (const l of o.items) {
       const sply_ty = o.interState ? "INTER" : "INTRA";
       const txval = lineTxval(l);

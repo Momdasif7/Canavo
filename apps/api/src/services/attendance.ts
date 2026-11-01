@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import type { Request } from "express";
 import { distanceMeters } from "@canavo/shared";
 import type { z } from "zod";
@@ -11,7 +10,7 @@ import { notify, outletManagers } from "./notify";
 import { assignWaitingDeliveries, markBackAtOutlet } from "./delivery-assign";
 import { alertAttendanceMarked } from "./alerts";
 import { featureOn } from "../lib/tenant";
-import { platformPrisma } from "../db";
+import { PIN_MAX_FAILED, verifyPin } from "../lib/pin";
 
 type ClockInput = z.infer<typeof clockSchema>;
 
@@ -22,37 +21,6 @@ const MAX_ACCURACY_ALLOWANCE = 100;
 const STRICT_MAX_ACCURACY = 50;
 /** Accuracy worse than this is flagged for the manager (always recorded). */
 const LOW_ACCURACY_FLAG = 100;
-/** Clock-in PIN lockout (Phase 2.6). */
-const PIN_MAX_FAILED = 5;
-const PIN_LOCK_MS = 15 * 60_000;
-
-/**
- * Check the clock-in PIN with a lockout: 5 wrong PINs lock clock-in for 15 minutes (the
- * manager is told), so a colleague can't guess a 4-digit PIN by trying all of them.
- */
-async function checkPin(user: { id: string; name: string; pinHash: string; pinFailedAttempts: number; pinLockedUntil: Date | null }, pin: string | undefined, outlet: { id: string; name: string }) {
-  if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
-    const mins = Math.ceil((user.pinLockedUntil.getTime() - Date.now()) / 60_000);
-    throw new HttpError(423, `Too many wrong PINs. Try again in ${mins} min or ask your manager.`, { code: "PIN_LOCKED" });
-  }
-  if (!pin) throw new HttpError(400, "PIN is required to clock in/out", { code: "PIN_REQUIRED" });
-  if (await bcrypt.compare(pin, user.pinHash)) {
-    if (user.pinFailedAttempts) await platformPrisma.user.update({ where: { id: user.id }, data: { pinFailedAttempts: 0, pinLockedUntil: null } });
-    return;
-  }
-  const failed = user.pinFailedAttempts + 1;
-  const lock = failed >= PIN_MAX_FAILED;
-  await platformPrisma.user.update({
-    where: { id: user.id },
-    data: lock ? { pinFailedAttempts: 0, pinLockedUntil: new Date(Date.now() + PIN_LOCK_MS) } : { pinFailedAttempts: failed },
-  });
-  if (lock) {
-    await notify(await outletManagers(outlet.id), "Clock-in PIN locked", `${user.name} entered a wrong PIN ${PIN_MAX_FAILED} times at ${outlet.name}. Clock-in is locked for 15 minutes.`, "attendance.pin_locked");
-    throw new HttpError(423, "Too many wrong PINs. Clock-in is locked for 15 minutes; your manager has been told.", { code: "PIN_LOCKED" });
-  }
-  throw new HttpError(403, `Incorrect PIN (${PIN_MAX_FAILED - failed} tries left)`, { code: "WRONG_PIN" });
-}
-
 /** Selfies must come from our own upload endpoint (local storage or Cloudinary), not any URL. */
 function isOwnUpload(url: string) {
   try {
@@ -75,7 +43,13 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
   }
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId } });
 
-  if (user.pinHash) await checkPin({ ...user, pinHash: user.pinHash }, input.pin, outlet);
+  if (user.pinHash) {
+    await verifyPin(user, input.pin, {
+      label: user.name,
+      onLocked: async () =>
+        notify(await outletManagers(outlet.id), "Clock-in PIN locked", `${user.name} entered a wrong PIN ${PIN_MAX_FAILED} times at ${outlet.name}. Clock-in is locked for 15 minutes.`, "attendance.pin_locked"),
+    });
+  }
 
   // Evidence for the manager, recorded on every clock-in (also without strict mode).
   const flags: string[] = [];

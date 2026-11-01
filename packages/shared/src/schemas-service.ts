@@ -1,6 +1,7 @@
 // Zod schemas & types for the service module: tables, running tabs (KOT),
 // reservations / pre-orders and delivery.
 import { z } from "zod";
+import { approvalSchema } from "./schemas";
 import { indianPhone } from "./schemas";
 
 const paise = z.number().int().nonnegative();
@@ -106,6 +107,8 @@ export type BillSplitMode = (typeof BILL_SPLIT_MODES)[number];
 export const sessionBillSchema = z
   .object({
     mode: z.enum(BILL_SPLIT_MODES).default("FULL"),
+    /** Manager approval for a discount above the outlet's limit (APPROVAL_PINS) */
+    approval: approvalSchema.optional(),
     /** BY_ITEMS: bill just these session items (one order) */
     itemIds: z.array(z.string()).optional(),
     /** BY_ITEMS: several bills at once, one order per group of session item ids */

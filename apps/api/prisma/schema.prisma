@@ -65,13 +65,17 @@ model Outlet {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
-  staff          UserOutlet[]
-  orders         Order[]
-  attendance     StaffAttendance[]
-  invoiceCounter InvoiceCounter[]
-  itemOverrides  OutletItemOverride[]
-  shifts         Shift[]
-  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  staff                   UserOutlet[]
+  orders                  Order[]
+  attendance              StaffAttendance[]
+  invoiceCounter          InvoiceCounter[]
+  itemOverrides           OutletItemOverride[]
+  shifts                  Shift[]
+  business                Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Phase 3.3 (APPROVAL_PINS): a manual discount above this % of the bill needs a manager PIN
+  approvalDiscountPercent Int                  @default(10)
+  approvals               ApprovalLog[]
+  creditNotes             CreditNote[]
 
   @@index([businessId])
 }
@@ -474,6 +478,9 @@ model Order {
   items          OrderItem[]
   kots           KotTicket[]
   payments       Payment[]
+  /// Total of credit notes issued against this bill (Phase 3.1), paise
+  refundedAmount Int           @default(0)
+  creditNotes    CreditNote[]
 
   @@unique([outletId, invoiceNumber])
   @@index([outletId, createdAt])
@@ -1383,4 +1390,82 @@ model SupportGrant {
 enum AadhaarMode {
   LAST4
   FULL
+}
+
+enum ApprovalAction {
+  DISCOUNT
+  VOID
+  REFUND
+  CASH_PAYOUT
+}
+
+/// Who approved what at the counter (Phase 3.3); feeds the exceptions report.
+model ApprovalLog {
+  id            String         @id @default(cuid())
+  outletId      String
+  action        ApprovalAction
+  orderId       String?
+  requestedById String
+  /// Same as requestedById when a manager/owner did it themselves; null = offline (couldn't be approved)
+  approvedById  String?
+  /// Amount concerned (discount, refund, void total), paise
+  amount        Int            @default(0)
+  reason        String?
+  createdAt     DateTime       @default(now())
+  outlet        Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, createdAt])
+  @@index([orderId])
+}
+
+enum RefundReason {
+  WRONG_ITEM
+  QUALITY
+  NOT_DELIVERED
+  OVERCHARGED
+  CUSTOMER_CHANGED_MIND
+  OTHER
+}
+
+/// Credit note (refund) against a paid bill (Phase 3.1). Its own series per outlet and FY.
+model CreditNote {
+  id           String       @id @default(cuid())
+  outletId     String
+  orderId      String
+  /// e.g. "CN/26-27/0007"
+  number       String
+  fyStart      Int
+  reason       RefundReason
+  note         String?
+  /// How the money went back: CASH / UPI / CARD (KHATA = reduces the customer's credit)
+  refundMode   PaymentMode
+  /// Refunded lines: [{ orderItemId, name, quantity, taxableValue, cgst, sgst, igst, cess, otherTaxes, total }]; empty = value-only credit
+  items        Json         @default("[]")
+  taxableValue Int
+  cgst         Int
+  sgst         Int
+  igst         Int
+  cess         Int          @default(0)
+  otherTaxes   Int          @default(0)
+  /// Total refunded (incl. tax), paise
+  amount       Int
+  restocked    Boolean      @default(false)
+  createdById  String
+  approvedById String?
+  createdAt    DateTime     @default(now())
+  outlet       Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, number])
+  @@index([outletId, createdAt])
+  @@index([orderId])
+}
+
+/// Credit note numbers per outlet and financial year.
+model CreditNoteCounter {
+  outletId String
+  fyStart  Int
+  lastSeq  Int    @default(0)
+
+  @@id([outletId, fyStart])
 }

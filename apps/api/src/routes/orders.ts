@@ -4,16 +4,20 @@ import { z } from "zod";
 import {
   formatINR,
   formatReceiptText,
+  approvalSchema,
   orderCreateSchema,
+  refundSchema,
   paymentSchema,
   receiptShareSchema,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { env, isProd } from "../env";
 import { audit } from "../lib/audit";
-import { badRequest, conflict, notFound, param, parse, publicApiUrl } from "../lib/http";
+import { badRequest, conflict, forbidden, notFound, param, parse, publicApiUrl } from "../lib/http";
 import { startOfLocalDay } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { authenticate, requireAnyPermission, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
+import { createCreditNote } from "../services/credit-notes";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
@@ -28,6 +32,11 @@ import { alertOrderCancelled } from "../services/alerts";
 
 export const ordersRouter = Router();
 ordersRouter.use(authenticate, requireOutlet, requireModule("BILLING"));
+
+/** Managers / owners who can approve at this outlet with their PIN (Phase 3.3). */
+ordersRouter.get("/approvers", requireAnyPermission("order:create", "payment:collect", "order:cancel"), async (req, res) => {
+  res.json({ enabled: approvalsOn(), discountLimitPercent: (await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { approvalDiscountPercent: true } })).approvalDiscountPercent, approvers: await approversFor(req.outletId!, req.businessId!) });
+});
 
 ordersRouter.post("/", requirePermission("order:create"), async (req, res) => {
   const { order, duplicate } = await createOrder(req, parse(orderCreateSchema, req.body));
@@ -126,12 +135,14 @@ ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
 ordersRouter.get("/summary", requirePermission("bills:view"), async (req, res) => {
   const q = parse(billFilterSchema, req.query);
   const where = await billWhere(req, q);
-  const [all, byStatus, byMode, cod] = await Promise.all([
+  const [all, byStatus, byMode, cod, refunds] = await Promise.all([
     prisma.order.count({ where }),
     prisma.order.groupBy({ by: ["status"], where, _count: true, _sum: { grandTotal: true } }),
     // Only money actually received: failed / pending UPI QR attempts don't count (BUG-004)
     prisma.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", order: { ...where, status: { not: "CANCELLED" } } }, _sum: { amount: true }, _count: true }),
     prisma.order.aggregate({ where: { ...where, status: { not: "CANCELLED" }, delivery: { is: { cod: true } } }, _count: true, _sum: { grandTotal: true } }),
+    // Refunds on the listed bills (Phase 3.1)
+    prisma.order.aggregate({ where: { ...where, refundedAmount: { gt: 0 } }, _count: true, _sum: { refundedAmount: true } }),
   ]);
   const st = (s: string) => byStatus.find((b) => b.status === s);
   res.json({
@@ -144,6 +155,7 @@ ordersRouter.get("/summary", requirePermission("bills:view"), async (req, res) =
     cancelledAmount: st("CANCELLED")?._sum.grandTotal ?? 0,
     byMode: Object.fromEntries(byMode.map((m) => [m.mode, { amount: m._sum.amount ?? 0, count: m._count }])),
     cod: { count: cod._count, amount: cod._sum.grandTotal ?? 0 },
+    refunds: { count: refunds._count, amount: refunds._sum.refundedAmount ?? 0 },
   });
 });
 
@@ -193,11 +205,18 @@ ordersRouter.get("/:id", requirePermission("order:view"), async (req, res) => {
   res.json({ ...order, amountPaid: amountPaid(order), balance: Math.max(0, order.grandTotal - amountPaid(order)) });
 });
 
-ordersRouter.post("/:id/cancel", requirePermission("order:cancel"), async (req, res) => {
-  const { reason } = parse(z.object({ reason: z.string().min(3).max(200) }), req.body);
+/**
+ * Void a bill. Needs order:cancel as before; with APPROVAL_PINS on, a cashier can also void
+ * with a manager's PIN, and every void is logged as an approval (Phase 3.3).
+ */
+ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:collect"), async (req, res) => {
+  if (!canActWithApproval(req, "order:cancel", "payment:collect")) throw forbidden("Insufficient permissions");
+  const { reason, approval } = parse(z.object({ reason: z.string().min(3).max(200), approval: approvalSchema.optional() }), req.body);
   const order = await getOrder(param(req, "id"), req.outletId!);
   if (order.status === "CANCELLED") throw conflict("Order already cancelled");
+  if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
   const updated = await prisma.$transaction(async (tx) => {
+    if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: order.grandTotal, reason, approval }, tx);
     const u = await tx.order.update({
       where: { id: order.id },
       data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
@@ -211,6 +230,22 @@ ordersRouter.post("/:id/cancel", requirePermission("order:cancel"), async (req, 
   emitToOutlet(req.outletId!, "order:cancelled", { id: order.id });
   void alertOrderCancelled(req.outletId!, order.id, req.user!, reason);
   res.json(updated);
+});
+
+/**
+ * Refund (credit note) on a paid bill (Phase 3.1). Same people who can void: order:cancel, or
+ * with APPROVAL_PINS on, a cashier with a manager's PIN.
+ */
+ordersRouter.post("/:id/refunds", requireAnyPermission("order:cancel", "payment:collect"), async (req, res) => {
+  if (!canActWithApproval(req, "order:cancel", "payment:collect")) throw forbidden("Insufficient permissions");
+  const note = await createCreditNote(req, param(req, "id"), parse(refundSchema, req.body));
+  emitToOutlet(req.outletId!, "order:refunded", { id: note.orderId, creditNote: note.number });
+  res.status(201).json(note);
+});
+
+ordersRouter.get("/:id/credit-notes", requirePermission("order:view"), async (req, res) => {
+  const order = await getOrder(param(req, "id"), req.outletId!);
+  res.json(await prisma.creditNote.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } }));
 });
 
 // ---------- Payments ----------

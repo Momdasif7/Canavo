@@ -226,6 +226,10 @@ export const orderItemInputSchema = z.object({
   discount: paise.optional(),
 });
 
+/** A manager's approval typed on the cashier's device (Phase 3.3, feature APPROVAL_PINS). */
+export const approvalSchema = z.object({ approverId: z.string().min(1), pin: z.string().regex(/^\d{4,6}$/) });
+export type ApprovalInputBody = z.infer<typeof approvalSchema>;
+
 export const orderCreateSchema = z.object({
   /** Client-generated UUID; makes offline sync idempotent */
   clientOrderId: z.string().uuid().optional(),
@@ -244,6 +248,8 @@ export const orderCreateSchema = z.object({
   notes: z.string().max(300).optional(),
   /** When offline, the time the bill was actually raised */
   createdAt: z.string().datetime().optional(),
+  /** Manager approval for a discount above the outlet's limit (APPROVAL_PINS) */
+  approval: approvalSchema.optional(),
   /** Promotions & loyalty */
   couponCode: z.string().trim().toUpperCase().max(30).optional(),
   redeemPoints: z.number().int().positive().optional(),
@@ -290,3 +296,33 @@ export const kotStatusSchema = z.object({
 export const receiptShareSchema = z.object({
   phone: indianPhone,
 });
+
+// ---------- Refunds / credit notes (Phase 3.1) ----------
+export const REFUND_REASONS = ["WRONG_ITEM", "QUALITY", "NOT_DELIVERED", "OVERCHARGED", "CUSTOMER_CHANGED_MIND", "OTHER"] as const;
+export type RefundReason = (typeof REFUND_REASONS)[number];
+export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
+  WRONG_ITEM: "Wrong item served",
+  QUALITY: "Food quality",
+  NOT_DELIVERED: "Not delivered / not served",
+  OVERCHARGED: "Overcharged",
+  CUSTOMER_CHANGED_MIND: "Customer changed mind",
+  OTHER: "Other",
+};
+export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA"] as const;
+
+/** Refund some items (and quantities) of a paid bill, or a value only (e.g. overcharge). */
+export const refundSchema = z
+  .object({
+    reason: z.enum(REFUND_REASONS),
+    note: z.string().trim().max(300).optional(),
+    refundMode: z.enum(REFUND_MODES),
+    items: z.array(z.object({ orderItemId: z.string().min(1), quantity: z.number().int().positive() })).optional(),
+    /** Value-only credit (no items), paise incl. tax */
+    amount: paise.optional(),
+    /** Put the refunded items' ingredients back into stock (food not made / returned unopened) */
+    restock: z.boolean().default(false),
+    approval: approvalSchema.optional(),
+  })
+  .refine((v) => Boolean(v.items?.length) !== Boolean(v.amount), "Refund either items or an amount")
+  .refine((v) => v.reason !== "OTHER" || (v.note?.length ?? 0) >= 3, "Describe the reason");
+export type RefundInput = z.infer<typeof refundSchema>;

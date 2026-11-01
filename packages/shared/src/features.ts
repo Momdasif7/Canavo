@@ -29,6 +29,11 @@ export const FEATURES = {
     description: "Staff take a selfie when they clock in on the app. Managers can see it with the attendance record. (No face matching.)",
     requires: ["ATTENDANCE"],
   },
+  APPROVAL_PINS: {
+    label: "Manager approval PINs",
+    description: "Voids, refunds and discounts above the outlet's limit need a manager's or owner's PIN at the counter. Cashiers can then void or refund with that approval. Every approval appears in the exceptions report.",
+    requires: ["BILLING"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",

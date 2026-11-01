@@ -5,6 +5,7 @@ export const REPORT_LABELS: Record<ReportKey, string> = {
   items: "Items",
   categories: "Categories",
   "peak-hours": "Peak hours",
+  exceptions: "Exceptions",
   gst: "GST summary",
   profit: "Profit & food cost",
   staff: "Staff",
