@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Bank, Gift, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Trash, WifiSlash } from "@phosphor-icons/react";
+import { Bank, Briefcase, Gift, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Ticket, Trash, Wallet, WifiSlash } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { api, errorMessage, isNetworkError } from "@/lib/api";
 import { PAYMENT_MODE_LABELS, parseRupees, rupeesInput } from "@/lib/format";
@@ -20,7 +20,7 @@ export type Checkout =
   | { kind: "online"; order: Order }
   | { kind: "offline"; total: number; customerPhone?: string };
 
-type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "GIFT" | "COD";
+type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "GIFT" | "WALLET" | "TOKEN" | "COD";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "CASH", label: "Cash", icon: <Money size={22} /> },
@@ -29,7 +29,18 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "SPLIT", label: "Split", icon: <SplitHorizontal size={22} /> },
   { id: "KHATA", label: "Khata", icon: <Notebook size={22} /> },
   { id: "GIFT", label: "Gift card", icon: <Gift size={22} /> },
+  { id: "WALLET", label: "Wallet", icon: <Wallet size={22} /> },
+  { id: "TOKEN", label: "Meal token", icon: <Ticket size={22} /> },
 ];
+
+/** Canteen member on the bill (Phase 5.2): wallet and meal tokens. */
+interface MemberMoney {
+  walletBalance: number;
+  tokens: { id: string; mealSlotId: string | null; balance: number; value: number }[];
+}
+
+/** Modes the counter can't pick by hand: the company's share is added at billing; tokens / gift cards have their own tabs. */
+const SPLIT_HIDDEN: PaymentMode[] = ["GIFT_CARD", "CORPORATE", "MEAL_TOKEN"];
 
 interface SplitRow {
   id: number;
@@ -91,6 +102,9 @@ export function PaymentDialog({
   const [giftCode, setGiftCode] = useState("");
   const [gift, setGift] = useState<{ balance: number; usable: boolean; message: string | null } | null>(null);
   const [giftRestMode, setGiftRestMode] = useState<PaymentMode>("CASH");
+  const [memberMoney, setMemberMoney] = useState<MemberMoney | null>(null);
+  const [restMode, setRestMode] = useState<PaymentMode>("CASH");
+  const [tokenCount, setTokenCount] = useState(1);
   const { me } = useSession();
   const [split, setSplit] = useState<SplitRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -121,6 +135,9 @@ export function PaymentDialog({
     setGiftCode("");
     setGift(null);
     setError(null);
+    setMemberMoney(null);
+    setRestMode("CASH");
+    setTokenCount(1);
     if (suggestedSplit && suggestedSplit.length > 1) {
       setTab("SPLIT");
       setSplit(suggestedSplit.map((a, i) => ({ id: i + 1, mode: "CASH" as PaymentMode, amount: rupeesInput(a) })));
@@ -134,6 +151,20 @@ export function PaymentDialog({
     // Reset only when a new checkout opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkout]);
+
+  // Canteen member on the bill: load their wallet and meal tokens (Phase 5.2).
+  const memberId = checkout?.kind === "online" && me?.modules?.includes("CANTEEN") ? checkout.order.customerId : null;
+  useEffect(() => {
+    if (!memberId) return;
+    let cancelled = false;
+    api
+      .get<MemberMoney>(`/canteen/members/${memberId}`)
+      .then((m) => !cancelled && setMemberMoney({ walletBalance: m.walletBalance, tokens: m.tokens }))
+      .catch(() => !cancelled && setMemberMoney(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [memberId, checkout]);
 
   /** Record the reservation advance as a payment (reference "ADVANCE"). */
   const applyAdvance = async () => {
@@ -166,7 +197,19 @@ export function PaymentDialog({
 
   const tipPaise = !offline && (tab === "CASH" || tab === "CARD") ? (parseRupees(tip) ?? 0) : 0;
   const giftUse = gift?.usable ? Math.min(gift.balance, amount) : 0;
-  const tabs = TABS.filter((t) => t.id !== "GIFT" || (Boolean(me?.features?.GIFT_CARDS) && !offline));
+  // Meal tokens for this bill's slot first, then any-slot tokens (same order as the server).
+  const slotId = liveOrder?.mealSlotId ?? null;
+  const tokenAcc = memberMoney?.tokens.find((t) => t.balance > 0 && slotId && t.mealSlotId === slotId) ?? memberMoney?.tokens.find((t) => t.balance > 0 && t.mealSlotId === null);
+  const tokenCover = tokenAcc ? (tokenCount >= tokenAcc.balance ? tokenAcc.value : Math.round(tokenAcc.value / tokenAcc.balance) * tokenCount) : 0;
+  const tokenUse = Math.min(tokenCover, amount);
+  const walletUse = Math.min(memberMoney?.walletBalance ?? 0, amount);
+  const corporatePaid = (liveOrder?.payments ?? []).filter((p) => p.mode === "CORPORATE" && p.status === "SUCCESS");
+  const tabs = TABS.filter((t) => {
+    if (t.id === "GIFT") return Boolean(me?.features?.GIFT_CARDS) && !offline;
+    if (t.id === "WALLET") return !offline && !!memberMoney;
+    if (t.id === "TOKEN") return !offline && !!tokenAcc;
+    return true;
+  });
 
   const checkGift = async () => {
     setGift(null);
@@ -199,6 +242,22 @@ export function PaymentDialog({
             ...(rest > 0 ? [{ mode: giftRestMode, amount: rest }] : []),
           ],
           ...(rest > 0 && giftRestMode === "CASH" && { tendered: rest }),
+        };
+      }
+      case "WALLET": {
+        if (walletUse <= 0) return "The wallet is empty";
+        const rest = amount - walletUse;
+        return {
+          payments: [{ mode: "WALLET", amount: walletUse }, ...(rest > 0 ? [{ mode: restMode, amount: rest }] : [])],
+          ...(rest > 0 && restMode === "CASH" && { tendered: rest }),
+        };
+      }
+      case "TOKEN": {
+        if (!tokenAcc || tokenUse <= 0) return "No meal tokens for this meal";
+        const rest = amount - tokenUse;
+        return {
+          payments: [{ mode: "MEAL_TOKEN", amount: tokenUse, tokens: tokenCount }, ...(rest > 0 ? [{ mode: restMode, amount: rest }] : [])],
+          ...(rest > 0 && restMode === "CASH" && { tendered: rest }),
         };
       }
       case "UPI":
@@ -336,6 +395,16 @@ export function PaymentDialog({
         </div>
       )}
 
+      {corporatePaid.length > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200" data-testid="corporate-share">
+          <Briefcase size={18} className="shrink-0" />
+          <span>
+            {corporatePaid[0]!.reference ?? "The company"} pays <strong className="tabular">{formatINR(corporatePaid.reduce((s, p) => s + p.amount, 0))}</strong> (billed monthly) · the
+            employee pays the amount due.
+          </span>
+        </div>
+      )}
+
       {offline && (
         <div className="mb-4">
           <Alert tone="warning">
@@ -373,7 +442,7 @@ export function PaymentDialog({
         </button>
       )}
 
-      <div role="tablist" className={clsx("mb-4 grid gap-1.5", tabs.length > 5 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-5")}>
+      <div role="tablist" className={clsx("mb-4 grid gap-1.5", tabs.length > 6 ? "grid-cols-4" : tabs.length > 5 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-5")}>
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -530,6 +599,51 @@ export function PaymentDialog({
         </div>
       )}
 
+      {(tab === "WALLET" || tab === "TOKEN") && memberMoney && (
+        <div className="space-y-2 text-sm">
+          {tab === "WALLET" ? (
+            <p>
+              Wallet balance <strong className="tabular">{formatINR(memberMoney.walletBalance)}</strong> · uses <strong className="tabular">{formatINR(walletUse)}</strong>
+            </p>
+          ) : (
+            tokenAcc && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span>
+                  {tokenAcc.balance} token{tokenAcc.balance === 1 ? "" : "s"} left · use
+                </span>
+                <select
+                  aria-label="Tokens to use"
+                  value={tokenCount}
+                  onChange={(e) => setTokenCount(Number(e.target.value))}
+                  className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold"
+                >
+                  {Array.from({ length: Math.min(tokenAcc.balance, 10) }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <span>
+                  covers <strong className="tabular">{formatINR(tokenUse)}</strong>
+                </span>
+              </div>
+            )
+          )}
+          {amount - (tab === "WALLET" ? walletUse : tokenUse) > 0 && (
+            <label className="flex items-center gap-2">
+              Pay the rest ({formatINR(amount - (tab === "WALLET" ? walletUse : tokenUse))}) by
+              <select value={restMode} onChange={(e) => setRestMode(e.target.value as PaymentMode)} className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold">
+                {(["CASH", "UPI", "CARD"] as PaymentMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+
       {tab === "KHATA" && (
         <div className="space-y-2 text-sm">
           {phone ? (
@@ -552,7 +666,7 @@ export function PaymentDialog({
                 onChange={(e) => setSplit((rows) => rows.map((r) => (r.id === row.id ? { ...r, mode: e.target.value as PaymentMode } : r)))}
                 className="min-h-tap w-32 rounded-xl border border-line bg-surface px-3 font-semibold"
               >
-                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).filter((m) => m !== "GIFT_CARD").map((m) => (
+                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).filter((m) => !SPLIT_HIDDEN.includes(m) && (m !== "WALLET" || (!!memberMoney && !offline))).map((m) => (
                   <option key={m} value={m}>
                     {PAYMENT_MODE_LABELS[m]}
                   </option>

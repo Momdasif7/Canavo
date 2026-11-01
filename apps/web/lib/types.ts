@@ -8,7 +8,7 @@ export type FoodType = "VEG" | "NON_VEG" | "EGG";
 export type ItemStatus = "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN";
 export type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "PRE_ORDER";
 export type OrderStatus = "OPEN" | "PAID" | "CANCELLED";
-export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA" | "GIFT_CARD";
+export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA" | "GIFT_CARD" | "CORPORATE" | "WALLET" | "MEAL_TOKEN";
 export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
 export type KotStatus = "RECEIVED" | "PREPARING" | "READY" | "SERVED";
 export type StaffStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
@@ -336,6 +336,8 @@ export interface Order {
   customerId?: string | null;
   scheduledFor?: string | null;
   tableSessionId?: string | null;
+  /** Phase 5 (CANTEEN): meal slot of the bill */
+  mealSlotId?: string | null;
   items: OrderItem[];
   payments: Payment[];
   kots?: Kot[];

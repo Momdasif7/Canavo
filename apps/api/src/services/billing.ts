@@ -21,6 +21,7 @@ import { emitToOutlet } from "../realtime";
 import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
 import { acceptOfflineNumber } from "./offline-series";
 import { slotAt } from "./meal-slots";
+import { applyMemberShare } from "./canteen";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { applyPromotions, onOrderCreated, onOrderPaid } from "./promotions";
 import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from "./service-context";
@@ -86,6 +87,17 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       if (existing.outletId !== outletId) throw badRequest("clientOrderId belongs to another outlet");
       return { order: existing, duplicate: true, effects: () => undefined };
     }
+  }
+
+  // Phase 5.1 (CANTEEN): a scanned member is the bill's customer; the company's share is added below.
+  let member: { id: string } | null = null;
+  if (input.memberId) {
+    if (!moduleEnabled("CANTEEN")) throw badRequest("Canteen is not enabled for this business");
+    const m = await prisma.customer.findFirst({ where: { id: input.memberId, canteenMember: true } });
+    if (!m) throw badRequest("Unknown canteen member");
+    if (!m.memberActive && !offline) throw badRequest(`${m.name ?? "This member"}'s card is inactive`);
+    member = m;
+    input = { ...input, customerPhone: m.phone, customerName: input.customerName ?? m.name ?? undefined };
   }
 
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId } });
@@ -230,7 +242,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
         taxBreakup: bill.taxBreakup as unknown as Prisma.InputJsonValue,
         syncedOffline: offline,
         mealSlotId,
-        customerId: pricing.customerId,
+        customerId: member?.id ?? pricing.customerId,
         scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : undefined,
         tableSessionId: opts.tableSessionId,
         promoDiscount: pricing.applied.reduce((s, a) => s + a.amount, 0),
@@ -271,6 +283,11 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     await onOrderCreated(tx, created.id, pricing);
     await onOrderCreatedService(tx, created.id, input, service);
     if (moduleEnabled("INVENTORY")) await deductStockForOrder(tx, created.id);
+    if (member) {
+      const share = await applyMemberShare(tx, { orderId: created.id, grandTotal: bill.grandTotal, memberId: member.id, mealSlotId, createdAt, timezone: outlet.timezone, offline });
+      // Fully paid by the company (e.g. free lunch): the bill is settled now.
+      if (share > 0 && share >= bill.grandTotal) await settleIfPaid(created.id, tx);
+    }
 
     // One KOT per kitchen station (e.g. beverages vs main kitchen).
     const byStation = new Map<string, typeof lines>();

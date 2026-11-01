@@ -21,7 +21,8 @@ import { createCreditNote } from "../services/credit-notes";
 import { assertCashShiftOpen } from "../services/cash-shifts";
 import { creditGiftCard, redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
-import { featureOn } from "../lib/tenant";
+import { featureOn, moduleEnabled } from "../lib/tenant";
+import { redeemTokens, restoreCanteenForOrder, spendWallet } from "../services/canteen";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
@@ -237,6 +238,7 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
     for (const p of order.payments.filter((x) => x.mode === "GIFT_CARD" && x.giftCardId && x.status === "SUCCESS")) {
       await creditGiftCard(tx, p.giftCardId!, p.amount, { outletId: req.outletId!, orderId: order.id, note: `Bill ${order.invoiceNumber} cancelled`, userId: req.user!.id });
     }
+    await restoreCanteenForOrder(tx, order.id, { outletId: req.outletId!, invoiceNumber: order.invoiceNumber, userId: req.user!.id });
     await onOrderCancelledService(tx, order.id);
     await restoreStockForOrder(tx, order.id);
     await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
@@ -282,11 +284,20 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
 
   if (payments.some((p) => p.mode === "GIFT_CARD") && !featureOn("GIFT_CARDS")) throw badRequest("Gift cards are not enabled for this hotel");
   if (payments.some((p) => p.mode === "GIFT_CARD" && !p.giftCardCode)) throw badRequest("Enter the gift card code");
+  // Phase 5 (CANTEEN): the company's share is added when the bill is made, never typed at the counter.
+  if (payments.some((p) => p.mode === "CORPORATE")) throw badRequest("The company's share is added automatically when the member's card is on the bill");
+  if (payments.some((p) => p.mode === "WALLET" || p.mode === "MEAL_TOKEN")) {
+    if (!moduleEnabled("CANTEEN")) throw badRequest("Canteen is not enabled for this business");
+    if (!order.customerId) throw badRequest("Wallet and meal tokens need the member's card on the bill");
+  }
 
   const paid = await prisma.$transaction(async (tx) => {
     for (const p of payments) {
       // Gift cards are spent with a compare-and-set inside this transaction (Phase 3.8).
       const card = p.mode === "GIFT_CARD" ? await redeemGiftCard(tx, p.giftCardCode!, p.amount, { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id }) : null;
+      const ctx = { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id };
+      if (p.mode === "WALLET") await spendWallet(tx, order.customerId!, p.amount, ctx);
+      if (p.mode === "MEAL_TOKEN") await redeemTokens(tx, { ...ctx, customerId: order.customerId!, mealSlotId: order.mealSlotId, tokens: p.tokens ?? 1, amount: p.amount });
       await tx.payment.create({
         data: {
           orderId: order.id,
@@ -297,6 +308,7 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
           cardLast4: p.mode === "CARD" ? p.cardLast4 : undefined,
           authCode: p.mode === "CARD" ? p.authCode : undefined,
           giftCardId: card?.id,
+          tokens: p.mode === "MEAL_TOKEN" ? (p.tokens ?? 1) : undefined,
           status: "SUCCESS" as const,
           confirmedAt: new Date(),
         },

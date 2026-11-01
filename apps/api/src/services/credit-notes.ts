@@ -8,6 +8,7 @@ import { moduleEnabled } from "../lib/tenant";
 import { approvalsOn, requireApproval } from "./approvals";
 import { applyStockMovement, computeConsumption } from "./inventory";
 import { creditGiftCard } from "./gift-cards";
+import { creditWallet } from "./canteen";
 
 /**
  * Refunds as GST credit notes (Phase 3.1). A credit note is issued against a PAID bill, for
@@ -108,6 +109,24 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
       sums.taxableValue = amount - sums.cgst - sums.sgst - sums.igst - sums.cess - sums.otherTaxes;
     }
 
+    // Phase 5.1: the company's share goes back to the company (its statement), the rest to the employee.
+    const corporatePaid = order.payments.filter((p) => p.mode === "CORPORATE").reduce((s, p) => s + p.amount, 0);
+    if (corporatePaid > 0 || input.refundMode === "CORPORATE") {
+      const byMode = await tx.creditNote.groupBy({ by: ["refundMode"], where: { orderId: order.id }, _sum: { amount: true } });
+      const corporateRefunded = byMode.find((m) => m.refundMode === "CORPORATE")?._sum.amount ?? 0;
+      const otherRefunded = byMode.filter((m) => m.refundMode !== "CORPORATE").reduce((s, m) => s + (m._sum.amount ?? 0), 0);
+      if (input.refundMode === "CORPORATE" && amount > corporatePaid - corporateRefunded) {
+        throw badRequest(`At most ${formatINR(Math.max(0, corporatePaid - corporateRefunded))} of this bill was paid by the company`);
+      }
+      if (input.refundMode !== "CORPORATE" && amount > order.grandTotal - corporatePaid - otherRefunded) {
+        throw badRequest(`The member paid ${formatINR(order.grandTotal - corporatePaid)} of this bill; refund the company's share as "Company"`);
+      }
+    }
+    if (input.refundMode === "WALLET") {
+      const member = order.customerId ? await tx.customer.findFirst({ where: { id: order.customerId, canteenMember: true }, select: { id: true } }) : null;
+      if (!member) throw badRequest("Refund to wallet needs a canteen member on the bill");
+      await creditWallet(tx, member.id, amount, { outletId, type: "REFUND", orderId: order.id, note: `Refund on bill ${order.invoiceNumber}`, userId: req.user!.id });
+    }
     if (input.refundMode === "KHATA") await creditKhata(tx, req, order, amount);
     if (input.refundMode === "GIFT_CARD") {
       // Back onto the gift card the bill was paid with, at most what was paid by gift card.

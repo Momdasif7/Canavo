@@ -230,7 +230,7 @@ export type TaxRateInput = z.infer<typeof taxRateSchema>;
 
 // ---------- Orders & payments ----------
 export const ORDER_TYPES = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"] as const;
-export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD"] as const;
+export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "CORPORATE", "WALLET", "MEAL_TOKEN"] as const;
 
 export const orderItemInputSchema = z.object({
   menuItemId: z.string(),
@@ -267,6 +267,8 @@ export const orderCreateSchema = z.object({
   approval: approvalSchema.optional(),
   /** Phase 5 (CANTEEN): meal slot of a pre-order; counter bills get the slot open at billing time */
   mealSlotId: z.string().optional(),
+  /** Phase 5.1 (CANTEEN): canteen member eating (card scan); the company's share is added as a CORPORATE payment */
+  memberId: z.string().min(1).optional(),
   /** Offline bill numbered from this device's series (OFFLINE_INVOICE_SERIES), e.g. "INVA1-2026-00007" */
   offlineInvoiceNumber: z.string().max(16).optional(),
   /** Promotions & loyalty */
@@ -308,6 +310,8 @@ export const paymentSchema = z.object({
         authCode: z.string().trim().max(20).optional(),
         /** GIFT_CARD: the card's code */
         giftCardCode: z.string().trim().toUpperCase().max(30).optional(),
+        /** MEAL_TOKEN: tokens used (default 1) */
+        tokens: z.number().int().min(1).max(20).optional(),
       }),
     )
     .min(1),
@@ -334,7 +338,7 @@ export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
   CUSTOMER_CHANGED_MIND: "Customer changed mind",
   OTHER: "Other",
 };
-export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD"] as const;
+export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "WALLET", "CORPORATE"] as const;
 
 /** Refund some items (and quantities) of a paid bill, or a value only (e.g. overcharge). */
 export const refundSchema = z

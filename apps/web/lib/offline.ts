@@ -20,6 +20,8 @@ export interface QueuedPayment {
   cardLast4?: string;
   authCode?: string;
   giftCardCode?: string;
+  /** Phase 5.2 (online only): meal tokens used */
+  tokens?: number;
 }
 
 export interface QueuedOrder {

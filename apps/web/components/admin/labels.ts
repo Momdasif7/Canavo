@@ -12,4 +12,5 @@ export const REPORT_LABELS: Record<ReportKey, string> = {
   customers: "Customers",
   inventory: "Inventory",
   delivery: "Delivery",
+  canteen: "Canteen",
 };

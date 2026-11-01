@@ -2,6 +2,7 @@
 
 import {
   Bank,
+  Briefcase,
   Buildings,
   ChartLineUp,
   Clock,
@@ -34,16 +35,19 @@ const TABS: TabLink[] = [
   { href: "/reports/delivery", label: "Delivery", icon: Moped },
   { href: "/reports/exceptions", label: "Exceptions", icon: WarningOctagon },
   { href: "/reports/settlements", label: "Settlements", icon: Bank },
+  { href: "/reports/canteen", label: "Canteen", icon: Briefcase },
   { href: "/reports/outlets", label: "All outlets", icon: Buildings },
 ];
 
 export default function ReportsLayout({ children }: { children: React.ReactNode }) {
-  const { can } = useSession();
+  const { can, me } = useSession();
+  // The canteen report only for hotels with the Canteen module.
+  const tabs = TABS.filter((t) => t.href !== "/reports/canteen" || me?.modules?.includes("CANTEEN"));
   if (!can("report:view")) return <ErrorState message="Your role doesn't have access to reports." />;
   return (
     <ReportRangeProvider>
       <PageContainer>
-        <TabNav tabs={TABS} label="Reports" />
+        <TabNav tabs={tabs} label="Reports" />
         {children}
       </PageContainer>
     </ReportRangeProvider>

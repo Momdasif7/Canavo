@@ -573,6 +573,12 @@ enum PaymentMode {
   KHATA
   /// Phase 3.8: closed-loop gift card (feature GIFT_CARDS)
   GIFT_CARD
+  /// Phase 5.1 (CANTEEN): employer's share of a member's meal, billed to the company monthly
+  CORPORATE
+  /// Phase 5.2 (CANTEEN): member's prepaid wallet
+  WALLET
+  /// Phase 5.2 (CANTEEN): prepaid meal token(s)
+  MEAL_TOKEN
 }
 
 enum PaymentStatus {
@@ -582,33 +588,38 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id            String        @id @default(cuid())
-  orderId       String
-  mode          PaymentMode
-  amount        Int
-  status        PaymentStatus @default(SUCCESS)
-  reference     String?
+  id                 String        @id @default(cuid())
+  orderId            String
+  mode               PaymentMode
+  amount             Int
+  status             PaymentStatus @default(SUCCESS)
+  reference          String?
   /// Razorpay QR code id for UPI QR payments
-  gatewayRef    String?       @unique
-  qrPayload     String?
-  createdAt     DateTime      @default(now())
-  confirmedAt   DateTime?
+  gatewayRef         String?       @unique
+  qrPayload          String?
+  createdAt          DateTime      @default(now())
+  confirmedAt        DateTime?
   /// Who received the money (e.g. the delivery partner at the door); null = outlet counter
-  collectedById String?
+  collectedById      String?
   /// Phase 3.8: tip on top of this payment (not part of the bill, not taxed), paise
-  tip           Int           @default(0)
+  tip                Int           @default(0)
   /// Card payments: last 4 digits and the terminal's approval code
-  cardLast4     String?
-  authCode      String?
+  cardLast4          String?
+  authCode           String?
   /// Gift card used (mode GIFT_CARD)
-  giftCardId    String?
+  giftCardId         String?
   /// Card / UPI: matched to the acquirer's or bank's settlement
-  settledAt     DateTime?
-  settlementRef String?
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  settledAt          DateTime?
+  settlementRef      String?
+  /// Phase 5.1: company billed for this share (mode CORPORATE)
+  corporateAccountId String?
+  /// Phase 5.2: meal tokens used (mode MEAL_TOKEN)
+  tokens             Int?
+  order              Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([collectedById])
   @@index([orderId])
+  @@index([corporateAccountId, createdAt])
 }
 
 // ---------- Audit & notifications ----------
@@ -862,33 +873,49 @@ enum LoyaltyTier {
 }
 
 model Customer {
-  id           String               @id @default(cuid())
-  businessId   String
-  phone        String
-  name         String?
-  email        String?
+  id                 String               @id @default(cuid())
+  businessId         String
+  phone              String
+  name               String?
+  email              String?
   /// "MM-DD"
-  birthday     String?
-  anniversary  String?
-  totalSpend   Int                  @default(0)
-  visitCount   Int                  @default(0)
-  lastVisitAt  DateTime?
-  points       Int                  @default(0)
-  tier         LoyaltyTier          @default(BRONZE)
+  birthday           String?
+  anniversary        String?
+  totalSpend         Int                  @default(0)
+  visitCount         Int                  @default(0)
+  lastVisitAt        DateTime?
+  points             Int                  @default(0)
+  tier               LoyaltyTier          @default(BRONZE)
   /// Outstanding khata (credit) balance, paise; positive = customer owes
-  khataBalance Int                  @default(0)
-  khataLimit   Int                  @default(0)
-  blocked      Boolean              @default(false)
-  notes        String?
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  orders       Order[]
-  loyaltyTxns  LoyaltyTransaction[]
-  khataTxns    KhataTransaction[]
-  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  khataBalance       Int                  @default(0)
+  khataLimit         Int                  @default(0)
+  blocked            Boolean              @default(false)
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  /// Phase 5 (CANTEEN): a canteen member (employee / student) — card, wallet, company subsidy
+  canteenMember      Boolean              @default(false)
+  corporateAccountId String?
+  employeeCode       String?
+  department         String?
+  /// RFID / QR card value (USB readers type it + Enter), unique per business
+  cardUid            String?
+  memberActive       Boolean              @default(true)
+  /// Prepaid wallet balance, paise (liability: no GST until spent)
+  walletBalance      Int                  @default(0)
+  orders             Order[]
+  loyaltyTxns        LoyaltyTransaction[]
+  khataTxns          KhataTransaction[]
+  walletTxns         WalletTxn[]
+  mealTokens         MealTokenAccount[]
+  corporateAccount   CorporateAccount?    @relation(fields: [corporateAccountId], references: [id], onDelete: SetNull)
+  business           Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, phone])
+  @@unique([businessId, cardUid])
   @@index([businessId])
+  @@index([businessId, employeeCode])
+  @@index([corporateAccountId])
 }
 
 enum LoyaltyTxnType {
@@ -1647,4 +1674,165 @@ model MealSlot {
   outlet         Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@index([outletId])
+}
+
+// ---------- Phase 5.1 / 5.2 (CANTEEN): corporate accounts, subsidies, wallets, meal tokens ----------
+
+enum BillingCycle {
+  MONTHLY
+  WEEKLY
+}
+
+enum SubsidyType {
+  /// Employer pays a % of the meal
+  PERCENT
+  /// Employer pays a flat amount per meal
+  FLAT
+}
+
+/// A company whose employees eat at the canteen; billed for its share of their meals.
+model CorporateAccount {
+  id             String                 @id @default(cuid())
+  businessId     String
+  name           String
+  contactName    String?
+  contactPhone   String?
+  contactEmail   String?
+  gstin          String?
+  billingCycle   BillingCycle           @default(MONTHLY)
+  /// Max unpaid employer share, paise; 0 = no limit
+  creditLimit    Int                    @default(0)
+  /// Max meals per member per day (all slots); null = no limit
+  dailyMealLimit Int?
+  active         Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  members        Customer[]
+  rules          CorporateSubsidyRule[]
+  statements     CorporateStatement[]
+
+  @@unique([businessId, name])
+}
+
+/// Employer subsidy for a corporate account, for one meal slot or (mealSlotId null) every slot.
+model CorporateSubsidyRule {
+  id                 String           @id @default(cuid())
+  corporateAccountId String
+  mealSlotId         String?
+  type               SubsidyType
+  /// PERCENT: 0–100; FLAT: paise per meal
+  value              Int
+  /// Employer pays at most this per meal, paise
+  maxPerMeal         Int?
+  /// Employer pays at most this per member per day, paise
+  maxPerDay          Int?
+  /// Max meals per member per day in this rule's slot; null = no limit
+  slotMealLimit      Int?
+  active             Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  account            CorporateAccount @relation(fields: [corporateAccountId], references: [id], onDelete: Cascade)
+
+  @@index([corporateAccountId])
+}
+
+enum CorporateStatementStatus {
+  INVOICED
+  PAID
+}
+
+/// A period's employer share, invoiced to the company (status record; totals frozen when raised).
+model CorporateStatement {
+  id                 String                   @id @default(cuid())
+  businessId         String
+  corporateAccountId String
+  /// YYYY-MM-DD, inclusive
+  periodFrom         String
+  periodTo           String
+  meals              Int
+  amount             Int
+  status             CorporateStatementStatus @default(INVOICED)
+  invoiceRef         String?
+  note               String?
+  createdById        String
+  createdAt          DateTime                 @default(now())
+  paidAt             DateTime?
+  account            CorporateAccount         @relation(fields: [corporateAccountId], references: [id], onDelete: Cascade)
+
+  @@index([corporateAccountId, periodFrom])
+}
+
+enum WalletTxnType {
+  TOPUP
+  SPEND
+  REFUND
+  ADJUST
+}
+
+/// Member wallet ledger. Balance moves only through these rows (compare-and-set on Customer.walletBalance).
+model WalletTxn {
+  id          String        @id @default(cuid())
+  customerId  String
+  outletId    String?
+  type        WalletTxnType
+  /// Signed: + adds to the balance, − spends
+  amount      Int
+  /// TOPUP: how it was paid (CASH / UPI / CARD)
+  mode        String?
+  orderId     String?
+  note        String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  customer    Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([outletId, createdAt])
+  @@index([orderId])
+}
+
+/// A member's prepaid meal tokens for one slot (or any slot when mealSlotId is null).
+model MealTokenAccount {
+  id         String         @id @default(cuid())
+  customerId String
+  mealSlotId String?
+  /// Tokens left
+  balance    Int            @default(0)
+  /// Value of the tokens left, paise (what was paid for them)
+  value      Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  customer   Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  txns       MealTokenTxn[]
+
+  @@index([customerId])
+}
+
+enum MealTokenTxnType {
+  PURCHASE
+  REDEEM
+  RESTORE
+  ADJUST
+}
+
+model MealTokenTxn {
+  id          String           @id @default(cuid())
+  accountId   String
+  customerId  String
+  outletId    String?
+  type        MealTokenTxnType
+  /// Signed token count
+  count       Int
+  /// Signed value, paise
+  amount      Int
+  /// PURCHASE: how it was paid (CASH / UPI / CARD)
+  mode        String?
+  orderId     String?
+  note        String?
+  createdById String?
+  createdAt   DateTime         @default(now())
+  account     MealTokenAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([outletId, createdAt])
+  @@index([orderId])
 }

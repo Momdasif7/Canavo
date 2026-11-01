@@ -34,6 +34,7 @@ import { supportRouter } from "./routes/support";
 import { cashShiftsRouter } from "./routes/cash-shifts";
 import { giftCardsRouter } from "./routes/gift-cards";
 import { settlementsRouter } from "./routes/settlements";
+import { canteenRouter } from "./routes/canteen";
 
 gauge("canavo_outbox_pending", "Outbox events waiting for delivery", () => platformPrisma.outboxEvent.count({ where: { deliveredAt: null, failedAt: null } }));
 gauge("canavo_outbox_dead", "Outbox events that gave up (dead-lettered)", () => platformPrisma.outboxEvent.count({ where: { failedAt: { not: null } } }));
@@ -91,6 +92,7 @@ export function createApp() {
   app.use("/cash-shifts", cashShiftsRouter);
   app.use("/gift-cards", giftCardsRouter);
   app.use("/settlements", settlementsRouter);
+  app.use("/canteen", canteenRouter);
 
   app.use(() => {
     throw notFound("Route");

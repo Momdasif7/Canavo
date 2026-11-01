@@ -91,6 +91,8 @@ export interface CartMeta {
   /** PRE_ORDER: `datetime-local` value (outlet-local wall time) */
   scheduledFor: string;
   delivery: DeliveryMeta;
+  /** Phase 5 (CANTEEN): scanned member ("" = none); the company's share is added at billing */
+  memberId?: string;
 }
 
 export const EMPTY_META: CartMeta = {
@@ -399,6 +401,7 @@ export function toOrderInput(lines: CartLine[], meta: CartMeta, clientOrderId?: 
     tableLabel: meta.orderType === "DINE_IN" && meta.tableLabel.trim() ? meta.tableLabel.trim() : undefined,
     customerName: meta.customerName.trim() || undefined,
     customerPhone: meta.customerPhone.trim() || undefined,
+    memberId: meta.memberId || undefined,
     interState: false,
     items: lines.map((l) => ({
       menuItemId: l.itemId,
