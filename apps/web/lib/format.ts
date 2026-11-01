@@ -16,6 +16,9 @@ export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
   CARD: "Card",
   KHATA: "Khata",
   GIFT_CARD: "Gift card",
+  CORPORATE: "Company",
+  WALLET: "Wallet",
+  MEAL_TOKEN: "Meal token",
 };
 
 /** ₹ amount entered by a user → paise, or null when blank/invalid. */

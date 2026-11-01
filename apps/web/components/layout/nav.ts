@@ -24,6 +24,7 @@ import {
   Storefront,
   type Icon,
 } from "@phosphor-icons/react";
+import { Briefcase, IdentificationBadge } from "@phosphor-icons/react";
 import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
@@ -144,6 +145,16 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/customers", label: "Customers", icon: UserList, anyOf: ["customer:view"] },
       { href: "/customers/khata", label: "Khata", icon: Notebook, anyOf: ["customer:view"] },
       { href: "/offers", label: "Offers & Coupons", icon: Tag, anyOf: ["offer:manage"] },
+    ],
+  },
+  {
+    // Phase 5 (CANTEEN module): canteen & institutional catering
+    id: "canteen",
+    label: "Canteen",
+    icon: Briefcase,
+    items: [
+      { href: "/canteen/accounts", label: "Corporate accounts", icon: Briefcase, anyOf: ["canteen:manage"] },
+      { href: "/canteen/members", label: "Members & cards", icon: IdentificationBadge, anyOf: ["canteen:manage"] },
     ],
   },
   {

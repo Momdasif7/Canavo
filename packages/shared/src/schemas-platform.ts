@@ -16,6 +16,7 @@ export const REPORT_KEYS = [
   "inventory",
   "delivery",
   "exceptions",
+  "canteen",
 ] as const;
 export type ReportKey = (typeof REPORT_KEYS)[number];
 

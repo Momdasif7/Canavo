@@ -9,7 +9,8 @@ import { approvalsOn, requireApproval } from "./approvals";
 /**
  * Cash drawer shifts and the X/Z report (Phase 3.2). One open shift per outlet (one drawer).
  * Expected cash = opening float + counter cash payments (+ cash tips) + gift cards sold for cash
- *   + delivery cash handed over + pay-ins − pay-outs − cash refunds.
+ *   + canteen wallet top-ups / meal tokens sold for cash + delivery cash handed over + pay-ins
+ *   − pay-outs − cash refunds.
  */
 type Tx = Prisma.TransactionClient;
 
@@ -25,6 +26,8 @@ export interface ShiftSummary {
   cashTips: number;
   /** Gift cards sold for cash (Phase 3.8) — in the drawer, not sales */
   giftCardCashSales: number;
+  /** Canteen wallet top-ups and meal tokens sold for cash (Phase 5.2) — in the drawer, not sales */
+  canteenCashTopups: number;
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
@@ -36,7 +39,7 @@ export interface ShiftSummary {
 export async function shiftSummary(shift: { outletId: string; openedAt: Date; closedAt: Date | null; openingFloat: number; id: string }, db: Tx | typeof prisma = prisma): Promise<ShiftSummary> {
   const to = shift.closedAt ?? new Date();
   const win = { gte: shift.openedAt, lt: to };
-  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash] = await Promise.all([
+  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash, walletCash, tokenCash] = await Promise.all([
     db.order.aggregate({ where: { outletId: shift.outletId, status: "PAID", paidAt: win }, _count: true, _sum: { grandTotal: true, discount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } }),
     db.order.aggregate({ where: { outletId: shift.outletId, cancelledAt: win }, _count: true, _sum: { grandTotal: true } }),
     db.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", createdAt: win, order: { outletId: shift.outletId } }, _count: true, _sum: { amount: true } }),
@@ -45,6 +48,8 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
     db.creditNote.groupBy({ by: ["refundMode"], where: { outletId: shift.outletId, createdAt: win }, _count: true, _sum: { amount: true } }),
     db.cashMovement.groupBy({ by: ["type"], where: { shiftId: shift.id }, _sum: { amount: true } }),
     db.giftCard.aggregate({ where: { soldOutletId: shift.outletId, soldMode: "CASH", createdAt: win }, _sum: { initialValue: true } }),
+    db.walletTxn.aggregate({ where: { outletId: shift.outletId, type: "TOPUP", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
+    db.mealTokenTxn.aggregate({ where: { outletId: shift.outletId, type: "PURCHASE", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
   ]);
   const s = orders._sum;
   const cashRefunds = refunds.find((r) => r.refundMode === "CASH")?._sum.amount ?? 0;
@@ -53,6 +58,7 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
   const counter = counterCash._sum.amount ?? 0;
   const cashTips = counterCash._sum.tip ?? 0;
   const giftCardCashSales = giftCash._sum.initialValue ?? 0;
+  const canteenCashTopups = (walletCash._sum.amount ?? 0) + (tokenCash._sum.amount ?? 0);
   const handed = handovers._sum.amount ?? 0;
   return {
     from: shift.openedAt.toISOString(),
@@ -69,12 +75,13 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
     counterCash: counter,
     cashTips,
     giftCardCashSales,
+    canteenCashTopups,
     deliveryCashHandedOver: handed,
     refunds: Object.fromEntries(refunds.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
     cashRefunds,
     payIns,
     payOuts,
-    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + handed + payIns - payOuts - cashRefunds,
+    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + canteenCashTopups + handed + payIns - payOuts - cashRefunds,
   };
 }
 

@@ -24,6 +24,7 @@ import { CartPanel, allowedOrderTypes, type CartTotals } from "@/components/pos/
 import { CustomerCard, DeliveryFields, OffersBanner, PreOrderField, PromoFields } from "@/components/pos/PosExtras";
 import { PaymentDialog, orderBalance, type Checkout } from "@/components/pos/PaymentDialog";
 import { SuccessPanel, type Success } from "@/components/pos/SuccessPanel";
+import { MemberScan } from "@/components/pos/MemberScan";
 import { confirmForceAssign, partnerUnavailable } from "@/components/delivery/common";
 import {
   EMPTY_META,
@@ -160,7 +161,8 @@ export default function PosPage() {
   );
 
   const patchMeta = useCallback((patch: Partial<CartMeta>) => {
-    setMeta((m) => ({ ...m, ...patch }));
+    // Typing another phone takes the scanned member off the bill.
+    setMeta((m) => ({ ...m, ...("customerPhone" in patch && !("memberId" in patch) && patch.customerPhone !== m.customerPhone ? { memberId: undefined } : {}), ...patch }));
     if ("customerPhone" in patch) setPhoneError(undefined);
   }, []);
   const patchDelivery = useCallback((patch: Partial<DeliveryMeta>) => setMeta((m) => ({ ...m, delivery: { ...m.delivery, ...patch } })), []);
@@ -584,8 +586,19 @@ export default function PosPage() {
   if (menuError && !menu) return <ErrorState message={menuError} onRetry={fetchMenu} />;
   if (!menu) return <LoadingState label="Loading menu…" />;
 
+  // Phase 5.2: canteen card scan attaches a member (and their phone) to the bill.
+  const canteenOn = Boolean(me?.modules?.includes("CANTEEN")) && online;
   const details = (
     <>
+      {canteenOn && (
+        <MemberScan
+          memberId={meta.memberId}
+          phone={meta.customerPhone.trim()}
+          billTotal={totals.grandTotal}
+          onAttach={(m) => patchMeta({ memberId: m.id, customerPhone: m.phone, customerName: m.name ?? "" })}
+          onClear={() => patchMeta({ memberId: undefined, customerPhone: "", customerName: "" })}
+        />
+      )}
       <CustomerCard lookup={lookup} loading={lookingUp} />
       {isDelivery && (
         <DeliveryFields
@@ -603,7 +616,7 @@ export default function PosPage() {
       {meta.orderType === "PRE_ORDER" && <PreOrderField value={meta.scheduledFor} onChange={(scheduledFor) => patchMeta({ scheduledFor })} />}
     </>
   );
-  const hasDetails = lookingUp || !!lookup || isDelivery || meta.orderType === "PRE_ORDER";
+  const hasDetails = canteenOn || lookingUp || !!lookup || isDelivery || meta.orderType === "PRE_ORDER";
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">

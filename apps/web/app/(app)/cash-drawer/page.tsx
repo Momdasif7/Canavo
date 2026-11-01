@@ -27,6 +27,7 @@ interface Summary {
   counterCash: number;
   cashTips?: number;
   giftCardCashSales?: number;
+  canteenCashTopups?: number;
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
@@ -305,6 +306,7 @@ function SummaryTable({ summary: m }: { summary: Summary }) {
       <Row label="+ Cash sales at the counter" value={formatINR(m.counterCash)} />
       {(m.cashTips ?? 0) > 0 && <Row label="+ Cash tips" value={formatINR(m.cashTips!)} />}
       {(m.giftCardCashSales ?? 0) > 0 && <Row label="+ Gift cards sold for cash" value={formatINR(m.giftCardCashSales!)} />}
+      {(m.canteenCashTopups ?? 0) > 0 && <Row label="+ Wallet top-ups / meal tokens (cash)" value={formatINR(m.canteenCashTopups!)} />}
       {m.deliveryCashHandedOver > 0 && <Row label="+ Delivery cash handed over" value={formatINR(m.deliveryCashHandedOver)} />}
       {m.payIns > 0 && <Row label="+ Pay-ins" value={formatINR(m.payIns)} />}
       {m.payOuts > 0 && <Row label="− Pay-outs" value={formatINR(m.payOuts)} />}

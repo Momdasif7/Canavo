@@ -4,7 +4,8 @@ import type { Outlet } from "@prisma/client";
 import { exclusiveOf, financialYearLabel, REPORT_KEYS, type ReportKey } from "@canavo/shared";
 import { prisma } from "../db";
 import { dayOutcome } from "../services/attendance";
-import { badRequest, parse } from "../lib/http";
+import { badRequest, forbidden, parse } from "../lib/http";
+import { moduleEnabled } from "../lib/tenant";
 import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { sendExport, type ExportColumn, type ExportFormat, type ExportTable } from "../services/report-export";
@@ -1204,6 +1205,100 @@ async function exceptionsReport(ctx: ReportCtx): Promise<BuiltReport> {
 }
 
 // =====================================================================
+// Canteen (Phase 5.5): meals by company and department, who paid, wallet liability
+// =====================================================================
+
+async function canteenReport(ctx: ReportCtx): Promise<BuiltReport> {
+  if (!moduleEnabled("CANTEEN")) throw forbidden("This feature is not enabled for your business");
+  const w = window(ctx);
+  const [orders, wallets, tokens, topups, tokenSales] = await Promise.all([
+    prisma.order.findMany({
+      where: { ...w, status: "PAID", customer: { canteenMember: true } },
+      select: {
+        grandTotal: true,
+        payments: { where: { status: "SUCCESS" }, select: { mode: true, amount: true, tokens: true } },
+        customer: { select: { department: true, corporateAccount: { select: { name: true } } } },
+      },
+    }),
+    prisma.customer.aggregate({ where: { canteenMember: true }, _sum: { walletBalance: true }, _count: { _all: true } }),
+    prisma.mealTokenAccount.aggregate({ _sum: { balance: true, value: true } }),
+    prisma.walletTxn.groupBy({ by: ["mode"], where: { ...w, type: "TOPUP" }, _sum: { amount: true }, _count: true }),
+    prisma.mealTokenTxn.aggregate({ where: { ...w, type: "PURCHASE" }, _sum: { amount: true, count: true } }),
+  ]);
+
+  type Row = { key: string; meals: number; gross: number; employerShare: number; employeeShare: number; walletSpend: number; tokensRedeemed: number; tokenValue: number };
+  const blank = (key: string): Row => ({ key, meals: 0, gross: 0, employerShare: 0, employeeShare: 0, walletSpend: 0, tokensRedeemed: 0, tokenValue: 0 });
+  const byAccount = new Map<string, Row>();
+  const byDept = new Map<string, Row>();
+  const total = blank("Total");
+  for (const o of orders) {
+    const sum = (mode: string) => o.payments.filter((p) => p.mode === mode).reduce((s, p) => s + p.amount, 0);
+    const employer = sum("CORPORATE");
+    const add = (r: Row) => {
+      r.meals += 1;
+      r.gross += o.grandTotal;
+      r.employerShare += employer;
+      r.employeeShare += o.grandTotal - employer;
+      r.walletSpend += sum("WALLET");
+      r.tokensRedeemed += o.payments.filter((p) => p.mode === "MEAL_TOKEN").reduce((s, p) => s + (p.tokens ?? 1), 0);
+      r.tokenValue += sum("MEAL_TOKEN");
+    };
+    const account = o.customer?.corporateAccount?.name ?? "No company";
+    const dept = `${account} · ${o.customer?.department || "No department"}`;
+    if (!byAccount.has(account)) byAccount.set(account, blank(account));
+    if (!byDept.has(dept)) byDept.set(dept, blank(dept));
+    add(byAccount.get(account)!);
+    add(byDept.get(dept)!);
+    add(total);
+  }
+  const sorted = (m: Map<string, Row>) => [...m.values()].sort((a, b) => b.gross - a.gross);
+  const data = {
+    totals: total,
+    byAccount: sorted(byAccount),
+    byDepartment: sorted(byDept),
+    // Liability (business-wide, now): prepaid money not yet eaten. Not sales; no GST until spent.
+    liability: {
+      members: wallets._count._all,
+      walletBalance: wallets._sum.walletBalance ?? 0,
+      tokensOutstanding: tokens._sum.balance ?? 0,
+      tokenValue: tokens._sum.value ?? 0,
+    },
+    topups: {
+      byMode: Object.fromEntries(topups.map((t) => [t.mode ?? "OTHER", { count: t._count, amount: t._sum.amount ?? 0 }])),
+      wallet: topups.reduce((s, t) => s + (t._sum.amount ?? 0), 0),
+      tokensSold: tokenSales._sum.count ?? 0,
+      tokenSales: tokenSales._sum.amount ?? 0,
+    },
+  };
+  const columns = (first: string): ExportColumn[] => [
+    { key: "key", header: first, width: 28 },
+    { key: "meals", header: "Meals", type: "int" },
+    { key: "gross", header: "Gross", type: "money", width: 13 },
+    { key: "employerShare", header: "Company share", type: "money", width: 14 },
+    { key: "employeeShare", header: "Employee share", type: "money", width: 14 },
+    { key: "walletSpend", header: "Wallet", type: "money", width: 12 },
+    { key: "tokensRedeemed", header: "Tokens", type: "int" },
+  ];
+  return {
+    title: "Canteen",
+    data,
+    tables: [
+      { title: "Canteen by company", subtitle: subtitle(ctx, "paid bills of canteen members"), columns: columns("Company"), rows: data.byAccount, totals: true },
+      { title: "Canteen by department", columns: columns("Company · department"), rows: data.byDepartment, totals: true },
+      {
+        title: "Prepaid liability (now, all outlets)",
+        columns: [{ key: "what", header: "What", width: 30 }, { key: "amount", header: "Amount", type: "money", width: 14 }],
+        rows: [
+          { what: `Wallet balances (${data.liability.members} members)`, amount: data.liability.walletBalance },
+          { what: `Meal tokens not used (${data.liability.tokensOutstanding})`, amount: data.liability.tokenValue },
+        ],
+        totals: true,
+      },
+    ],
+  };
+}
+
+// =====================================================================
 // Registry (also used by scheduled emails)
 // =====================================================================
 
@@ -1219,6 +1314,7 @@ export const REPORTS: Record<ReportKey, { title: string; build: (ctx: ReportCtx)
   inventory: { title: "Inventory", build: inventoryReport },
   delivery: { title: "Delivery", build: deliveryReport },
   exceptions: { title: "Exceptions", build: exceptionsReport },
+  canteen: { title: "Canteen", build: canteenReport },
 };
 
 export async function buildReport(key: ReportKey, outlet: Outlet, from: string, to: string, q: Record<string, unknown> = {}) {
