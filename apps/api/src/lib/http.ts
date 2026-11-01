@@ -1,3 +1,4 @@
+import { reportError } from "./observability";
 import type { NextFunction, Request, Response } from "express";
 import { z, ZodError, ZodType } from "zod";
 import { Prisma } from "@prisma/client";
@@ -24,7 +25,7 @@ export function parse<S extends ZodType>(schema: S, data: unknown): z.output<S> 
   return result.data;
 }
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });
   }
@@ -40,8 +41,9 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if ((err as { expose?: boolean }).expose && status && status < 500) {
     return res.status(status).json({ error: (err as Error).message });
   }
-  console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  // Unexpected: report with the request id; the client gets the id (to quote to support), never a stack trace.
+  reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+  res.status(500).json({ error: "Internal server error", requestId: req.id });
 }
 
 /** Read a route param as a string (Express 5 types allow string | string[]). */

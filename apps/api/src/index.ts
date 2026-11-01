@@ -1,4 +1,6 @@
 import "./env";
+import { installProcessHandlers } from "./lib/observability";
+installProcessHandlers();
 import http from "node:http";
 import { createApp } from "./app";
 import { env } from "./env";

@@ -45,6 +45,12 @@ const schema = z.object({
   DATA_ENCRYPTION_KEY: z.string().optional(),
   STORAGE_DIR: z.string().optional(),
   BACKUP_RETENTION: optNum(14),
+  // --- Observability ---
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  /** "pretty" = short dev lines (morgan); "json" = structured logs (always JSON in production) */
+  LOG_FORMAT: z.enum(["pretty", "json"]).default("pretty"),
+  /** Bearer token for GET /metrics (required to expose metrics in production) */
+  METRICS_TOKEN: z.string().min(16).optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -59,3 +65,26 @@ export const env = Object.fromEntries(
 ) as z.infer<typeof schema>;
 
 export const isProd = env.NODE_ENV === "production";
+
+/**
+ * Production fail-fast (Phase 1.8): refuse to start with settings that are unsafe in
+ * production, instead of failing later or running insecurely.
+ */
+export function productionConfigProblems(e = env): string[] {
+  if (e.NODE_ENV !== "production") return [];
+  const problems: string[] = [];
+  for (const k of ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "RECEIPT_LINK_SECRET"] as const) {
+    if (/change-me|^ci-|^test-|^it-|^qa-/.test(e[k])) problems.push(`${k} is a placeholder/test value`);
+  }
+  if (new Set([e.JWT_ACCESS_SECRET, e.JWT_REFRESH_SECRET, e.RECEIPT_LINK_SECRET]).size < 3) problems.push("JWT_ACCESS_SECRET, JWT_REFRESH_SECRET and RECEIPT_LINK_SECRET must all differ");
+  if (!e.DATA_ENCRYPTION_KEY) problems.push("DATA_ENCRYPTION_KEY is required (encrypted Aadhaar and WhatsApp tokens)");
+  if (/localhost|127\.0\.0\.1/.test(e.PUBLIC_API_URL)) problems.push("PUBLIC_API_URL points at localhost (receipt links would be broken)");
+  if (e.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) problems.push("CORS_ORIGINS must not be *");
+  return problems;
+}
+
+const problems = productionConfigProblems();
+if (problems.length && process.env.SKIP_PROD_CONFIG_CHECK !== "1") {
+  console.error(`Refusing to start in production:\n - ${problems.join("\n - ")}`);
+  process.exit(1);
+}

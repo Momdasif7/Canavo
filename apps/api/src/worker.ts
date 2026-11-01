@@ -6,6 +6,8 @@
  * are delivered by the API, which owns the sockets.
  */
 import "./env";
+import { installProcessHandlers } from "./lib/observability";
+installProcessHandlers();
 import "./outbox-tasks";
 import { platformPrisma, prisma } from "./db";
 import { registeredJobs, startJobs, stopJobs } from "./jobs";

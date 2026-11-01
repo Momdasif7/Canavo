@@ -2,6 +2,7 @@ import express from "express";
 import "./outbox-tasks";
 import cors from "cors";
 import { allowedOrigin } from "./lib/cors";
+import { gauge, httpLogger, httpMetrics, metricsEndpoint, requestId } from "./lib/observability";
 import { platformPrisma } from "./db";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -30,19 +31,27 @@ import { uploadsRouter } from "./routes/uploads";
 import { platformRouter } from "./routes/platform";
 import { taxRatesRouter } from "./routes/tax-rates";
 
+gauge("canavo_outbox_pending", "Outbox events waiting for delivery", () => platformPrisma.outboxEvent.count({ where: { deliveredAt: null, failedAt: null } }));
+gauge("canavo_outbox_dead", "Outbox events that gave up (dead-lettered)", () => platformPrisma.outboxEvent.count({ where: { failedAt: { not: null } } }));
+
 export function createApp() {
   const app = express();
   // Trust only local/private proxies (the CANAVO gateway, ngrok, Render's load balancer) so req.ip is the real client.
   app.set("trust proxy", env.TRUST_PROXY);
+  app.use(requestId);
+  app.use(httpMetrics);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.use(cors({ origin: allowedOrigin(), exposedHeaders: ["content-disposition"] }));
-  app.use(morgan(isProd ? "combined" : "dev"));
+  // Structured JSON access logs in production (or LOG_FORMAT=json); short lines in development.
+  if (isProd || env.LOG_FORMAT === "json") app.use(httpLogger);
+  else app.use(morgan("dev"));
 
   // Public routes first: the Razorpay webhook needs the raw body.
   app.use(publicRouter);
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "canavo-api" }));
+  app.get("/metrics", metricsEndpoint);
   /** Readiness for the host's health check: the database must answer. */
   app.get("/ready", async (_req, res) => {
     try {

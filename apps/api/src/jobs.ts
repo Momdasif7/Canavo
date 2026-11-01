@@ -1,5 +1,6 @@
 import PgBoss from "pg-boss";
 import { env } from "./env";
+import { jobRuns, reportError } from "./lib/observability";
 
 /**
  * Scheduled background jobs on pg-boss (Phase 1.2): no new infrastructure, the
@@ -70,7 +71,16 @@ export async function startJobRunner(
     });
     if (opts.work) {
       await b.work(name, { batchSize: 1, pollingIntervalSeconds: Math.min(2, windowSeconds) }, async (batch) => {
-        for (const _job of batch) await def.fn();
+        for (const _job of batch) {
+          try {
+            await def.fn();
+            jobRuns.inc({ job: name, result: "ok" });
+          } catch (e) {
+            jobRuns.inc({ job: name, result: "error" });
+            reportError(e, { kind: "job", job: name });
+            throw e; // pg-boss retries, then dead-letters
+          }
+        }
       });
     }
     if (opts.tick) {
