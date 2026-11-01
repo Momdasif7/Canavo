@@ -34,6 +34,8 @@ export default function OfflineSaved() {
     }
   };
 
+  // Phase 3.4: a number from this phone's offline series is the final invoice number.
+  const finalNumber = Boolean(receipt && !receipt.invoiceNumber.startsWith("OFF-"));
   return (
     <Screen>
       <View style={styles.hero}>
@@ -49,10 +51,12 @@ export default function OfflineSaved() {
         kind="info"
         message={`${pendingCount} bill${pendingCount === 1 ? "" : "s"} waiting to sync. ${
           online ? "Syncing now." : "They will upload automatically when you're back online."
-        } The kitchen gets the order (KOT) once it syncs — tell the kitchen directly if it's urgent. The final bill number is assigned on sync.`}
+        } The kitchen gets the order (KOT) once it syncs — tell the kitchen directly if it's urgent. ${
+          finalNumber ? `Bill number ${receipt!.invoiceNumber} is final.` : "The final bill number is assigned on sync."
+        }`}
       />
       {error ? <Notice kind="error" message={error} /> : null}
-      <Button title="Print provisional bill" icon="print-outline" variant="secondary" loading={busy} disabled={!receipt} onPress={print} />
+      <Button title={finalNumber ? "Print bill" : "Print provisional bill"} icon="print-outline" variant="secondary" loading={busy} disabled={!receipt} onPress={print} />
       <Button title="New bill" icon="add-circle-outline" size="xl" onPress={() => router.replace("/(tabs)/bill")} />
     </Screen>
   );

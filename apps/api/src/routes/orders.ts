@@ -20,6 +20,7 @@ import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "
 import { createCreditNote } from "../services/credit-notes";
 import { assertCashShiftOpen } from "../services/cash-shifts";
 import { creditGiftCard, redeemGiftCard } from "../services/gift-cards";
+import { seriesForDevice } from "../services/offline-series";
 import { featureOn } from "../lib/tenant";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
@@ -35,6 +36,14 @@ import { alertOrderCancelled } from "../services/alerts";
 
 export const ordersRouter = Router();
 ordersRouter.use(authenticate, requireOutlet, requireModule("BILLING"));
+
+/** This device's offline invoice series (Phase 3.4, OFFLINE_INVOICE_SERIES). */
+ordersRouter.post("/offline-series", requirePermission("order:create"), async (req, res) => {
+  if (!featureOn("OFFLINE_INVOICE_SERIES")) return res.json({ enabled: false });
+  const { deviceId } = parse(z.object({ deviceId: z.string().trim().min(8).max(200) }), req.body);
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { invoicePrefix: true } });
+  res.json({ enabled: true, ...(await seriesForDevice(req.outletId!, deviceId, outlet.invoicePrefix)) });
+});
 
 /** Managers / owners who can approve at this outlet with their PIN (Phase 3.3). */
 ordersRouter.get("/approvers", requireAnyPermission("order:create", "payment:collect", "order:cancel"), async (req, res) => {

@@ -19,6 +19,7 @@ import { badRequest, notFound } from "../lib/http";
 import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
 import { emitToOutlet } from "../realtime";
 import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
+import { acceptOfflineNumber } from "./offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { applyPromotions, onOrderCreated, onOrderPaid } from "./promotions";
 import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from "./service-context";
@@ -172,12 +173,24 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   const discountNeedsApproval = approvalsOn() && manualDiscount > 0 && manualDiscount * 100 > bill.subtotal * outlet.approvalDiscountPercent;
 
   const persist = async (tx: Prisma.TransactionClient) => {
-    const counter = await tx.invoiceCounter.upsert({
-      where: { outletId_fyStart: { outletId, fyStart: fy } },
-      create: { outletId, fyStart: fy, lastSeq: 1 },
-      update: { lastSeq: { increment: 1 } },
-    });
-    const invoiceNumber = formatInvoiceNumber(outlet.invoicePrefix, fy, counter.lastSeq);
+    // Phase 3.4: an offline bill numbered from its device's series keeps that (already printed) number.
+    const deviceNumber =
+      offline && input.offlineInvoiceNumber && featureOn("OFFLINE_INVOICE_SERIES")
+        ? await acceptOfflineNumber(tx, outletId, outlet.invoicePrefix, input.offlineInvoiceNumber, fy)
+        : null;
+    const invoiceNumber =
+      deviceNumber ??
+      formatInvoiceNumber(
+        outlet.invoicePrefix,
+        fy,
+        (
+          await tx.invoiceCounter.upsert({
+            where: { outletId_fyStart: { outletId, fyStart: fy } },
+            create: { outletId, fyStart: fy, lastSeq: 1 },
+            update: { lastSeq: { increment: 1 } },
+          })
+        ).lastSeq,
+      );
 
     const created = await tx.order.create({
       data: {

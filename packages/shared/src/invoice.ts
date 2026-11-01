@@ -28,3 +28,16 @@ export function formatInvoiceNumber(prefix: string, fyStart: number, seq: number
   }
   return num;
 }
+
+/**
+ * Offline device series (Phase 3.4): each billing device gets its own series, e.g. "INVA1",
+ * so a bill raised offline prints its final invoice number (GST allows several series, each
+ * unique per financial year). Up to 3 characters of the outlet prefix + the device code.
+ */
+export const offlineSeriesPrefix = (invoicePrefix: string, deviceCode: string) => `${invoicePrefix.slice(0, 3)}${deviceCode}`;
+
+/** "INVA1-2026-00007" → { prefix: "INVA1", fyStart: 2026, seq: 7 } */
+export function parseInvoiceNumber(n: string): { prefix: string; fyStart: number; seq: number } | null {
+  const m = /^(.+)-(\d{4})-(\d{5})$/.exec(n);
+  return m ? { prefix: m[1]!, fyStart: Number(m[2]), seq: Number(m[3]) } : null;
+}

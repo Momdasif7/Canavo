@@ -254,6 +254,8 @@ export const orderCreateSchema = z.object({
   createdAt: z.string().datetime().optional(),
   /** Manager approval for a discount above the outlet's limit (APPROVAL_PINS) */
   approval: approvalSchema.optional(),
+  /** Offline bill numbered from this device's series (OFFLINE_INVOICE_SERIES), e.g. "INVA1-2026-00007" */
+  offlineInvoiceNumber: z.string().max(16).optional(),
   /** Promotions & loyalty */
   couponCode: z.string().trim().toUpperCase().max(30).optional(),
   redeemPoints: z.number().int().positive().optional(),

@@ -44,6 +44,11 @@ export const FEATURES = {
     description: "Sell closed-loop gift cards (usable only at this hotel, no cash-out) and accept them as payment. GST applies when the card is spent, not when it's sold.",
     requires: ["BILLING"],
   },
+  OFFLINE_INVOICE_SERIES: {
+    label: "Final invoice numbers offline",
+    description: "Each billing device gets its own invoice series (e.g. INVA1-2026-00007), so bills raised offline print their final GST invoice number instead of a provisional one.",
+    requires: ["BILLING"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",

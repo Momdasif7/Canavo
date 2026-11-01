@@ -1585,3 +1585,18 @@ model GiftCardTxn {
 
   @@index([giftCardId])
 }
+
+/// Offline invoice series of one billing device at an outlet (Phase 3.4, OFFLINE_INVOICE_SERIES).
+model OfflineSeries {
+  id          String   @id @default(cuid())
+  outletId    String
+  deviceId    String
+  /// "A1" … "Z9": appended to the outlet prefix, e.g. INV + A1 → INVA1-2026-00007
+  code        String
+  /// { "2026": 41 } — last number used per financial year
+  lastSeqByFy Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@unique([outletId, deviceId])
+  @@unique([outletId, code])
+}
