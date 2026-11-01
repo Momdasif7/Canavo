@@ -230,6 +230,10 @@ export type TaxRateInput = z.infer<typeof taxRateSchema>;
 
 // ---------- Orders & payments ----------
 export const ORDER_TYPES = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"] as const;
+/** Phase 6: where an order came from */
+export const ORDER_CHANNELS = ["POS", "QR", "ONLINE", "ZOMATO", "SWIGGY", "ONDC", "OTHER"] as const;
+export type OrderChannel = (typeof ORDER_CHANNELS)[number];
+
 export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "CORPORATE", "WALLET", "MEAL_TOKEN"] as const;
 
 export const orderItemInputSchema = z.object({

@@ -13,6 +13,7 @@ export const MODULES = [
   "ATTENDANCE",
   "REPORTS",
   "CANTEEN",
+  "CHANNELS",
 ] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
@@ -32,6 +33,11 @@ export const MODULE_INFO: Record<ModuleKey, { label: string; description: string
     description: "Corporate accounts, subsidies, wallets and cards, meal slots, pre-orders, subscriptions",
     requires: ["BILLING", "CUSTOMERS"],
   },
+  CHANNELS: {
+    label: "Online orders & channels",
+    description: "QR table ordering, online ordering page, digital menu, Zomato / Swiggy via a partner hub",
+    requires: ["BILLING"],
+  },
 };
 
 /** Which module a permission belongs to; permissions not listed are always available. */
@@ -42,6 +48,7 @@ export const PERMISSION_MODULE: Partial<Record<Permission, ModuleKey>> = {
   "order:cancel": "BILLING",
   "approval:grant": "BILLING",
   "canteen:manage": "CANTEEN",
+  "channel:manage": "CHANNELS",
   "payment:collect": "BILLING",
   "kot:view": "KOT",
   "kot:update": "KOT",

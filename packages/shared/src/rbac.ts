@@ -79,6 +79,8 @@ export const PERMISSIONS = [
   "approval:grant",
   /** Phase 5: corporate accounts, members, wallets, meal slots, subscriptions (owner, manager) */
   "canteen:manage",
+  /** Phase 6: online ordering, QR ordering, aggregator channels (owner, manager) */
+  "channel:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -168,4 +170,5 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "data:export": "Download all business data",
   "approval:grant": "Approve voids, refunds and discounts with a PIN",
   "canteen:manage": "Canteen: corporate accounts, members, wallets, meal slots and subscriptions",
+  "channel:manage": "Online orders and channels: QR ordering, online page, Zomato / Swiggy",
 };

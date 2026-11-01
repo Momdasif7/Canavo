@@ -498,8 +498,13 @@ model Order {
   mealSlotId     String?
   /// Phase 5.3 (CANTEEN): pre-order handed over at the counter (redeemed)
   servedAt       DateTime?
+  /// Phase 6: where the order came from (POS, QR, ONLINE, ZOMATO, SWIGGY, ONDC, OTHER)
+  channel        String        @default("POS")
+  /// The channel's own order id (aggregators / hub); unique per outlet and channel
+  channelOrderId String?
 
   @@unique([outletId, invoiceNumber])
+  @@unique([outletId, channel, channelOrderId])
   @@index([outletId, createdAt])
   @@index([customerId])
   @@index([outletId, status, createdAt])
