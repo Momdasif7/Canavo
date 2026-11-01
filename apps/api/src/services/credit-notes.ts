@@ -38,7 +38,11 @@ const TAX_FIELDS = ["taxableValue", "cgst", "sgst", "igst", "cess", "otherTaxes"
 /** "CNINV-2026-00007": CN + up to 4 characters of the outlet's invoice prefix (16-character GST limit). */
 export const creditNoteNumber = (invoicePrefix: string, fyStart: number, seq: number) => formatInvoiceNumber(`CN${invoicePrefix.slice(0, 4)}`, fyStart, seq);
 
-export async function createCreditNote(req: Request, orderId: string, input: RefundInput) {
+/**
+ * `opts.systemRefund`: an automatic refund the outlet can't decline (an online order it rejected
+ * after the customer had paid) — no manager approval is asked for.
+ */
+export async function createCreditNote(req: Request, orderId: string, input: RefundInput, opts: { systemRefund?: boolean } = {}) {
   const outletId = req.outletId!;
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findFirst({
@@ -138,7 +142,7 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
       await creditGiftCard(tx, gc[0]!.giftCardId!, amount, { outletId, orderId: order.id, note: `Refund on bill ${order.invoiceNumber}`, userId: req.user!.id });
     }
 
-    const approvedById = approvalsOn()
+    const approvedById = approvalsOn() && !opts.systemRefund
       ? await requireApproval(req, { action: "REFUND", outletId, orderId: order.id, amount, reason: input.note ?? input.reason, approval: input.approval }, tx)
       : null;
 

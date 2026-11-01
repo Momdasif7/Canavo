@@ -77,10 +77,33 @@ export interface OutletPage extends PublicMenu {
   minOrder: number;
   takeaway: boolean;
   delivery: boolean;
-  zones: { id: string; name: string; fee: number; minOrder: number; etaMinutes: number }[];
+  zones: { id: string; name: string; radiusKm: number; fee: number; minOrder: number; etaMinutes: number }[];
   payments: { COUNTER: boolean; COD: boolean; UPI: boolean };
   needsConfirmation: boolean;
+  /** Customers verify their phone by OTP before ordering */
+  verifyPhone: boolean;
+  /** Outlet position for the delivery map (null: choose an area instead) */
+  location: { lat: number; lng: number } | null;
 }
+
+/** Zone and fee for a delivery map pin. */
+export interface DeliveryQuote {
+  outletLocation: boolean;
+  deliverable: boolean;
+  distanceKm: number | null;
+  zone: { id: string; name: string; fee: number; minOrder: number; etaMinutes: number } | null;
+  message: string | null;
+}
+
+export type OnlineRefundStatus = "PROCESSED" | "PENDING" | "MANUAL" | "FAILED";
+
+/** Customer-facing wording for a UPI refund. */
+export const REFUND_LABEL: Record<OnlineRefundStatus, string> = {
+  PROCESSED: "Refund sent to your UPI account — it usually shows up within 5–7 working days.",
+  PENDING: "Refund started — it usually shows up in your UPI account within 5–7 working days.",
+  MANUAL: "Your refund is being processed by the restaurant.",
+  FAILED: "Your refund is being processed by the restaurant.",
+};
 
 export type OrderStage = "waiting" | "confirmed" | "received" | "preparing" | "ready" | "served" | "cancelled";
 
@@ -122,6 +145,7 @@ export interface OnlineOrderView {
   balance: number;
   upi: { amount: number; qrPayload: string } | null;
   delivery: { status: string } | null;
+  refund: { status: OnlineRefundStatus; amount: number } | null;
   receiptUrl: string | null;
 }
 
@@ -169,6 +193,8 @@ export interface ChannelRequestRow {
   customerPhone: string | null;
   notes: string | null;
   payment: string | null;
+  rejectReason: string | null;
+  refund: { status: OnlineRefundStatus; amount: number; ref: string | null; error: string | null } | null;
 }
 
 /** Public web address of a page (this web app's origin). */

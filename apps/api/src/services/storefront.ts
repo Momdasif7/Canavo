@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Request } from "express";
 import type { ChannelRequest, Outlet, Prisma } from "@prisma/client";
 import {
+  distanceMeters,
   effectiveGstRate,
   formatINR,
   normalizeModules,
@@ -11,7 +12,7 @@ import {
   type StorefrontSettings,
 } from "@canavo/shared";
 import { platformPrisma, prisma } from "../db";
-import { conflict, badRequest, notFound } from "../lib/http";
+import { conflict, badRequest, notFound, HttpError } from "../lib/http";
 import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { hhmmToMinutes, startOfLocalDay, zonedParts } from "../lib/time";
 import { featureOn, moduleEnabled, runForOutlet } from "../lib/tenant";
@@ -22,7 +23,10 @@ import { addItemsToSession, findOpenSession, openSession } from "../routes/table
 import { getOrder } from "./billing";
 import { createChannelOrder, systemRequest } from "./channel-orders";
 import { notify, outletManagers, outletStaff } from "./notify";
-import { createUpiQr } from "./razorpay";
+import { createUpiQr, refundPayment, type GatewayRefund } from "./razorpay";
+import { createCreditNote } from "./credit-notes";
+import { onOrderCancelledService, selectZone } from "./service-context";
+import { phoneTokenValid } from "./storefront-otp";
 import { resolveItemTax } from "./tax";
 
 /**
@@ -381,15 +385,110 @@ export async function rejectRequest(req: Request, request: ChannelRequest, reaso
     data: { status: "REJECTED", rejectReason: reason, decidedById: req.user?.id, decidedAt: new Date() },
   });
   if (!claimed.count) throw conflict("Someone already handled this order");
-  if (request.orderId) {
-    const order = await getOrder(request.orderId, request.outletId);
-    if (order.status !== "CANCELLED") {
-      await prisma.$transaction((tx) => cancelOrderInTx(tx, req, order, `Online order rejected: ${reason}`));
-      emitToOutlet(request.outletId, "order:cancelled", { id: order.id });
-    }
-  }
+  if (request.orderId) await withdrawOnlineOrder(req, request, `Online order rejected: ${reason}`);
   emitRequest(request.outletId, request.id, "rejected");
   return prisma.channelRequest.findUniqueOrThrow({ where: { id: request.id } });
+}
+
+/**
+ * Cancel an accepted online order before the kitchen started on it (every KOT still "received",
+ * delivery not picked up). Same money handling as a rejection: a Razorpay UPI payment is refunded.
+ */
+export async function cancelAcceptedOnline(req: Request, request: ChannelRequest, reason: string) {
+  if (request.channel !== "ONLINE" || !request.orderId) throw badRequest("Only online orders can be cancelled here");
+  if (request.status !== "ACCEPTED") throw conflict(request.status === "PENDING" ? "Reject the order instead" : "This order was already cancelled");
+  const order = await getOrder(request.orderId, request.outletId);
+  if (order.kots.some((k) => k.status !== "RECEIVED")) throw conflict("The kitchen has started on this order — it can't be cancelled here");
+  if (order.delivery && ["OUT_FOR_DELIVERY", "DELIVERED"].includes(order.delivery.status)) throw conflict("The order is already out for delivery");
+  if (order.status === "CANCELLED") throw conflict("This bill is already cancelled");
+  const claimed = await prisma.channelRequest.updateMany({
+    where: { id: request.id, status: "ACCEPTED" },
+    data: { status: "REJECTED", rejectReason: reason, decidedById: req.user?.id, decidedAt: new Date() },
+  });
+  if (!claimed.count) throw conflict("Someone already handled this order");
+  await withdrawOnlineOrder(req, request, `Online order cancelled: ${reason}`);
+  emitRequest(request.outletId, request.id, "rejected");
+  return prisma.channelRequest.findUniqueOrThrow({ where: { id: request.id } });
+}
+
+/**
+ * Take back an online order the outlet won't make (already claimed as REJECTED by the caller).
+ * - Not paid through Razorpay: the bill is voided as before (staff void flow unchanged).
+ * - Paid in full (the usual UPI-prepaid case): a GST invoice was issued, so the bill stays as
+ *   issued and a full credit note (refund mode UPI, items restocked) reverses it; its delivery
+ *   is cancelled and any kitchen tickets not yet started are withdrawn.
+ * - Partly paid by UPI: the bill is voided (no invoice yet), the UPI part refunded.
+ * Then every successful Razorpay UPI payment on the bill is refunded through the gateway, and the
+ * outcome recorded on the request. Without keys (dev) or when Razorpay refuses, the refund is
+ * marked MANUAL / FAILED and the outlet's managers are told to do it in the Razorpay dashboard.
+ */
+async function withdrawOnlineOrder(req: Request, request: ChannelRequest, reason: string) {
+  const outletId = request.outletId;
+  const order = await getOrder(request.orderId!, outletId);
+  const upi = order.payments.filter((p) => p.mode === "UPI" && p.status === "SUCCESS" && p.gatewayRef);
+  const upiTotal = upi.reduce((s, p) => s + p.amount, 0);
+  let creditNoteId: string | null = null;
+
+  if (upiTotal > 0 && order.status === "PAID") {
+    const remaining = order.grandTotal - order.refundedAmount;
+    const amount = Math.min(upiTotal, remaining);
+    const note = await createCreditNote(
+      req,
+      order.id,
+      amount >= remaining
+        ? { reason: "OTHER", note: reason.slice(0, 300), refundMode: "UPI", items: order.items.map((i) => ({ orderItemId: i.id, quantity: i.quantity })), restock: true }
+        : { reason: "OTHER", note: reason.slice(0, 300), refundMode: "UPI", amount, restock: false },
+      { systemRefund: true },
+    );
+    creditNoteId = note.id;
+    await prisma.$transaction(async (tx) => {
+      await onOrderCancelledService(tx, order.id);
+      // Nothing was cooked: take the tickets off the kitchen screen.
+      await tx.kotTicket.deleteMany({ where: { orderId: order.id, status: "RECEIVED" } });
+    });
+    emitToOutlet(outletId, "order:cancelled", { id: order.id });
+    emitToOutlet(outletId, "order:refunded", { id: order.id, creditNote: note.number });
+  } else if (order.status !== "CANCELLED") {
+    await prisma.$transaction((tx) => cancelOrderInTx(tx, req, order, reason));
+    emitToOutlet(outletId, "order:cancelled", { id: order.id });
+  }
+  if (upiTotal <= 0) return;
+
+  let left = creditNoteId ? Math.min(upiTotal, order.grandTotal - order.refundedAmount) : upiTotal;
+  const results: (GatewayRefund & { amount: number })[] = [];
+  for (const p of upi) {
+    const amount = Math.min(p.amount, left);
+    if (amount <= 0) break;
+    left -= amount;
+    results.push({ ...(await refundPayment(p.reference, amount, { orderId: order.id, invoiceNumber: order.invoiceNumber })), amount });
+  }
+  const worst = (["FAILED", "MANUAL", "PENDING", "PROCESSED"] as const).find((st) => results.some((r) => r.status === st)) ?? "MANUAL";
+  const refundAmount = results.reduce((s, r) => s + r.amount, 0);
+  await prisma.channelRequest.update({
+    where: { id: request.id },
+    data: {
+      refundStatus: worst,
+      refundRef: results.map((r) => r.id).filter(Boolean).join(",") || null,
+      refundAmount,
+      creditNoteId,
+      refundError: results.map((r) => r.error).filter(Boolean).join("; ").slice(0, 500) || null,
+    },
+  });
+  if (worst === "MANUAL" || worst === "FAILED") {
+    try {
+      await notify(
+        await outletManagers(outletId),
+        `Refund ${formatINR(refundAmount)} by hand · ${order.invoiceNumber}`,
+        `The online order was ${reason.startsWith("Online order cancelled") ? "cancelled" : "rejected"} after the customer paid by UPI. ${
+          worst === "MANUAL" ? "Refund pending — do it in the Razorpay dashboard." : "Razorpay didn't take the refund — do it in the Razorpay dashboard."
+        }`,
+        "channel.refund",
+        { outletId, link: "/pos" },
+      );
+    } catch (e) {
+      console.warn("[storefront] refund alert failed (ignored):", (e as Error).message);
+    }
+  }
 }
 
 /** Fire one KOT per kitchen station for a bill created without KOTs (online order accepted). */
@@ -452,6 +551,22 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
     if (delivery && !deliveryAvailable(outlet, settings)) throw badRequest("Delivery isn't available — choose takeaway");
     if (!delivery && !settings.takeaway) throw badRequest("Takeaway isn't available — choose delivery");
     if (delivery && !input.delivery) throw badRequest("Enter your delivery address");
+    if (settings.verifyPhoneOtp && !phoneTokenValid(input.phoneToken, outlet.id, input.customerPhone)) {
+      throw new HttpError(403, "Verify your mobile number with the OTP first", { code: "PHONE_NOT_VERIFIED" });
+    }
+    let deliveryInput = input.delivery;
+    if (delivery && deliveryInput && deliveryInput.latitude !== undefined && deliveryInput.longitude !== undefined) {
+      // A map pin: the server picks the zone from the distance (the client's zone choice is ignored).
+      const quote = await deliveryQuote(outlet, deliveryInput.latitude, deliveryInput.longitude);
+      if (quote.outletLocation) {
+        if (!quote.zone) throw badRequest(quote.message!);
+        deliveryInput = { ...deliveryInput, zoneId: quote.zone.id };
+      } else {
+        // Outlet location not set: fall back to the area the customer chose.
+        if (!deliveryInput.zoneId && quote.zones > 0) throw badRequest("Choose your area");
+        deliveryInput = { ...deliveryInput, latitude: undefined, longitude: undefined };
+      }
+    }
     const payOk =
       (input.payment === "COUNTER" && !delivery && settings.payAtCounter) ||
       (input.payment === "COD" && delivery && settings.cashOnDelivery) ||
@@ -479,7 +594,7 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
         interState: false,
         items: lines.map((l) => ({ menuItemId: l.menuItemId, variantId: l.variantId, addonIds: l.addonIds, quantity: l.quantity, notes: l.notes })),
         notes: ["Online", timeNote, PAYMENT_LABEL[input.payment], input.notes].filter(Boolean).join(" · ").slice(0, 300),
-        delivery: delivery ? { ...input.delivery!, source: "IN_APP", cod: input.payment === "COD" } : undefined,
+        delivery: delivery ? { ...deliveryInput!, source: "IN_APP", cod: input.payment === "COD" } : undefined,
       },
       { ip, channelOrderId: publicToken, skipKot: settings.onlineNeedsConfirmation },
     );
@@ -507,6 +622,26 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
     if (pending) void alertNewRequest(outlet.id, request, `${delivery ? "Delivery" : "Takeaway"} ${order.invoiceNumber}`, null);
     return { token: publicToken };
   });
+}
+
+/**
+ * Delivery zone and fee for a map pin (inside the tenant context): the smallest active zone
+ * whose radius covers the distance from the outlet. `outletLocation: false` = the outlet's
+ * position isn't set, so the customer has to choose an area instead.
+ */
+export async function deliveryQuote(outlet: Outlet, lat: number, lng: number) {
+  const zones = await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, orderBy: { radiusKm: "asc" } });
+  if (outlet.latitude == null || outlet.longitude == null) return { outletLocation: false as const, zones: zones.length, zone: null, distanceKm: null, message: "Choose your area" };
+  const distanceKm = Math.round((distanceMeters({ latitude: outlet.latitude, longitude: outlet.longitude }, { latitude: lat, longitude: lng }) / 1000) * 100) / 100;
+  const zone = selectZone(zones, distanceKm);
+  const max = zones.length ? Math.max(...zones.map((z) => z.radiusKm)) : 0;
+  return {
+    outletLocation: true as const,
+    zones: zones.length,
+    distanceKm,
+    zone: zone ? { id: zone.id, name: zone.name, fee: zone.fee, minOrder: zone.minOrder, etaMinutes: zone.etaMinutes } : null,
+    message: zone ? null : zones.length ? `Sorry, we don't deliver there — that's ${distanceKm} km away and we deliver within ${max} km` : "Sorry, we don't deliver to this address",
+  };
 }
 
 /** A fresh UPI QR for what's still due on an online order (inside the tenant context). */
@@ -552,5 +687,6 @@ export async function onlineOrderView(outlet: Outlet, request: ChannelRequest) {
     balance: Math.max(0, order.grandTotal - paid),
     upi: upi && order.status === "OPEN" ? { amount: upi.amount, qrPayload: upi.qrPayload } : null,
     delivery: order.delivery ? { status: order.delivery.status } : null,
+    refund: request.refundStatus ? { status: request.refundStatus, amount: request.refundAmount ?? 0 } : null,
   };
 }

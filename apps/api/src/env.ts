@@ -30,6 +30,8 @@ const schema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  /** Razorpay API base (tests point it at a fake server) */
+  RAZORPAY_BASE_URL: z.string().url().default("https://api.razorpay.com"),
   WATI_API_URL: z.string().optional(),
   WATI_API_TOKEN: z.string().optional(),
   WATI_RECEIPT_TEMPLATE: z.string().default("receipt_share"),

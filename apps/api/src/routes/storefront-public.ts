@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { onlineOrderSchema, qrOrderSchema, tableCallSchema } from "@canavo/shared";
+import { customerOtpRequestSchema, customerOtpVerifySchema, onlineOrderSchema, publicDeliveryQuoteSchema, qrOrderSchema, tableCallSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { env } from "../env";
 import { conflict, param, parse, publicApiUrl } from "../lib/http";
@@ -10,6 +10,7 @@ import {
   acceptingNow,
   callFromTable,
   deliveryAvailable,
+  deliveryQuote,
   findOnlineRequest,
   onlineOrderView,
   outletBrand,
@@ -21,6 +22,7 @@ import {
   tableByToken,
   tableOrders,
 } from "../services/storefront";
+import { requestCustomerOtp, verifyCustomerOtp } from "../services/storefront-otp";
 
 /**
  * Phase 6.3 / 6.4 public endpoints (no login): the QR page on a table (/t/<token>) and the
@@ -46,6 +48,11 @@ storefrontPublicRouter.use(["/public/t", "/public/o"], limiter(5, 600, ip));
 const qrOrderLimiter = limiter(10, 6, (req) => `qr:${req.params.token}:${ip(req)}`, false);
 const qrCallLimiter = limiter(5, 4, (req) => `call:${req.params.token}:${ip(req)}`);
 const onlineOrderLimiter = limiter(10, 5, (req) => `online:${req.params.slug}:${ip(req)}`, false);
+// Phone OTP: per phone number (any outlet) and per IP, so nobody can SMS-bomb a number.
+const phoneOf = (req: Request) => (typeof req.body?.phone === "string" ? req.body.phone.trim().slice(0, 15) : "none");
+const otpPhoneLimiter = limiter(15, 5, (req) => `otp:phone:${phoneOf(req)}`);
+const otpIpLimiter = limiter(15, 15, (req) => `otp:ip:${ip(req)}`);
+const otpVerifyLimiter = limiter(15, 20, (req) => `otp:verify:${ip(req)}`);
 
 // ---------- QR table ordering ----------
 
@@ -88,7 +95,7 @@ storefrontPublicRouter.get("/public/o/:slug", async (req, res) => {
     menu: await publicMenu(outlet.id, outlet.timezone),
     delivery: deliveryAvailable(outlet, settings),
     zones: deliveryAvailable(outlet, settings)
-      ? await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, select: { id: true, name: true, fee: true, minOrder: true, etaMinutes: true }, orderBy: { radiusKm: "asc" } })
+      ? await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, select: { id: true, name: true, radiusKm: true, fee: true, minOrder: true, etaMinutes: true }, orderBy: { radiusKm: "asc" } })
       : [],
   }));
   const open = acceptingNow(settings, outlet.timezone);
@@ -108,8 +115,37 @@ storefrontPublicRouter.get("/public/o/:slug", async (req, res) => {
       UPI: settings.upiPrepaid,
     },
     needsConfirmation: settings.onlineNeedsConfirmation,
+    verifyPhone: settings.verifyPhoneOtp,
+    /** Map centre / zone circles for the delivery pin */
+    location: data.delivery && outlet.latitude != null && outlet.longitude != null ? { lat: outlet.latitude, lng: outlet.longitude } : null,
     ...data.menu,
   });
+});
+
+/** Text a 6-digit code to the customer's phone (outlets with "Verify customer phone by OTP"). */
+storefrontPublicRouter.post("/public/o/:slug/otp/request", otpIpLimiter, otpPhoneLimiter, async (req, res) => {
+  const { outlet, settings } = await outletBySlug(param(req, "slug"));
+  const { phone } = parse(customerOtpRequestSchema, req.body);
+  if (!settings.onlineOrdering) throw conflict("Online ordering is switched off right now");
+  res.json(await runForOutlet(outlet.id, () => requestCustomerOtp(outlet.id, phone, req.ip)));
+});
+
+/** Check the code → a short-lived signed token the order request carries. */
+storefrontPublicRouter.post("/public/o/:slug/otp/verify", otpVerifyLimiter, async (req, res) => {
+  const { outlet } = await outletBySlug(param(req, "slug"));
+  const { phone, code } = parse(customerOtpVerifySchema, req.body);
+  res.json(await runForOutlet(outlet.id, () => verifyCustomerOtp(outlet.id, phone, code)));
+});
+
+/** Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. */
+storefrontPublicRouter.get("/public/o/:slug/delivery-quote", async (req, res) => {
+  const { outlet, settings } = await outletBySlug(param(req, "slug"));
+  const { lat, lng } = parse(publicDeliveryQuoteSchema, req.query);
+  const quote = await runForOutlet(outlet.id, async () => {
+    if (!deliveryAvailable(outlet, settings)) throw conflict("Delivery isn't available — choose takeaway");
+    return deliveryQuote(outlet, lat, lng);
+  });
+  res.json({ ...quote, deliverable: Boolean(quote.zone) });
 });
 
 storefrontPublicRouter.post("/public/o/:slug/orders", onlineOrderLimiter, async (req, res) => {

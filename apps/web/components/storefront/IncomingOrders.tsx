@@ -5,7 +5,7 @@ import { BellRinging, Check, X } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
-import type { ChannelRequestRow } from "@/lib/storefront";
+import type { ChannelRequestRow, OnlineRefundStatus } from "@/lib/storefront";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useSocketEvent } from "@/components/providers/SocketProvider";
@@ -16,6 +16,13 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Dialog } from "@/components/ui/Dialog";
 
 const PAYMENT_LABEL: Record<string, string> = { COUNTER: "Pay at counter", COD: "Cash on delivery", UPI: "UPI prepaid" };
+const REFUND_BADGE: Record<OnlineRefundStatus, { label: string; tone: "success" | "info" | "warning" | "danger" }> = {
+  PROCESSED: { label: "Refunded to UPI", tone: "success" },
+  PENDING: { label: "Refund processing", tone: "info" },
+  MANUAL: { label: "Refund pending — do it in the Razorpay dashboard", tone: "warning" },
+  FAILED: { label: "Refund failed — do it in the Razorpay dashboard", tone: "danger" },
+};
+const needsAttention = (r: ChannelRequestRow) => r.refund?.status === "MANUAL" || r.refund?.status === "FAILED";
 
 /**
  * Phase 6.3 / 6.4: QR and online orders waiting for a waiter / cashier. A slim bar on the POS
@@ -28,21 +35,37 @@ export function IncomingOrders({ onChanged }: { onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<ChannelRequestRow | null>(null);
+  const [cancelling, setCancelling] = useState<ChannelRequestRow | null>(null);
   const toast = useToast();
   const { reload } = q;
+  // Online orders of the last 24 hours that were accepted (can still be cancelled before cooking) or rejected (refund status).
+  const recentQ = useApiQuery<ChannelRequestRow[]>(enabled && outletId ? `channel-requests-recent:${outletId}` : null, async () => {
+    const [accepted, rejected] = await Promise.all([api.get<ChannelRequestRow[]>("/storefront/requests?status=ACCEPTED"), api.get<ChannelRequestRow[]>("/storefront/requests?status=REJECTED")]);
+    return [...accepted, ...rejected].filter((r) => r.channel === "ONLINE").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  });
+  const reloadRecent = recentQ.reload;
+  const reloadAll = () => {
+    void reload();
+    void reloadRecent();
+  };
 
-  useSocketEvent("channel:request", () => enabled && void reload());
+  useSocketEvent("channel:request", () => enabled && reloadAll());
   useEffect(() => {
     if (!enabled) return;
-    const id = window.setInterval(() => void reload(), 30_000);
+    const id = window.setInterval(() => {
+      void reload();
+      void reloadRecent();
+    }, 30_000);
     return () => window.clearInterval(id);
-  }, [enabled, reload]);
+  }, [enabled, reload, reloadRecent]);
 
   const rows = q.data ?? [];
+  const recent = recentQ.data ?? [];
+  const attention = recent.filter(needsAttention);
   useEffect(() => {
-    if (open && rows.length === 0) setOpen(false);
-  }, [open, rows.length]);
-  if (!enabled || rows.length === 0) return null;
+    if (open && rows.length === 0 && attention.length === 0) setOpen(false);
+  }, [open, rows.length, attention.length]);
+  if (!enabled || (rows.length === 0 && attention.length === 0)) return null;
 
   const accept = async (r: ChannelRequestRow) => {
     setBusy(r.id);
@@ -54,7 +77,7 @@ export function IncomingOrders({ onChanged }: { onChanged?: () => void }) {
       toast(errorMessage(e), "error");
     } finally {
       setBusy(null);
-      void reload();
+      reloadAll();
     }
   };
 
@@ -70,7 +93,9 @@ export function IncomingOrders({ onChanged }: { onChanged?: () => void }) {
       >
         <BellRinging size={18} weight="fill" className="shrink-0 animate-pulse" />
         <span className="flex-1">
-          {[qr && `${qr} QR order${qr === 1 ? "" : "s"}`, online && `${online} online order${online === 1 ? "" : "s"}`].filter(Boolean).join(" · ")} waiting for you
+          {[qr && `${qr} QR order${qr === 1 ? "" : "s"} waiting`, online && `${online} online order${online === 1 ? "" : "s"} waiting`, attention.length && `${attention.length} UPI refund${attention.length === 1 ? "" : "s"} to do by hand`]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
         <span className="underline">Review</span>
       </button>
@@ -113,19 +138,65 @@ export function IncomingOrders({ onChanged }: { onChanged?: () => void }) {
             </li>
           ))}
         </ul>
+        {recent.length > 0 && (
+          <section className="mt-5">
+            <h3 className="mb-2 text-sm font-bold text-fg">Online orders today</h3>
+            <ul className="divide-y divide-line rounded-xl border border-line text-sm">
+              {recent.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 p-3" data-testid="recent-online-order">
+                  <span className="font-semibold text-fg">{r.order?.invoiceNumber ?? ""}</span>
+                  <span className="text-muted">{[r.customerName, formatTime(r.createdAt)].filter(Boolean).join(" · ")}</span>
+                  <span className="tabular-nums">{formatINR(r.order?.grandTotal ?? r.total)}</span>
+                  {r.status === "REJECTED" ? <Badge tone="danger">{r.rejectReason ? `Cancelled: ${r.rejectReason}` : "Cancelled"}</Badge> : <Badge tone="success">Accepted</Badge>}
+                  {r.refund && (
+                    <span title={r.refund.error ?? r.refund.ref ?? undefined}>
+                      <Badge tone={REFUND_BADGE[r.refund.status].tone}>
+                        {formatINR(r.refund.amount)} · {REFUND_BADGE[r.refund.status].label}
+                      </Badge>
+                    </span>
+                  )}
+                  {r.status === "ACCEPTED" && can("order:cancel") && r.order?.status !== "CANCELLED" && (
+                    <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setCancelling(r)}>
+                      Cancel order
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </Dialog>
+
+      <ConfirmDialog
+        open={!!cancelling}
+        title="Cancel this online order?"
+        description="Only before the kitchen starts on it. A UPI payment is refunded to the customer automatically."
+        confirmLabel="Cancel order"
+        reason={{ label: "Reason", placeholder: "e.g. Customer called to cancel", minLength: 3, required: true }}
+        onClose={() => setCancelling(null)}
+        onConfirm={async (reason) => {
+          await api.post(`/storefront/requests/${cancelling!.id}/cancel`, { reason });
+          setCancelling(null);
+          reloadAll();
+          onChanged?.();
+        }}
+      />
 
       <ConfirmDialog
         open={!!rejecting}
         title="Reject this order?"
-        description={rejecting?.channel === "ONLINE" ? "The bill is cancelled and the customer sees your reason." : "The guest sees your reason on their phone."}
+        description={
+          rejecting?.channel === "ONLINE"
+            ? `The bill is cancelled and the customer sees your reason.${rejecting.payment === "UPI" ? " A UPI payment already made is refunded automatically." : ""}`
+            : "The guest sees your reason on their phone."
+        }
         confirmLabel="Reject order"
         reason={{ label: "Reason", placeholder: "e.g. Item finished, kitchen closing", minLength: 3, required: true }}
         onClose={() => setRejecting(null)}
         onConfirm={async (reason) => {
           await api.post(`/storefront/requests/${rejecting!.id}/reject`, { reason });
           setRejecting(null);
-          void reload();
+          reloadAll();
           onChanged?.();
         }}
       />
