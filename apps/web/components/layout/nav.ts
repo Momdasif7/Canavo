@@ -116,11 +116,13 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // Phase 5 (CANTEEN): institutional canteens. Corporate accounts / members join this group.
+    // Phase 5 (CANTEEN module): institutional canteens and corporate catering.
     id: "canteen",
     label: "Canteen",
     icon: ForkKnife,
     items: [
+      { href: "/canteen/accounts", label: "Corporate accounts", icon: Briefcase, anyOf: ["canteen:manage"] },
+      { href: "/canteen/members", label: "Members & cards", icon: IdentificationBadge, anyOf: ["canteen:manage"] },
       { href: "/canteen/slots", label: "Meal slots", icon: Clock, anyOf: ["canteen:manage"] },
       { href: "/canteen/preorders", label: "Pre-orders", icon: CalendarPlus, anyOf: ["canteen:manage"] },
       { href: "/canteen/production", label: "Production plan", icon: ClipboardText, anyOf: ["canteen:manage"] },
@@ -158,16 +160,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/customers", label: "Customers", icon: UserList, anyOf: ["customer:view"] },
       { href: "/customers/khata", label: "Khata", icon: Notebook, anyOf: ["customer:view"] },
       { href: "/offers", label: "Offers & Coupons", icon: Tag, anyOf: ["offer:manage"] },
-    ],
-  },
-  {
-    // Phase 5 (CANTEEN module): canteen & institutional catering
-    id: "canteen",
-    label: "Canteen",
-    icon: Briefcase,
-    items: [
-      { href: "/canteen/accounts", label: "Corporate accounts", icon: Briefcase, anyOf: ["canteen:manage"] },
-      { href: "/canteen/members", label: "Members & cards", icon: IdentificationBadge, anyOf: ["canteen:manage"] },
     ],
   },
   {

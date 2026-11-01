@@ -3,6 +3,9 @@ DELETE /admin/report-schedules/:id,admin.ts,yes,,,report:view + settings:outlet,
 DELETE /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 DELETE /attendance/:id,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
 DELETE /auth/sessions/:id,auth.ts,yes,,,(public),,all
+DELETE /canteen/rules/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /canteen/slots/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /canteen/subscriptions/:id/skips/:date,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
 DELETE /delivery/cash/handovers/:id,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 DELETE /delivery/zones/:id,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
 DELETE /inventory/items/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
@@ -39,6 +42,20 @@ GET /attendance/salary,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSIN
 GET /auth/2fa,auth.ts,yes,,,(public),,all
 GET /auth/me,auth.ts,yes,,,(public),,all
 GET /auth/sessions,auth.ts,yes,,,(public),,all
+GET /canteen/accounts,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/rules,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/statement,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/statements,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/members,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/members/:id,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /canteen/members/lookup,canteen.ts,yes,yes,,any(order:create | payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/preorders,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/production,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/rule-slots,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/slots,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/slots/:id/items,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/subscriptions,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/subscriptions/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
 GET /cash-shifts,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /cash-shifts/:id,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /cash-shifts/current,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
@@ -146,6 +163,11 @@ PATCH /admin/aadhaar-settings,admin.ts,yes,business,,outlet:manage,,BUSINESS_OWN
 PATCH /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /attendance/:id,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /attendance/leaves/:id,attendance.ts,yes,,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/accounts/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/members/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/rules/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/slots/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/statements/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /customers/:id,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /delivery/:id/assign,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 PATCH /delivery/:id/status,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
@@ -196,6 +218,23 @@ POST /auth/password/forgot,auth.ts,NO,,,(public),,all
 POST /auth/password/reset,auth.ts,NO,,,(public),,all
 POST /auth/refresh,auth.ts,NO,,,(public),,all
 POST /auth/sessions/revoke-others,auth.ts,yes,,,(public),,all
+POST /canteen/accounts,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/accounts/:id/rules,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/accounts/:id/statements,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members/:id/tokens,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /canteen/members/:id/topup,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /canteen/members/:id/wallet/adjust,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members/import,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/preorders,canteen-meals.ts,yes,yes,,order:create,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /canteen/preorders/:id/cancel,canteen-meals.ts,yes,yes,,any(order:cancel | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/preorders/:id/serve,canteen-meals.ts,yes,yes,,order:create,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /canteen/slots,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions,canteen-meals.ts,yes,yes,,canteen:manage + payment:collect,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/cancel,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/pause,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/resume,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/skips,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
 POST /cash-shifts/current/close,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /cash-shifts/current/movements,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /cash-shifts/open,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
@@ -289,6 +328,7 @@ POST /uploads/image,uploads.ts,yes,,,(any logged-in user / in-handler),,all
 POST /webhooks/razorpay,public.ts,NO,,,(public),,all
 PUT /admin/settings/:scope/:key,admin.ts,yes,,,settings:outlet|platform(GLOBAL),,all
 PUT /admin/whatsapp,admin.ts,yes,business,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
+PUT /canteen/slots/:id/items,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
 PUT /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 PUT /inventory/audits/:id/counts,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 PUT /inventory/recipes/:menuItemId,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER

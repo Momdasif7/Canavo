@@ -8,8 +8,8 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | 1 Foundation and data safety | 8 (0 / 3 / 5) + indexes + delivery route guards | ✅ Done | [phase-1.md](phase-1.md) |
 | 2 Security and accounts | 8 (0 / 6 / 2) | ✅ Done | [phase-2.md](phase-2.md) |
 | 3 Money integrity | 8 (2 / 2 / 4) | ✅ Done | [phase-3.md](phase-3.md) |
-| 4 Roles and owner experience | 4 (1 / 1 / 2) | ✅ Done; **awaiting your review** — pilot set complete | [phase-4.md](phase-4.md) |
-| 5 Canteen and institutional | 5 (0 / 2 / 3) | Not started | — |
+| 4 Roles and owner experience | 4 (1 / 1 / 2) | ✅ Done (pilot set complete) | [phase-4.md](phase-4.md) |
+| 5 Canteen and institutional | 5 (0 / 2 / 3) | ✅ Done; **awaiting your review** | [phase-5.md](phase-5.md) |
 | 6 Sales channels | 4 (0 / 0 / 4) | Not started; needs vendor decision D3 | — |
 | 7 Kitchen, tables, delivery | 4 (0 / 4 / 0) | Not started | — |
 | 8 Back office | 5 (0 / 4 / 1) | Not started | — |
@@ -74,4 +74,4 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 ## Open decisions carried forward
 
 - D3, D5: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)). D2, D7, D13, D16 were answered on 2026-11-01. D1 and D6 were applied as recommended in Phase 3: please confirm.
-- Please confirm the decisions in [phase-4.md §Decisions](phase-4.md#decisions-please-confirm).
+- Please confirm the decisions in [phase-4.md](phase-4.md#decisions-please-confirm) and [phase-5.md](phase-5.md#decisions-please-confirm).
