@@ -10,7 +10,7 @@
  */
 import path from "node:path";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readdir, stat, unlink } from "node:fs/promises";
+import { readdir, rename, stat, unlink } from "node:fs/promises";
 import { createGzip, createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
@@ -197,17 +197,46 @@ export async function createBackup(kind: "auto" | "manual" = "manual") {
   return { file, size, rows, counts, offsite };
 }
 
-export async function listBackups() {
+export interface BackupInfo {
+  file: string;
+  size: number;
+  createdAt: Date;
+  kind: "auto" | "manual";
+  /** local = this server's disk only; offsite = off-site store only (e.g. written by the worker); both = on disk and off-site */
+  location: "local" | "offsite" | "both";
+}
+
+/**
+ * Backups on this server's disk merged with the off-site store. With the API and the
+ * worker on separate disks (JOBS_MODE=worker), the daily backups the worker writes are
+ * visible to the API through the off-site copy. An unreachable store is reported and the
+ * local list is still returned.
+ */
+export async function listBackups(): Promise<BackupInfo[]> {
   const dir = backupsDir();
   const files = (await readdir(dir)).filter((f) => BACKUP_RE.test(f));
-  const out = await Promise.all(
-    files.map(async (file) => {
-      const s = await stat(path.join(dir, file));
-      return { file, size: s.size, createdAt: s.mtime, kind: file.includes("-auto-") ? "auto" : "manual" };
-    }),
-  );
-  return out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.file.localeCompare(a.file));
+  const byFile = new Map<string, BackupInfo>();
+  for (const file of files) {
+    const s = await stat(path.join(dir, file));
+    byFile.set(file, { file, size: s.size, createdAt: s.mtime, kind: backupKind(file), location: "local" });
+  }
+  const store = offsiteStore();
+  if (store) {
+    try {
+      for (const o of await store.list()) {
+        if (!BACKUP_RE.test(o.key)) continue;
+        const local = byFile.get(o.key);
+        if (local) local.location = "both";
+        else byFile.set(o.key, { file: o.key, size: o.size, createdAt: o.lastModified, kind: backupKind(o.key), location: "offsite" });
+      }
+    } catch (e) {
+      reportError(e, { kind: "backup.offsite.list" });
+    }
+  }
+  return [...byFile.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.file.localeCompare(a.file));
 }
+
+const backupKind = (file: string): BackupInfo["kind"] => (file.includes("-auto-") ? "auto" : "manual");
 
 /** Resolve a backup file name to a path inside the backups dir (rejects traversal / unknown names). */
 export function backupPath(file: string): string {
@@ -215,19 +244,41 @@ export function backupPath(file: string): string {
   return path.join(backupsDir(), file);
 }
 
+/** Local path of a backup; a backup that exists only off-site is fetched to this disk first. */
 export async function assertBackupExists(file: string) {
   const p = backupPath(file);
   try {
     await stat(p);
+    return p;
   } catch {
+    // not on this disk — try the off-site copy
+  }
+  const store = offsiteStore();
+  if (!store) throw notFound("Backup");
+  let objects: Awaited<ReturnType<typeof store.list>>;
+  try {
+    objects = await store.list();
+  } catch (e) {
+    reportError(e, { kind: "backup.offsite.list" });
     throw notFound("Backup");
   }
+  if (!objects.some((o) => o.key === file)) throw notFound("Backup");
+  const partial = `${p}.download`;
+  try {
+    await store.get(file, partial);
+    await rename(partial, p);
+  } catch (e) {
+    await unlink(partial).catch(() => undefined);
+    throw e;
+  }
+  console.info(`[backup] fetched ${file} from ${store.location}`);
   return p;
 }
 
 /** Keep the newest `keep` automatic backups. */
 export async function pruneBackups(keep = env.BACKUP_RETENTION) {
-  const autos = (await listBackups()).filter((b) => b.kind === "auto").sort((a, b) => b.file.localeCompare(a.file));
+  // Local disk only; off-site retention is the bucket's lifecycle rule (docs/deployment/DEPLOYMENT.md).
+  const autos = (await listBackups()).filter((b) => b.kind === "auto" && b.location !== "offsite").sort((a, b) => b.file.localeCompare(a.file));
   for (const b of autos.slice(keep)) {
     await unlink(path.join(backupsDir(), b.file));
     console.info(`[backup] pruned ${b.file}`);

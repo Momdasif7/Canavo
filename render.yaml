@@ -8,8 +8,10 @@
 #                (Neon / Supabase / RDS)? Delete the `databases:` block and set
 #                DATABASE_URL on canavo-api by hand.
 #
-# Background jobs run inside the API process: keep exactly ONE instance
-# (numInstances: 1) until jobs are moved to a separate worker.
+# Background jobs (Phase 1): pg-boss queue in Postgres, run by the separate
+# canavo-worker service (JOBS_MODE=worker on the API). Several API instances and
+# workers are safe (no double execution). Scaling the API beyond one instance
+# also needs REDIS_URL so live updates reach every instance.
 
 services:
   - type: web
@@ -17,7 +19,7 @@ services:
     runtime: docker
     region: singapore
     plan: starter
-    numInstances: 1
+    numInstances: 1 # raise only after setting REDIS_URL (Socket.io rooms shared through Redis)
     dockerfilePath: apps/api/Dockerfile
     dockerContext: .
     healthCheckPath: /ready
@@ -50,6 +52,28 @@ services:
       # Render's load balancer is on a private network
       - key: TRUST_PROXY
         value: loopback, linklocal, uniquelocal
+      # Jobs run in canavo-worker (below); the API serves requests only
+      - key: JOBS_MODE
+        value: worker
+      - key: LOG_FORMAT
+        value: json
+      # Prometheus scrape token for GET /metrics (16+ chars)
+      - key: METRICS_TOKEN
+        sync: false
+      # Optional: Redis for Socket.io across several API instances
+      - key: REDIS_URL
+        sync: false
+      # Off-site backup copies (S3 / R2 / B2); see docs/deployment/DEPLOYMENT.md
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
       # Optional integrations (leave empty to use the dev fallbacks)
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
@@ -80,6 +104,58 @@ services:
       name: canavo-storage
       mountPath: /repo/apps/api/storage
       sizeGB: 5
+
+  # Background worker: scheduled jobs (auto-assign deliveries, alerts, report emails,
+  # backups, stock checks) on pg-boss. Same image and env as the API.
+  - type: worker
+    name: canavo-worker
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    dockerCommand: node dist/worker.js
+    envVars:
+      - fromGroup: canavo-shared
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: canavo-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        fromService: { type: web, name: canavo-api, envVarKey: JWT_ACCESS_SECRET }
+      - key: JWT_REFRESH_SECRET
+        fromService: { type: web, name: canavo-api, envVarKey: JWT_REFRESH_SECRET }
+      - key: RECEIPT_LINK_SECRET
+        fromService: { type: web, name: canavo-api, envVarKey: RECEIPT_LINK_SECRET }
+      - key: DATA_ENCRYPTION_KEY
+        fromService: { type: web, name: canavo-api, envVarKey: DATA_ENCRYPTION_KEY }
+      - key: PUBLIC_API_URL
+        fromService: { type: web, name: canavo-api, envVarKey: PUBLIC_API_URL }
+      - key: LOG_FORMAT
+        value: json
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+    disk:
+      # Backups are written here before the off-site copy
+      name: canavo-worker-storage
+      mountPath: /repo/apps/api/storage
+      sizeGB: 5
+
+envVarGroups:
+  - name: canavo-shared
+    envVars:
+      - key: TRUST_PROXY
+        value: loopback, linklocal, uniquelocal
 
 databases:
   - name: canavo-db

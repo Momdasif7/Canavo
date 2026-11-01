@@ -26,6 +26,8 @@ export interface BackupFile {
   size: number;
   createdAt: string;
   kind: "auto" | "manual";
+  /** local = this server only; offsite = off-site copy only (written by the worker); both */
+  location?: "local" | "offsite" | "both";
 }
 
 export interface BackupResult {
