@@ -1,6 +1,8 @@
 import type { Request } from "express";
 import type { Prisma } from "@prisma/client";
+import { BOARD_CHANNELS } from "@canavo/shared";
 import { audit } from "../lib/audit";
+import { outboxEmitOutlet } from "../lib/outbox";
 import type { OrderWithRelations } from "./billing";
 import { creditGiftCard } from "./gift-cards";
 import { restoreCanteenForOrder } from "./canteen";
@@ -27,5 +29,7 @@ export async function cancelOrderInTx(tx: Prisma.TransactionClient, req: Request
   await onOrderCancelledService(tx, order.id);
   await restoreStockForOrder(tx, order.id);
   await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber, ...meta }, tx);
+  // Phase 6: an online-channel order leaves the packing board's live columns.
+  if ((BOARD_CHANNELS as readonly string[]).includes(order.channel)) await outboxEmitOutlet(tx, order.outletId, "channel:board", { orderId: order.id, stage: "CANCELLED" });
   return u;
 }

@@ -246,8 +246,48 @@ export const ORDER_CHANNEL_LABELS: Record<OrderChannel, string> = {
 export const CHANNEL_PUSH_STATUSES = ["ACCEPTED", "FOOD_READY", "DISPATCHED", "DELIVERED", "CANCELLED"] as const;
 export type ChannelPushStatus = (typeof CHANNEL_PUSH_STATUSES)[number];
 
+/** Phase 6: which adapter talks to the outlet's order hub (one connection per outlet) */
+export const CHANNEL_PROVIDERS = ["HUB", "URBANPIPER"] as const;
+export type ChannelProvider = (typeof CHANNEL_PROVIDERS)[number];
+export const CHANNEL_PROVIDER_LABELS: Record<ChannelProvider, string> = { HUB: "Generic order hub", URBANPIPER: "UrbanPiper" };
+
+/** Phase 6: orders shown on the Online orders (packing) board */
+export const BOARD_CHANNELS = ["ZOMATO", "SWIGGY", "ONDC", "OTHER", "ONLINE"] as const satisfies readonly OrderChannel[];
+export const CHANNEL_BOARD_STAGES = ["NEW", "PREPARING", "PACKED", "HANDED_OVER", "CANCELLED"] as const;
+export type ChannelBoardStage = (typeof CHANNEL_BOARD_STAGES)[number];
+/** One order on GET /channels/board (money in paise, times ISO). */
+export interface ChannelBoardOrder {
+  orderId: string;
+  invoiceNumber: string;
+  channel: string;
+  channelOrderId: string | null;
+  stage: ChannelBoardStage;
+  customerName: string | null;
+  items: { name: string; quantity: number; notes: string | null }[];
+  total: number;
+  paid: boolean;
+  /** We deliver (our delivery partner), not the aggregator's rider */
+  weDeliver: boolean;
+  placedAt: string;
+  packedAt: string | null;
+  handedOverAt: string | null;
+  rider: { name: string | null; phone: string | null; pickupCode: string | null; eta: string | null; arrived: boolean } | null;
+}
+/** GET /channels/board/:orderId/slip — packing slip / bag label */
+export interface ChannelPackingSlip extends ChannelBoardOrder {
+  outletName: string;
+  printedAt: string;
+  /** What the rider / partner collects at the door, paise (0 = paid online) */
+  amountDue: number;
+}
+/** POST /channels/board/:orderId/handover */
+export const channelHandoverSchema = z.object({ riderName: z.string().trim().max(100).optional() });
+/** PUT /channels/board/settings */
+export const channelBoardSettingsSchema = z.object({ autoPrint: z.boolean() });
+
 /** Settings → Channels: the outlet's hub connection. Secrets are only replaced when sent. */
 export const channelConnectionSchema = z.object({
+  provider: z.enum(CHANNEL_PROVIDERS).default("HUB"),
   enabled: z.boolean().default(false),
   baseUrl: z.string().trim().url().max(300),
   externalStoreId: z.string().trim().min(1).max(100),

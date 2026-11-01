@@ -8,6 +8,7 @@ A local fake hub (`services/channels/fake-hub.ts`) implements this contract for 
 
 | Field | Meaning |
 | --- | --- |
+| Provider | `HUB` (this contract) or `URBANPIPER` (see "UrbanPiper mapping" below). One connection per outlet. |
 | Hub address (`baseUrl`) | Root of the hub's API, e.g. `https://api.hub.example` |
 | Store id (`externalStoreId`) | This outlet's id at the hub |
 | API key | Sent on every call from CANAVO to the hub (stored encrypted, AES-256-GCM) |
@@ -25,6 +26,7 @@ Every request carries `x-api-key: <API key>` and `content-type: application/json
 | Publish menu | `PUT /v1/stores/{storeId}/menu` | `{ items: MenuItem[] }` (the full menu, replacing the old one) |
 | Store open / closed | `PUT /v1/stores/{storeId}/status` | `{ open: boolean }` |
 | Order status | `POST /v1/orders/{channelOrderId}/status` | `{ storeId, channel, status, reason? }` |
+| Item stock on / off | `PUT /v1/stores/{storeId}/items/availability` | `{ externalIds: string[], available: boolean }` (adapter method `setItemsAvailable`; not called automatically yet) |
 
 `MenuItem` (money in paise):
 
@@ -48,8 +50,8 @@ Status updates go through the transactional outbox. They are sent at least once 
 When CANAVO sends each status:
 
 - `accepted`: as soon as the order is billed (KOTs fired). Orders are accepted automatically.
-- `food_ready`: when the kitchen marks the last KOT of the order ready.
-- `dispatched`: staff tap "Handed to rider" (Settings → Channels → Recent channel orders), or call `POST /channels/orders/:orderId/status`.
+- `food_ready`: when staff tap **Packed** on the Online orders board, or the kitchen marks the last KOT of the order ready, whichever comes first. It is sent **once** (`ChannelOrder.foodReadyQueuedAt` guards both paths).
+- `dispatched`: staff tap **Handed to rider** on the Online orders board (`POST /channels/board/:orderId/handover`, reason `Handed to <rider name>`), or call `POST /channels/orders/:orderId/status`. Handing over an order that was never packed sends `food_ready` first.
 - `cancelled`: staff cancel the bill in CANAVO.
 
 ## Hub → CANAVO (webhooks)
@@ -102,7 +104,8 @@ The hub should reject the order on the app when it gets a `4xx` (except `401`, w
 How a new order is billed:
 
 - **Prices**: CANAVO bills its own menu prices and GST, with a normal invoice number and KOTs. The app's `totals.total` is stored next to our total. If they differ by more than ₹1, the order is flagged "Differs" for reconciliation. Packaging, delivery charges and app-funded discounts are kept in the stored payload; they are not added to our bill.
-- **Order type**: the bill is a **TAKEAWAY**, because the aggregator's rider collects it. No CANAVO delivery record is created, and our delivery partners are never auto-assigned. `fulfilment: self` orders are also takeaway bills, with the address in the bill notes; routing them to our delivery board is a later step.
+- **Order type**: the bill is a **TAKEAWAY**, because the aggregator's rider collects it. No CANAVO delivery record is created, and our delivery partners are never auto-assigned.
+- **We deliver** (`fulfilment: self`): if the business has the DELIVERY module and the order has an address (5+ characters) and a valid Indian mobile, the bill is a **DELIVERY** order with a Delivery record (source `AGGREGATOR`, address, landmark, lat/lng). It shows on our Delivery board and is auto-assigned like any delivery. Zone rules don't refuse it (the app already accepted the address) and no zone delivery fee is added. Not prepaid → Cash on Delivery. Otherwise (no DELIVERY module, no address or phone) it stays a takeaway with the address in the notes.
 - **Payment**: if `payment.prepaid` is true, the bill gets a successful payment with mode `ONLINE` ("Paid online") for our total, and is marked paid. Otherwise it stays unpaid for staff to settle.
 - **Customer**: the name, and the phone if it is a valid Indian mobile (apps often mask numbers).
 - **Item ids**: matched through the item mapping first, then as our own menu item id. An item published under a custom id can only be ordered by that id. Sizes and add-ons match our id or their name (case-insensitive).
@@ -122,10 +125,50 @@ CANAVO voids the bill as a system cancel, with the reason `Cancelled on Zomato: 
 { "event": "rider.status", "order": { "id": "Z-123456", "channel": "zomato" }, "status": "at_store", "rider": { "name": "Ravi", "phone": "…" } }
 ```
 
-`status` is one of `assigned`, `at_store`, `picked_up`, `delivered`. CANAVO records it and shows it on Settings → Channels.
+```json
+{ "rider": { "name": "Ravi", "phone": "…", "pickupCode": "4821", "eta": "8 min" } }
+```
+
+`status` is one of `assigned`, `at_store`, `picked_up`, `delivered`. `rider.pickupCode` (the OTP the rider shows) and `rider.eta` (ISO time or text) are optional. CANAVO merges rider details across updates (a later update without a name keeps the earlier name), shows them on the Online orders board and the packing slip, and emits `channel:board`. `picked_up` / `delivered` mark the order handed over without pushing `dispatched` back.
+
+## Online orders board (packing and handover)
+
+Aggregator and own online-page orders arrive billed. Staff then pack them and hand them over on **Billing & orders → Online orders** (web) or the mobile app.
+
+| Route (module CHANNELS; `order:create`, `kot:view` or `channel:manage`) | Result |
+| --- | --- |
+| `GET /channels/board` | `{ orders: ChannelBoardOrder[] }`: today's orders (outlet timezone) from ZOMATO, SWIGGY, ONDC, OTHER and ONLINE, newest first, plus orders from the last 7 days that were not handed over or cancelled |
+| `POST /channels/board/:orderId/packed` | the updated order. `409` if cancelled or already handed over. Packing twice is harmless. |
+| `POST /channels/board/:orderId/handover` `{ riderName? }` | the updated order. `409` if cancelled or already handed over. |
+| `GET /channels/board/:orderId/slip` | packing slip: a board order plus `outletName`, `printedAt`, `amountDue`. The customer's first name only. |
+| `GET /channels/board/:orderId/print?paper=58\|80` | `{ text }`: bill, KOTs and slip as one plain-text print job (auto-print) |
+| `GET/PUT /channels/board/settings` | `{ autoPrint }` (only `channel:manage` can change it) |
+
+The `ChannelBoardOrder` type is in `@canavo/shared`. Stage is worked out in this order: `CANCELLED` (bill voided), then `HANDED_OVER` (handover recorded, or our partner picked it up), `PACKED`, `PREPARING` (the kitchen marked a KOT Preparing or Ready), `NEW`. Without a kitchen display, orders go from NEW straight to Packed. For orders we deliver, `weDeliver` is true, `rider` is our assigned partner, and handover means our partner picked it up. Every change (new order, stage change, rider update, cancellation) emits the socket event `channel:board` `{ orderId, stage }` to the outlet room.
+
+**Auto-print**: this is the outlet setting "Print bill and KOT automatically when a channel order arrives". A web browser with the board open prints each new order (`channel:board` with stage NEW) through `window.print`. Each device can switch off "This device prints". Browsers show a print dialog every time. For hands-free printing, run the counter browser in kiosk-printing mode (Chrome `--kiosk-printing`) with the thermal printer as the default printer.
+
+## UrbanPiper mapping — verify at onboarding
+
+`UrbanPiperAdapter` (`apps/api/src/services/channels/urbanpiper.ts`, provider `URBANPIPER`) was written from UrbanPiper's widely known public API shapes, **without their docs, a sandbox or credentials**. Every path and field is in that one file. The uncertain ones are marked `TODO(verify-at-onboarding)`. Tests run it against the local fake server only (`urbanpiper.test.ts`, and the integration test "UrbanPiper provider").
+
+| Our concept | UrbanPiper (assumed) |
+| --- | --- |
+| Auth on our calls | `Authorization: apikey <username>:<api key>`. The settings "API key" field holds `username:api-key`. |
+| Webhook auth | UrbanPiper webhooks aren't HMAC-signed in the public docs. We ask them to send the webhook secret in a custom header, `x-canavo-webhook-secret`, and compare it in constant time. |
+| Test connection | `GET /external/api/v1/stores/?location_ref_id={storeId}` |
+| Menu push (`pushMenu`) | `POST /external/api/v1/inventory/locations/{storeId}/` with `{ flush_items: false, categories[{ref_id,name,active}], items[{ref_id,title,description,price (₹),food_type "1"/"2"/"3",category_ref_ids,available,current_stock -1/0,sold_at_store}], option_groups[...], options[...] }`. Sizes become a "Size" option group with option ref `V-<variant id>`, priced as the difference from the item price. Add-ons become an "Add-ons" group with ref `A-<addon id>`. |
+| Store open / closed | `POST /hub/api/v1/location/` `{ location_ref_id, platforms: ["zomato","swiggy"], action: "enable" \| "disable" }` |
+| Item stock toggle | `POST /hub/api/v1/items/` `{ location_ref_id, platforms, item_ref_ids, action }` |
+| Status push | `PUT /external/api/v1/orders/{UrbanPiper order id}/status/` `{ new_status, message }`, with ACCEPTED→`Acknowledged`, FOOD_READY→`Food Ready`, DISPATCHED→`Dispatched`, DELIVERED→`Completed`, CANCELLED→`Cancelled` |
+| Order relay webhook (`order_placed`) | Body with `order.details` → NEW_ORDER. `channelOrderId` = UrbanPiper `details.id` (used for status pushes). `displayId` = `ext_platforms[0].id` (the Zomato / Swiggy id, shown on the board and slip). Source = `ext_platforms[0].name` (else `details.channel`). `delivery_type: self` → SELF. `order_type: pickup` → PICKUP. Money in rupees → paise. `payment[].option` cash/cod → not prepaid. Customer address `line_1, line_2, sub_locality, city, pin`, plus `latitude`/`longitude`. |
+| Order status webhook | `{ order_id, new_state, message }`: a state matching `cancel` → ORDER_CANCELLED (looked up by UrbanPiper id). Other states echo our pushes and are answered `200 { ignored }`. |
+| Rider status webhook | `{ order_id, delivery_info: { current_state, delivery_person_details: { name, phone }, otp?, eta? } }`. `assigned` → ASSIGNED, `at-store`/`reached-store` → AT_STORE, `picked-up`/`out-for-delivery`/`dispatched` → PICKED_UP, `delivered`/`completed` → DELIVERED. Other states are ignored. Where the pickup OTP and ETA come from is unverified. |
+
+At onboarding: replace each `TODO(verify-at-onboarding)` with the documented value, run `urbanpiper.test.ts` against recorded real payloads, then switch the outlet's provider to UrbanPiper on Settings → Channels.
 
 ## Mapping a real hub later
 
-- **Different paths or field names**: write a new `ChannelAdapter` (for example `UrbanPiperAdapter`). The service, the outbox task, the UI and the tests stay the same.
+- **Different paths or field names**: write a new `ChannelAdapter` (as `UrbanPiperAdapter` does) and choose it by `ChannelConnection.provider` in `adapterFor`. The service, the outbox task, the UI and the tests stay the same. Events an adapter understands but doesn't act on return `{ type: "IGNORED" }` and are answered with 200.
 - **Different signature scheme** (timestamped HMAC, a token header): handled inside the adapter's `parseWebhook`.
 - **Manual accept**: if the hub needs one, add a per-connection "auto-accept" switch and an Accept button. Today, orders are accepted on receipt.

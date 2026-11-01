@@ -1,4 +1,4 @@
-import { can, type Permission } from "@canavo/shared";
+import { can, type ModuleKey, type Permission } from "@canavo/shared";
 import type { Me } from "@/lib/types";
 import {
   BookOpenText,
@@ -26,7 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { Briefcase, IdentificationBadge } from "@phosphor-icons/react";
 import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
-import { ForkKnife, Clock, Repeat, QrCode, PlugsConnected } from "@phosphor-icons/react";
+import { ForkKnife, Clock, Repeat, QrCode, PlugsConnected, Tote } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
 export interface NavItem {
@@ -39,6 +39,8 @@ export interface NavItem {
   allOf?: Permission[];
   /** Hidden when the session has any of these (e.g. partner screens for managers) */
   noneOf?: Permission[];
+  /** Also needs this business module (for entries gated by permissions that exist without it) */
+  module?: ModuleKey;
   /**
    * Where the screen works: "business" (default) needs an outlet / business
    * context, "platform" is for platform admins only, "any" works in both.
@@ -100,6 +102,8 @@ export const NAV_GROUPS: NavGroup[] = [
       // Waiters take orders on the Tables screen; the POS is for whoever collects payment.
       { href: "/pos", label: "POS", icon: CashRegister, anyOf: ["order:create"], allOf: ["payment:collect"] },
       { href: "/tables", label: "Tables", icon: SquaresFour, anyOf: ["table:serve", "table:manage"] },
+      // Phase 6 (CHANNELS): Zomato / Swiggy / online-page orders — pack and hand to the rider.
+      { href: "/online-orders", label: "Online orders", icon: Tote, anyOf: ["channel:manage", "order:create"], module: "CHANNELS" },
       { href: "/bills", label: "Bills", icon: Receipt, anyOf: ["bills:view"] },
       { href: "/cash-drawer", label: "Cash drawer", icon: Vault, anyOf: ["payment:collect"] },
       { href: "/gift-cards", label: "Gift cards", icon: Gift, anyOf: ["payment:collect"] },
@@ -206,7 +210,7 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Session facts the nav needs. */
 export interface NavContext {
-  me: Pick<Me, "role" | "permissions" | "platformAdmin">;
+  me: Pick<Me, "role" | "permissions" | "platformAdmin"> & Partial<Pick<Me, "modules">>;
   /** null = platform admin (always in the platform console; they can't open a hotel) */
   outletId: string | null;
 }
@@ -223,7 +227,10 @@ const scopeOk = (item: NavItem, ctx: NavContext) => {
   return true;
 };
 
+const moduleOk = (item: NavItem, ctx: NavContext) => !item.module || Boolean(ctx.me.modules?.includes(item.module));
+
 const permsOk = (item: NavItem, ctx: NavContext) =>
+  moduleOk(item, ctx) &&
   (!item.anyOf.length || item.anyOf.some((p) => has(ctx, p))) &&
   (item.allOf ?? []).every((p) => has(ctx, p)) &&
   !(item.noneOf ?? []).some((p) => has(ctx, p));

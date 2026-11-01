@@ -1,7 +1,8 @@
 import type { Request } from "express";
-import type { OrderChannel, OrderCreateInput } from "@canavo/shared";
+import { BOARD_CHANNELS, type OrderChannel, type OrderCreateInput } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { runForOutlet } from "../lib/tenant";
+import { emitToOutlet } from "../realtime";
 import { createOrder, type CreateOrderOptions } from "./billing";
 
 /**
@@ -56,7 +57,12 @@ export async function createChannelOrder(
     }
     const req = await systemRequest(outletId, outlet.businessId, opts.ip);
     const result = await createOrder(req, input, { ...opts, channel });
-    return { ...result, duplicate: result.duplicate as boolean };
+    const effects = () => {
+      result.effects();
+      // Phase 6: a new order on the Online orders (packing) board.
+      if (!result.duplicate && (BOARD_CHANNELS as readonly string[]).includes(channel)) emitToOutlet(outletId, "channel:board", { orderId: result.order.id, stage: "NEW" });
+    };
+    return { ...result, effects, duplicate: result.duplicate as boolean };
   });
 }
 

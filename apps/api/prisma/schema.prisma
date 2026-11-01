@@ -93,6 +93,7 @@ model Outlet {
   channelConnections      ChannelConnection[]
   channelItemMaps         ChannelItemMap[]
   channelOrders           ChannelOrder[]
+  orderHandovers          OrderHandover[]
 
   @@index([businessId])
 }
@@ -444,18 +445,18 @@ model InvoiceCounter {
 }
 
 model Order {
-  id             String        @id @default(cuid())
-  clientOrderId  String?       @unique
+  id             String         @id @default(cuid())
+  clientOrderId  String?        @unique
   outletId       String
   cashierId      String
   invoiceNumber  String
   documentType   DocumentType
   orderType      OrderType
-  status         OrderStatus   @default(OPEN)
+  status         OrderStatus    @default(OPEN)
   tableLabel     String?
   customerName   String?
   customerPhone  String?
-  interState     Boolean       @default(false)
+  interState     Boolean        @default(false)
   notes          String?
   subtotal       Int
   discount       Int
@@ -464,57 +465,60 @@ model Order {
   cgst           Int
   sgst           Int
   igst           Int
-  cess           Int           @default(0)
+  cess           Int            @default(0)
   /// Other taxes (e.g. VAT), paise
-  otherTaxes     Int           @default(0)
+  otherTaxes     Int            @default(0)
   /// [{ label, percent, amount }] per extra tax
-  taxDetails     Json          @default("[]")
+  taxDetails     Json           @default("[]")
   roundOff       Int
   grandTotal     Int
   taxBreakup     Json
   paidAt         DateTime?
   cancelledAt    DateTime?
   cancelReason   String?
-  syncedOffline  Boolean       @default(false)
+  syncedOffline  Boolean        @default(false)
   customerId     String?
   /// Pre-orders: when the customer wants the food
   scheduledFor   DateTime?
   tableSessionId String?
   /// Promotions, coupon and loyalty redemption (pre-tax value), paise
-  promoDiscount  Int           @default(0)
+  promoDiscount  Int            @default(0)
   couponCode     String?
-  pointsRedeemed Int           @default(0)
+  pointsRedeemed Int            @default(0)
   /// [{ kind, id?, label, amount }]
-  appliedOffers  Json          @default("[]")
+  appliedOffers  Json           @default("[]")
   /// Delivery fee, packaging etc. (pre-tax), paise
-  extraCharges   Int           @default(0)
+  extraCharges   Int            @default(0)
   /// [{ label, amount }]
-  chargesBreakup Json          @default("[]")
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  customer       Customer?     @relation(fields: [customerId], references: [id])
-  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id])
+  chargesBreakup Json           @default("[]")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  customer       Customer?      @relation(fields: [customerId], references: [id])
+  tableSession   TableSession?  @relation(fields: [tableSessionId], references: [id])
   delivery       Delivery?
-  outlet         Outlet        @relation(fields: [outletId], references: [id])
-  cashier        User          @relation(fields: [cashierId], references: [id])
+  /// Phase 6: packing / handover of an online-channel order (Online orders board)
+  handover       OrderHandover?
+  outlet         Outlet         @relation(fields: [outletId], references: [id])
+  cashier        User           @relation(fields: [cashierId], references: [id])
   items          OrderItem[]
   kots           KotTicket[]
   payments       Payment[]
   /// Total of credit notes issued against this bill (Phase 3.1), paise
-  refundedAmount Int           @default(0)
+  refundedAmount Int            @default(0)
   creditNotes    CreditNote[]
   /// Phase 5 (CANTEEN): meal slot the bill belongs to (counter bills: the slot open at billing time; pre-orders: the chosen slot)
   mealSlotId     String?
   /// Phase 5.3 (CANTEEN): pre-order handed over at the counter (redeemed)
   servedAt       DateTime?
   /// Phase 6: where the order came from (POS, QR, ONLINE, ZOMATO, SWIGGY, ONDC, OTHER)
-  channel        String        @default("POS")
+  channel        String         @default("POS")
   /// The channel's own order id (aggregators / hub); unique per outlet and channel
   channelOrderId String?
 
   @@unique([outletId, invoiceNumber])
   @@unique([outletId, channel, channelOrderId])
   @@index([outletId, createdAt])
+  @@index([outletId, channel, createdAt])
   @@index([customerId])
   @@index([outletId, status, createdAt])
 }
@@ -1997,7 +2001,7 @@ model ChannelRequest {
 model ChannelConnection {
   id               String    @id @default(cuid())
   outletId         String
-  /// Adapter: "HUB" (generic partner hub, see docs/build/channels-hub-contract.md)
+  /// Adapter: "HUB" (generic partner hub, see docs/build/channels-hub-contract.md) or "URBANPIPER". One connection per outlet.
   provider         String    @default("HUB")
   enabled          Boolean   @default(false)
   /// Taking orders on the channels right now (pushed to the hub)
@@ -2020,6 +2024,27 @@ model ChannelConnection {
   @@unique([outletId, provider])
 }
 
+/// Phase 6: packing and handover of an online-channel order (Online orders board).
+/// Stage NEW / PREPARING / CANCELLED is derived from the bill and its KOTs; this row records
+/// what staff did: packed, handed to the rider (or, for orders we deliver, to our partner).
+model OrderHandover {
+  id             String    @id @default(cuid())
+  outletId       String
+  orderId        String    @unique
+  packedAt       DateTime?
+  packedById     String?
+  handedOverAt   DateTime?
+  handedOverById String?
+  /// Rider name typed by staff, or from the channel's rider update
+  riderName      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  outlet         Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, createdAt])
+}
+
 /// External item id a channel uses for a menu item (default: the menu item id itself).
 model ChannelItemMap {
   id         String @id @default(cuid())
@@ -2034,33 +2059,36 @@ model ChannelItemMap {
 
 /// Every order a channel sent us (accepted or rejected), with their payload and totals for reconciliation.
 model ChannelOrder {
-  id             String   @id @default(cuid())
-  outletId       String
-  connectionId   String
+  id                String    @id @default(cuid())
+  outletId          String
+  connectionId      String
   /// ZOMATO / SWIGGY / OTHER … (ORDER_CHANNELS)
-  sourceChannel  String
-  channelOrderId String
+  sourceChannel     String
+  channelOrderId    String
   /// Our bill (null when rejected)
-  orderId        String?
+  orderId           String?
   /// ACCEPTED | REJECTED | CANCELLED
-  status         String
+  status            String
   /// Last status we told the channel (ACCEPTED, FOOD_READY, DISPATCHED, DELIVERED, CANCELLED)
-  pushedStatus   String?
-  pushError      String?
+  pushedStatus      String?
+  pushError         String?
   /// Rider updates from the channel: ASSIGNED, AT_STORE, PICKED_UP, DELIVERED
-  riderStatus    String?
-  rider          Json?
+  riderStatus       String?
+  /// { name?, phone?, pickupCode?, eta? } — merged across rider updates
+  rider             Json?
+  /// FOOD_READY was queued for the channel (packed, or every KOT ready) — it is sent once
+  foodReadyQueuedAt DateTime?
   /// What the channel says the customer paid, paise
-  channelTotal   Int      @default(0)
+  channelTotal      Int       @default(0)
   /// Our bill's grand total, paise (menu prices + our GST)
-  ourTotal       Int      @default(0)
+  ourTotal          Int       @default(0)
   /// channelTotal and ourTotal differ by more than ₹1
-  mismatch       Boolean  @default(false)
-  error          String?
-  payload        Json
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  outlet         Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  mismatch          Boolean   @default(false)
+  error             String?
+  payload           Json
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  outlet            Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@unique([outletId, sourceChannel, channelOrderId])
   @@index([outletId, createdAt])

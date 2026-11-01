@@ -6,6 +6,7 @@ import { ops as inventoryOps } from "./openapi-inventory";
 import { ops as serviceOps } from "./openapi-service";
 import { ops as crmOps } from "./openapi-crm";
 import { ops as platformOps } from "./openapi-platform";
+import { ops as channelOps } from "./openapi-channels";
 
 export type Op = [method: string, path: string, summary: string, tag: string, secured?: boolean];
 
@@ -65,7 +66,7 @@ const ops: Op[] = [
 ];
 
 const paths: Record<string, Record<string, unknown>> = {};
-for (const [method, path, summary, tag, secured = true] of [...ops, ...inventoryOps, ...serviceOps, ...crmOps, ...platformOps]) {
+for (const [method, path, summary, tag, secured = true] of [...ops, ...inventoryOps, ...serviceOps, ...crmOps, ...platformOps, ...channelOps]) {
   paths[path] ??= {};
   paths[path][method] = {
     summary,

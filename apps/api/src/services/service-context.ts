@@ -192,7 +192,11 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     const d = input.delivery;
     if (!d) throw badRequest("Delivery address is required for delivery orders");
     if (!input.customerPhone || !input.customerName) throw badRequest("Customer name and phone are required for delivery");
-    if (!outlet.deliveryEnabled && !offline) throw badRequest("Delivery is not enabled for this outlet");
+    // Phase 6: a "we deliver" aggregator order was already accepted by the app with its own address
+    // checks and delivery fee — like an offline bill, zone rules don't refuse it and we add no fee.
+    const aggregator = d.source === "AGGREGATOR";
+    const lenient = offline || aggregator;
+    if (!outlet.deliveryEnabled && !lenient) throw badRequest("Delivery is not enabled for this outlet");
 
     let distanceKm: number | undefined;
     if (d.latitude !== undefined && d.longitude !== undefined && outlet.latitude != null && outlet.longitude != null) {
@@ -206,24 +210,24 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     if (d.zoneId) {
       zone = zones.find((z) => z.id === d.zoneId) ?? null;
       if (!zone) throw badRequest("Unknown or inactive delivery zone");
-      if (distanceKm !== undefined && distanceKm > zone.radiusKm && !offline) {
+      if (distanceKm !== undefined && distanceKm > zone.radiusKm && !lenient) {
         throw badRequest(`Address is ${distanceKm} km away, outside zone ${zone.name} (${zone.radiusKm} km)`);
       }
     } else if (zones.length) {
-      if (distanceKm === undefined) throw badRequest("Provide map coordinates or choose a delivery zone");
-      zone = selectZone(zones, distanceKm);
-      if (!zone && !offline) {
+      if (distanceKm === undefined && !aggregator) throw badRequest("Provide map coordinates or choose a delivery zone");
+      zone = distanceKm === undefined ? null : selectZone(zones, distanceKm);
+      if (!zone && !lenient) {
         const max = Math.max(...zones.map((z) => z.radiusKm));
         throw badRequest(`Address is ${distanceKm} km away — we deliver within ${max} km`);
       }
     }
-    if (zone && zone.minOrder > 0 && !offline) {
+    if (zone && zone.minOrder > 0 && !lenient) {
       const sub = await roughSubtotal(outlet.id, input.items);
       if (sub < zone.minOrder) {
         throw badRequest(`Minimum order for ${zone.name} is ₹${(zone.minOrder / 100).toFixed(2)}`);
       }
     }
-    if (zone && zone.fee > 0) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
+    if (zone && zone.fee > 0 && !aggregator) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
 
     if (d.agentId) {
       const check = await canTakeOrder(outlet.id, d.agentId);

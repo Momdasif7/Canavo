@@ -11,7 +11,9 @@ import { channelRequest, createChannelOrder } from "../channel-orders";
 import { cancelOrderInTx } from "../order-cancel";
 import { encryptSecret, decryptSecret } from "../whatsapp";
 import { WebhookError, type ChannelAdapter, type ChannelMenuItem, type InboundCancelled, type InboundNewOrder, type InboundRiderStatus } from "./adapter";
+import { emitBoardChange, recordRiderPickup } from "./board";
 import { HubAdapter } from "./hub";
+import { UrbanPiperAdapter } from "./urbanpiper";
 
 /**
  * Phase 6.1 — online channels through a partner hub.
@@ -21,6 +23,9 @@ import { HubAdapter } from "./hub";
  * channel's own payload and total are kept on ChannelOrder for reconciliation.
  * Decision: aggregator orders are TAKEAWAY bills — the aggregator's rider collects them,
  * so no Delivery record is created and our delivery partners are never auto-assigned.
+ * Exception: when the hub says the restaurant delivers (fulfilment SELF) and the business
+ * has DELIVERY, the bill is a DELIVERY order with a Delivery record (our delivery board,
+ * auto-assignment) — see newOrder.
  *
  * Outbound: status changes (accepted, food ready, cancelled …) go through the outbox
  * (task "channel.pushStatus"), so they survive crashes and retry with backoff; what
@@ -32,13 +37,15 @@ const MISMATCH_TOLERANCE = 100;
 
 export const PUSH_TASK = "channel.pushStatus";
 
-export const adapterFor = (conn: ChannelConnection): ChannelAdapter =>
-  new HubAdapter({
+export const adapterFor = (conn: ChannelConnection): ChannelAdapter => {
+  const cfg = {
     baseUrl: conn.baseUrl,
     storeId: conn.externalStoreId,
     apiKey: decryptSecret(conn.apiKeyEnc ?? undefined),
     webhookSecret: decryptSecret(conn.webhookSecretEnc ?? undefined),
-  });
+  };
+  return conn.provider === "URBANPIPER" ? new UrbanPiperAdapter(cfg) : new HubAdapter(cfg);
+};
 
 /** For the settings screen: never the secrets themselves. */
 export function presentConnection(conn: ChannelConnection) {
@@ -144,11 +151,14 @@ export async function handleHubWebhook(connectionId: string, rawBody: Buffer, he
   }
   return runForOutlet(conn.outletId, async () => {
     if (!moduleEnabled("CHANNELS")) return reject(403, "CHANNELS_OFF", "Online channels are not enabled for this business");
+    if (event.type === "IGNORED") return { status: 200, body: { ok: true, ignored: event.reason } };
     if (event.type === "NEW_ORDER") return newOrder(conn, event, ip);
     if (event.type === "ORDER_CANCELLED") return channelCancelled(conn, event);
     return riderStatus(conn, event);
   });
 }
+
+const validCoord = (v: number | undefined, max: number) => (v !== undefined && Number.isFinite(v) && Math.abs(v) <= max ? v : undefined);
 
 const phoneOf = (raw?: string) => {
   const p = raw?.replace(/[\s-]/g, "").replace(/^(\+?91|0)/, "");
@@ -209,14 +219,31 @@ async function newOrder(conn: ChannelConnection, e: InboundNewOrder, ip?: string
   }
   if (unknown.length) return fail(422, "UNKNOWN_ITEM", `Unknown item(s): ${unknown.join(", ")}`, { unknown });
 
-  const where = e.fulfilment === "PICKUP" ? "customer pickup" : e.fulfilment === "SELF" ? `we deliver${e.delivery?.address ? ` to ${e.delivery.address}` : ""}` : `${label} rider pickup`;
+  // "We deliver" (self-delivery) → a DELIVERY bill on our delivery board when the business has DELIVERY
+  // and the hub gave an address and a phone we can call; otherwise a takeaway with the address in the notes.
+  const phone = phoneOf(e.customer.phone);
+  const address = e.delivery?.address?.trim();
+  const weDeliver = e.fulfilment === "SELF" && moduleEnabled("DELIVERY") && Boolean(phone) && (address?.length ?? 0) >= 5;
+  const where = e.fulfilment === "PICKUP" ? "customer pickup" : e.fulfilment === "SELF" ? `we deliver${address && !weDeliver ? ` to ${address}` : ""}` : `${label} rider pickup`;
+  const shownId = e.displayId ?? e.channelOrderId;
   const input: OrderCreateInput = {
-    orderType: "TAKEAWAY",
+    orderType: weDeliver ? "DELIVERY" : "TAKEAWAY",
     interState: false,
-    customerName: e.customer.name?.slice(0, 100),
-    customerPhone: phoneOf(e.customer.phone),
+    customerName: e.customer.name?.slice(0, 100) || (weDeliver ? "Customer" : undefined),
+    customerPhone: phone,
     items,
-    notes: [`${label} #${e.channelOrderId} · ${where}`, e.notes].filter(Boolean).join(" · ").slice(0, 300),
+    notes: [`${label} #${shownId} · ${where}`, e.notes].filter(Boolean).join(" · ").slice(0, 300),
+    ...(weDeliver && {
+      delivery: {
+        address: address!.slice(0, 500),
+        landmark: e.delivery?.landmark?.slice(0, 200),
+        latitude: validCoord(e.delivery?.latitude, 90),
+        longitude: validCoord(e.delivery?.longitude, 180),
+        source: "AGGREGATOR" as const,
+        // Not prepaid on the app: our partner collects at the door.
+        cod: !e.payment.prepaid,
+      },
+    }),
   };
 
   let result;
@@ -250,7 +277,7 @@ async function newOrder(conn: ChannelConnection, e: InboundNewOrder, ip?: string
     if (err instanceof HttpError && err.status < 500) return fail(422, "REJECTED", err.message);
     throw err;
   }
-  result.effects();
+  result.effects(); // includes the channel:board "new order" event
   if (!result.duplicate) {
     emitToOutlet(conn.outletId, "channel:order", { orderId: result.order.id, channelOrderId: e.channelOrderId, sourceChannel: e.sourceChannel, status: "ACCEPTED" });
     if (result.order.status === "PAID") emitToOutlet(conn.outletId, "order:paid", { id: result.order.id, invoiceNumber: result.order.invoiceNumber });
@@ -259,9 +286,11 @@ async function newOrder(conn: ChannelConnection, e: InboundNewOrder, ip?: string
 }
 
 async function findChannelOrder(conn: ChannelConnection, e: { sourceChannel: string; channelOrderId: string }) {
-  return prisma.channelOrder.findUnique({
+  const exact = await prisma.channelOrder.findUnique({
     where: { outletId_sourceChannel_channelOrderId: { outletId: conn.outletId, sourceChannel: e.sourceChannel, channelOrderId: e.channelOrderId } },
   });
+  // Some hubs' status / rider webhooks don't name the aggregator: the hub's own order id is enough.
+  return exact ?? prisma.channelOrder.findFirst({ where: { outletId: conn.outletId, connectionId: conn.id, channelOrderId: e.channelOrderId }, orderBy: { createdAt: "desc" } });
 }
 
 /** The customer / channel cancelled: void our bill (no push back — the channel already knows). */
@@ -296,8 +325,18 @@ async function channelCancelled(conn: ChannelConnection, e: InboundCancelled): P
 async function riderStatus(conn: ChannelConnection, e: InboundRiderStatus): Promise<WebhookResult> {
   const row = await findChannelOrder(conn, e);
   if (!row) return { status: 200, body: { ok: true, ignored: "unknown order" } };
-  await prisma.channelOrder.update({ where: { id: row.id }, data: { riderStatus: e.status, ...(e.rider && { rider: e.rider }) } });
-  emitToOutlet(conn.outletId, "channel:rider", { orderId: row.orderId, channelOrderId: e.channelOrderId, status: e.status, rider: e.rider ?? null });
+  // Later updates often leave out what earlier ones said (name, code): merge.
+  const given = Object.fromEntries(Object.entries(e.rider ?? {}).filter(([, v]) => typeof v === "string" && v.trim()));
+  const rider = { ...((row.rider ?? {}) as Record<string, unknown>), ...given };
+  await prisma.$transaction(async (tx) => {
+    await tx.channelOrder.update({ where: { id: row.id }, data: { riderStatus: e.status, rider: rider as Prisma.InputJsonValue } });
+    if (row.orderId) {
+      // The channel's rider took it: handed over (no DISPATCHED push — the channel told us).
+      if (e.status === "PICKED_UP" || e.status === "DELIVERED") await recordRiderPickup(tx, conn.outletId, row.orderId, typeof rider.name === "string" ? rider.name.slice(0, 100) : undefined);
+      await emitBoardChange(conn.outletId, row.orderId, tx);
+    }
+  });
+  emitToOutlet(conn.outletId, "channel:rider", { orderId: row.orderId, channelOrderId: e.channelOrderId, status: e.status, rider });
   return { status: 200, body: { ok: true } };
 }
 
@@ -313,6 +352,11 @@ export async function queueChannelStatus(tx: Prisma.TransactionClient, orderId: 
   if (!moduleEnabled("CHANNELS")) return false;
   const row = await tx.channelOrder.findFirst({ where: { orderId, status: { not: "REJECTED" } } });
   if (!row) return false;
+  // "Food ready" goes out once, whether the kitchen (all KOTs ready) or the packer said it first.
+  if (status === "FOOD_READY") {
+    const { count } = await tx.channelOrder.updateMany({ where: { id: row.id, foodReadyQueuedAt: null }, data: { foodReadyQueuedAt: new Date() } });
+    if (!count) return true;
+  }
   await outboxTask(tx, PUSH_TASK, { channelOrderRowId: row.id, connectionId: row.connectionId, status, ...(reason && { reason }) });
   return true;
 }
