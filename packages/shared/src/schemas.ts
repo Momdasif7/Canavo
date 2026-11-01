@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { newPasswordSchema } from "./password";
 import { ROLES } from "./rbac";
 
 export const indianPhone = z
@@ -64,7 +65,7 @@ const staffBaseSchema = z.object({
   name: z.string().min(2).max(100),
   phone: indianPhone,
   email: z.string().email().optional(),
-  password: z.string().min(8).optional(),
+  password: newPasswordSchema.optional(),
   pin: z.string().regex(/^\d{4,6}$/).optional(),
   role: z.enum(ROLES),
   /** Business owners work across all outlets and need none */

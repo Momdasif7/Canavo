@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { FEATURE_KEYS, featureEnabled, normalizeFeatures,
+import { z } from "zod";
+import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, passwordProblems,
   otpRequestSchema,
   otpVerifySchema,
   passwordLoginSchema,
@@ -12,8 +13,10 @@ import { FEATURE_KEYS, featureEnabled, normalizeFeatures,
 } from "@canavo/shared";
 import { platformPrisma, prisma } from "../db";
 import { isProd } from "../env";
-import { parse, unauthorized, HttpError } from "../lib/http";
-import { issueSession, rotateRefresh, sha256 } from "../lib/tokens";
+import { badRequest, notFound, parse, unauthorized, HttpError } from "../lib/http";
+import { issueSession, listSessions, revokeOtherSessions, revokeSession, rotateRefresh, sha256, type SessionMeta } from "../lib/tokens";
+import { consumePasswordLink, sendPasswordLink } from "../services/password-links";
+import type { Request } from "express";
 import { sendOtpSms } from "../services/sms";
 import { authenticate } from "../middleware/auth";
 
@@ -25,6 +28,20 @@ const OTP_TTL_MS = 5 * 60 * 1000;
 
 const ipLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
 authRouter.use(["/login", "/otp"], ipLimiter);
+// Password links: few legitimate requests, so a tight limit (also slows enumeration and SMS/email abuse).
+const linkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+authRouter.use("/password", linkLimiter);
+
+const sessionMeta = (req: Request, deviceId?: string | null): SessionMeta => ({
+  deviceId: deviceId ?? req.header("x-device-id") ?? undefined,
+  ip: req.ip,
+  userAgent: req.header("user-agent") ?? undefined,
+});
+
+/** Security events of hotel users are visible to their owner (businessId set), platform users' to the platform. */
+async function securityAudit(req: Request, user: { id: string; businessId: string | null }, action: string, meta?: Record<string, string | number | boolean>) {
+  await platformPrisma.auditLog.create({ data: { userId: user.id, businessId: user.businessId, action, entity: "User", entityId: user.id, meta, ip: req.ip } });
+}
 
 async function registerFailure(userId: string, failedLogins: number) {
   const failed = failedLogins + 1;
@@ -52,7 +69,7 @@ authRouter.post("/login", async (req, res) => {
     throw unauthorized("Invalid email or password");
   }
   await prisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
-  res.json(await issueSession(user, req.header("x-device-id")));
+  res.json(await issueSession(user, sessionMeta(req)));
 });
 
 authRouter.post("/otp/request", async (req, res) => {
@@ -96,7 +113,7 @@ authRouter.post("/otp/verify", async (req, res) => {
     await tx.otpCode.update({ where: { id: otp.id }, data: { consumed: true } });
     await tx.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
   });
-  res.json(await issueSession(user, deviceId ?? req.header("x-device-id")));
+  res.json(await issueSession(user, sessionMeta(req, deviceId)));
 });
 
 authRouter.post("/refresh", async (req, res) => {
@@ -114,6 +131,67 @@ authRouter.post("/logout", async (req, res) => {
     });
   }
   res.status(204).end();
+});
+
+// ---------- Password links (Phase 2.2) ----------
+
+const forgotSchema = z.object({ identifier: z.string().trim().min(3).max(200) });
+
+/** "Forgot password": same answer whether or not the account exists (no enumeration). */
+authRouter.post("/password/forgot", async (req, res) => {
+  const { identifier } = parse(forgotSchema, req.body);
+  const digits = identifier.replace(/\D/g, "");
+  const where = identifier.includes("@") ? { email: identifier.toLowerCase() } : { phone: digits.slice(-10) };
+  const user = await platformPrisma.user.findFirst({ where, select: { id: true, name: true, email: true, phone: true, status: true, businessId: true } });
+  if (user?.status === "ACTIVE") {
+    const delivery = await sendPasswordLink(user, "RESET");
+    await securityAudit(req, user, "auth.password.link_requested", { channel: delivery.channel });
+  }
+  res.json({ ok: true, message: "If an account matches, a reset link has been sent by email or SMS." });
+});
+
+const resetSchema = z.object({ token: z.string().min(20).max(200), password: z.string().min(1).max(200) });
+
+authRouter.post("/password/reset", async (req, res) => {
+  const { token, password } = parse(resetSchema, req.body);
+  const { userId, purpose } = await consumePasswordLink(token, password);
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, businessId: true, email: true, phone: true } });
+  await securityAudit(req, user, purpose === "INVITE" ? "auth.password.set_from_invite" : "auth.password.reset");
+  res.json({ ok: true, login: user.email ?? user.phone });
+});
+
+const changeSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: newPasswordSchema });
+
+/** Signed-in user changes their own password; other devices are signed out, this one stays. */
+authRouter.post("/password/change", authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = parse(changeSchema, req.body);
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { id: true, name: true, email: true, phone: true, passwordHash: true, businessId: true } });
+  if (!user.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) throw badRequest("Current password is wrong");
+  const problems = passwordProblems(newPassword, [user.name, user.email, user.phone]);
+  if (problems.length) throw badRequest(problems.join(". "));
+  await platformPrisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10) } });
+  const signedOut = await revokeOtherSessions(user.id, req.sessionId);
+  await securityAudit(req, user, "auth.password.changed", { otherSessionsEnded: signedOut });
+  res.json({ ok: true });
+});
+
+// ---------- Signed-in devices (Phase 2.3) ----------
+
+authRouter.get("/sessions", authenticate, async (req, res) => {
+  const sessions = await listSessions(req.user!.id);
+  res.json(sessions.map((s) => ({ ...s, current: s.id === req.sessionId })));
+});
+
+authRouter.delete("/sessions/:id", authenticate, async (req, res) => {
+  if (!(await revokeSession(req.user!.id, String(req.params.id)))) throw notFound("Session");
+  await securityAudit(req, { id: req.user!.id, businessId: req.user!.businessId }, "auth.session.revoked");
+  res.status(204).end();
+});
+
+authRouter.post("/sessions/revoke-others", authenticate, async (req, res) => {
+  const count = await revokeOtherSessions(req.user!.id, req.sessionId);
+  await securityAudit(req, { id: req.user!.id, businessId: req.user!.businessId }, "auth.session.revoked_others", { count });
+  res.json({ count });
 });
 
 /**

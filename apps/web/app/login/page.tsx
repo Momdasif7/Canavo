@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EnvelopeSimple, LockKey, Moon, Sun } from "@phosphor-icons/react";
 import { errorMessage, isSuspendedMessage, login } from "@/lib/api";
@@ -86,6 +87,9 @@ export default function LoginPage() {
           <Button type="submit" block size="lg" loading={busy}>
             Log in
           </Button>
+          <Link href="/forgot-password" className="block text-center text-sm font-semibold text-muted hover:text-fg">
+            Forgot password?
+          </Link>
         </form>
       </div>
     </main>

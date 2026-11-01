@@ -78,8 +78,8 @@ export interface Client {
 }
 
 /** Log in through the API; calls carry the bearer token and (optionally) an outlet header. */
-export async function login(base: string, email: string, outletId?: string): Promise<Client> {
-  const r = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: PASSWORD }) });
+export async function login(base: string, email: string, outletId?: string, password = PASSWORD): Promise<Client> {
+  const r = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
   if (r.status !== 200) throw new Error(`login ${email} → ${r.status} ${await r.text()}`);
   const { accessToken } = (await r.json()) as { accessToken: string };
   return {
@@ -100,6 +100,13 @@ export async function login(base: string, email: string, outletId?: string): Pro
       return { status: res.status, body: parsed as never, headers: res.headers };
     },
   };
+}
+
+/** A platform Super Admin (no business). */
+export async function createPlatformAdmin(): Promise<{ id: string; email: string }> {
+  const email = `admin.${uniq()}@it.local`;
+  const u = await db.user.create({ data: { role: "SUPER_ADMIN", name: "IT Admin", email, phone: phone(), passwordHash: await hash() } });
+  return { id: u.id, email };
 }
 
 export { db };

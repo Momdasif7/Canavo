@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { ROLE_LABELS } from "@canavo/shared";
-import { CaretDown, CaretLeft, List, LockSimple, Moon, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
+import { CaretDown, CaretLeft, List, LockSimple, Moon, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
 import { errorMessage } from "@/lib/api";
 import { mediaUrl } from "@/lib/media";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -417,6 +417,15 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
             </div>
           </div>
           <div className="border-t border-line pt-2">
+            <Link
+              href="/account/security"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex min-h-tap w-full items-center gap-3 rounded-xl px-3 font-semibold hover:bg-surface-2"
+            >
+              <ShieldCheck size={20} />
+              Security
+            </Link>
             <button
               type="button"
               role="menuitem"

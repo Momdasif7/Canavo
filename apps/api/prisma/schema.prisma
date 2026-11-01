@@ -107,20 +107,21 @@ model User {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
-  shift          Shift?            @relation(fields: [shiftId], references: [id])
+  shift          Shift?               @relation(fields: [shiftId], references: [id])
   outlets        UserOutlet[]
   refreshTokens  RefreshToken[]
+  passwordTokens PasswordResetToken[]
   attendance     StaffAttendance[]
-  leaves         LeaveRequest[]    @relation("leaveApplicant")
-  leaveReviews   LeaveRequest[]    @relation("leaveReviewer")
+  leaves         LeaveRequest[]       @relation("leaveApplicant")
+  leaveReviews   LeaveRequest[]       @relation("leaveReviewer")
   orders         Order[]
   auditLogs      AuditLog[]
   notifications  Notification[]
-  waiterTables   DiningTable[]     @relation("tableWaiter")
-  waiterSessions TableSession[]    @relation("sessionWaiter")
-  deliveries     Delivery[]        @relation("deliveryAgent")
+  waiterTables   DiningTable[]        @relation("tableWaiter")
+  waiterSessions TableSession[]       @relation("sessionWaiter")
+  deliveries     Delivery[]           @relation("deliveryAgent")
   deviceTokens   DeviceToken[]
-  business       Business?         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business       Business?            @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
 }
@@ -141,6 +142,9 @@ model RefreshToken {
   /// All tokens descended from one login share a family; reuse of a rotated token revokes the family
   familyId   String
   deviceId   String?
+  /// Where the session started (shown in "Signed-in devices")
+  ip         String?
+  userAgent  String?
   expiresAt  DateTime
   revokedAt  DateTime?
   replacedBy String?
@@ -148,6 +152,28 @@ model RefreshToken {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([familyId])
+  @@index([userId, revokedAt])
+}
+
+enum PasswordTokenPurpose {
+  RESET
+  INVITE
+}
+
+/// One-time link to set a password (Phase 2.2). Only the hash is stored; the platform never sees the password.
+model PasswordResetToken {
+  id          String               @id @default(cuid())
+  userId      String
+  tokenHash   String               @unique
+  purpose     PasswordTokenPurpose @default(RESET)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  /// Who asked for it: null = the user (forgot password); otherwise the admin/owner who sent it
+  requestedBy String?
+  createdAt   DateTime             @default(now())
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model OtpCode {
@@ -321,18 +347,18 @@ model ItemAddon {
 }
 
 model OutletItemOverride {
-  outletId   String
-  menuItemId String
-  price      Int?
-  status     ItemStatus?
+  outletId           String
+  menuItemId         String
+  price              Int?
+  status             ItemStatus?
   /// Set automatically when an ingredient at this outlet can't cover one portion; cleared when restocked.
-  stockOut           Boolean  @default(false)
+  stockOut           Boolean     @default(false)
   /// Sizes that are out of stock while other sizes can still be sold
-  stockOutVariantIds String[] @default([])
+  stockOutVariantIds String[]    @default([])
   /// Ingredient names that ran out (shown to staff)
   stockOutReason     String?
-  outlet     Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  menuItem   MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  outlet             Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  menuItem           MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@id([outletId, menuItemId])
 }
@@ -459,6 +485,7 @@ model OrderItem {
   notes         String?
   order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem      MenuItem @relation(fields: [menuItemId], references: [id])
+
   @@index([orderId])
   @@index([menuItemId])
 }
@@ -672,6 +699,7 @@ model TableSessionItem {
   billedOrderId String?
   createdAt     DateTime     @default(now())
   session       TableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
   @@index([sessionId])
 }
 

@@ -258,7 +258,8 @@ export type RouteAccess = "ok" | "role" | "module" | "needs-business";
 export function routeAccess(pathname: string, ctx: NavContext): RouteAccess {
   const items = navItemsFor(pathname);
   // /admin itself just redirects to the first admin section the session may use.
-  if (!items.length) return inPlatformConsole(ctx) && !pathname.startsWith("/platform") && pathname !== "/admin" ? "needs-business" : "ok";
+  // /account/* (own password, devices, 2FA) is for every signed-in user, platform admins included.
+  if (!items.length) return inPlatformConsole(ctx) && !pathname.startsWith("/platform") && !pathname.startsWith("/account") && pathname !== "/admin" ? "needs-business" : "ok";
   if (items.some((i) => navAllowed(i, ctx))) return "ok";
   if (!items.some((i) => scopeOk(i, ctx))) return inPlatformConsole(ctx) ? "needs-business" : "role";
   // The role could use it if only the business's modules are missing.

@@ -151,7 +151,7 @@ function CreateAdminDialog({ open, onClose, onCreated }: { open: boolean; onClos
           onChange={(e) => set("phone", e.target.value.replace(/\D/g, ""))}
         />
         <Input label="Email (login)" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
-        <Input label="Password" type="password" autoComplete="new-password" placeholder="Min. 8 characters" value={form.password} onChange={(e) => set("password", e.target.value)} />
+        <Input label="Password" type="password" autoComplete="new-password" placeholder="10+ characters, letters and a number" value={form.password} onChange={(e) => set("password", e.target.value)} />
       </div>
     </Dialog>
   );

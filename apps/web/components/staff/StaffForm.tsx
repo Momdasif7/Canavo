@@ -235,7 +235,7 @@ export function StaffForm({
             label="Password"
             type="password"
             autoComplete="new-password"
-            placeholder={staff ? "Leave blank to keep" : "Min. 8 characters"}
+            placeholder={staff ? "Leave blank to keep" : "10+ characters, letters and a number"}
             value={form.password}
             onChange={(e) => set("password", e.target.value)}
           />

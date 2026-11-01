@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { withIdempotency } from "../lib/idempotency";
 import { normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
 import { platformPrisma } from "../db";
-import { verifyAccess } from "../lib/tokens";
+import { sessionActive, verifyAccess } from "../lib/tokens";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/http";
 import { runWithTenant, tenant, type TenantContext } from "../lib/tenant";
 
@@ -21,6 +21,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      /** Session (refresh-token family) of this access token, when known */
+      sessionId?: string;
       outletId?: string;
       /** Business of the current request (from the user, the outlet, or X-Business-Id for super admins) */
       businessId?: string;
@@ -61,6 +63,9 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   if (!user || user.status !== "ACTIVE" || user.tokenVersion !== claims.tv) {
     throw unauthorized("Session no longer valid");
   }
+  // Signed out on that device ("Signed-in devices" → Sign out): the access token dies with it.
+  if (claims.sid && !(await sessionActive(claims.sid))) throw unauthorized("Session ended");
+  req.sessionId = claims.sid;
   let outletIds = user.outlets.map((o) => o.outletId);
   if (user.role === "BUSINESS_OWNER" && user.businessId) {
     outletIds = (await platformPrisma.outlet.findMany({ where: { businessId: user.businessId }, select: { id: true } })).map((o) => o.id);

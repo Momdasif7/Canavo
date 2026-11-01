@@ -7,7 +7,6 @@ import {
   businessUpdateSchema,
   MODULE_INFO,
   normalizeModules,
-  ownerPasswordResetSchema,
   platformAdminCreateSchema,
   platformUserCreateSchema,
 } from "@canavo/shared";
@@ -19,6 +18,7 @@ import { authenticate, requirePlatformAdmin } from "../middleware/auth";
 import { createDefaultTaxRates } from "../services/tax-defaults";
 import { alertModulesChanged } from "../services/alerts";
 import { onFeaturesChanged } from "../services/features";
+import { sendPasswordLink } from "../services/password-links";
 
 /**
  * Platform console (CANAVO operator / super admin): onboard client businesses,
@@ -106,14 +106,15 @@ platformRouter.post("/businesses", async (req, res) => {
         name: data.owner.name,
         phone: data.owner.phone,
         email: data.owner.email,
-        passwordHash: data.owner.password ? await bcrypt.hash(data.owner.password, 10) : null,
       },
       select: userFields,
     });
     return { business, outlet, owner };
   });
-  await audit(req, "platform.business.create", "Business", result.business.id, { modules: result.business.modules });
-  res.status(201).json(result);
+  // The owner sets their own password from a link (the platform never knows it). Phone OTP login works meanwhile.
+  const invite = await sendPasswordLink(result.owner, "INVITE", req.user!.id);
+  await audit(req, "platform.business.create", "Business", result.business.id, { modules: result.business.modules, invite: invite.channel });
+  res.status(201).json({ ...result, invite });
 });
 
 platformRouter.get("/businesses/:id", async (req, res) => {
@@ -166,24 +167,29 @@ platformRouter.post("/businesses/:id/users", async (req, res) => {
       name: data.name,
       phone: data.phone,
       email: data.email,
-      passwordHash: data.password ? await bcrypt.hash(data.password, 10) : null,
     },
     select: ownerFields,
   });
-  await audit(req, "platform.owner.create", "User", user.id, { businessId });
-  res.status(201).json(user);
+  const invite = await sendPasswordLink(user, "INVITE", req.user!.id);
+  await audit(req, "platform.owner.create", "User", user.id, { businessId, invite: invite.channel });
+  res.status(201).json({ ...user, invite });
 });
 
-/** Owner locked out: set a new password and sign them out everywhere. */
-platformRouter.post("/businesses/:id/owners/:userId/reset-password", async (req, res) => {
+/**
+ * Owner locked out: send them a reset link (Phase 2.2). The platform never sets or sees
+ * the password; the owner's sessions end when they set the new one.
+ */
+platformRouter.post("/businesses/:id/owners/:userId/reset-link", async (req, res) => {
   const businessId = param(req, "id");
-  const { password } = parse(ownerPasswordResetSchema, req.body);
-  const owner = await db.user.findFirst({ where: { id: param(req, "userId"), businessId, role: "BUSINESS_OWNER" }, select: { id: true } });
+  const owner = await db.user.findFirst({
+    where: { id: param(req, "userId"), businessId, role: "BUSINESS_OWNER" },
+    select: { id: true, name: true, email: true, phone: true, status: true },
+  });
   if (!owner) throw notFound("Owner");
-  await db.user.update({ where: { id: owner.id }, data: { passwordHash: await bcrypt.hash(password, 10) } });
-  await forceLogout(owner.id);
-  await audit(req, "platform.owner.reset_password", "User", owner.id, { businessId });
-  res.json({ ok: true });
+  if (owner.status !== "ACTIVE") throw badRequest("This owner account is not active");
+  const delivery = await sendPasswordLink(owner, "RESET", req.user!.id);
+  await audit(req, "platform.owner.reset_link", "User", owner.id, { businessId, channel: delivery.channel });
+  res.json(delivery);
 });
 
 platformRouter.get("/admins", async (_req, res) => {

@@ -12,3 +12,4 @@ export * from "./schemas-platform";
 export * from "./modules";
 export * from "./schemas-business";
 export * from "./features";
+export * from "./password";

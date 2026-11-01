@@ -84,4 +84,12 @@ export interface BusinessCreateResult {
   business: BusinessBase;
   outlet: { id: string; name: string } | null;
   owner: PlatformUser;
+  invite: LinkDelivery;
+}
+
+/** Where a password setup/reset link went (devLink only outside production). */
+export interface LinkDelivery {
+  channel: "email" | "sms" | "none";
+  devLink?: string;
+  expiresAt: string;
 }

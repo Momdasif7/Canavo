@@ -24,6 +24,8 @@ describe("production config fail-fast", () => {
     DATA_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     PUBLIC_API_URL: "https://api.example.in",
     CORS_ORIGINS: "https://app.example.in",
+    WEB_APP_URL: "https://app.example.in",
+    SMTP_HOST: "smtp.example.in",
   } as never;
   it("accepts a sane production configuration", () => expect(productionConfigProblems(base)).toEqual([]));
   it("refuses placeholder secrets, a missing encryption key, localhost URLs and CORS *", () => {
@@ -38,6 +40,13 @@ describe("production config fail-fast", () => {
     expect(p.join(" | ")).toMatch(/DATA_ENCRYPTION_KEY/);
     expect(p.join(" | ")).toMatch(/localhost/);
     expect(p.join(" | ")).toMatch(/CORS_ORIGINS/);
+  });
+  it("D13: refuses production without email or SMS for password links; either one is enough", () => {
+    const none = productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: undefined } as never);
+    expect(none.join()).toMatch(/SMTP_HOST.*MSG91_AUTH_KEY/);
+    expect(productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: "k" } as never).join()).toMatch(/MSG91_ALERT_TEMPLATE_ID/);
+    expect(productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: "k", MSG91_ALERT_TEMPLATE_ID: "t" } as never)).toEqual([]);
+    expect(productionConfigProblems({ ...(base as object), WEB_APP_URL: "http://localhost:3000" } as never).join()).toMatch(/WEB_APP_URL/);
   });
   it("refuses identical secrets", () => {
     expect(productionConfigProblems({ ...(base as object), JWT_REFRESH_SECRET: "a".repeat(40) } as never).join()).toMatch(/must all differ/);

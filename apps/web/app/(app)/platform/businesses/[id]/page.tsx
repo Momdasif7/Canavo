@@ -20,7 +20,7 @@ import { Toggle, Input, Textarea } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessStatusBadge, ModulePicker } from "@/components/platform/modules";
-import { AddOwnerDialog, ResetOwnerPasswordDialog } from "@/components/platform/OwnerDialogs";
+import { AddOwnerDialog, SendResetLinkDialog } from "@/components/platform/OwnerDialogs";
 
 type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt"> & {
   features?: BusinessDetail["features"];
@@ -117,12 +117,7 @@ export default function BusinessDetailPage() {
           void detail.reload();
         }}
       />
-      <ResetOwnerPasswordDialog
-        businessId={b.id}
-        owner={resetting}
-        onClose={() => setResetting(null)}
-        onDone={() => toast("Password reset — the owner has been signed out", "success")}
-      />
+      <SendResetLinkDialog businessId={b.id} owner={resetting} onClose={() => setResetting(null)} />
     </PageContainer>
   );
 }
@@ -356,7 +351,7 @@ function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail;
                 <Td className="whitespace-nowrap text-muted">{formatDate(u.createdAt)}</Td>
                 <Td className="text-right">
                   <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
-                    Reset password
+                    Send reset link
                   </Button>
                 </Td>
               </tr>

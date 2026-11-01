@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MODULES } from "./modules";
 import { FEATURE_KEYS, type FeatureKey } from "./features";
 import { indianPhone } from "./schemas";
+import { newPasswordSchema } from "./password";
 
 const moduleList = z.array(z.enum(MODULES)).min(1, "Enable at least one module");
 
@@ -9,7 +10,6 @@ export const accountSchema = z.object({
   name: z.string().trim().min(2).max(100),
   phone: indianPhone,
   email: z.string().trim().toLowerCase().email().optional(),
-  password: z.string().min(8, "Password must be at least 8 characters").optional(),
 });
 
 /** Super admin: onboard a client business with its owner login and (optionally) its first outlet. */
@@ -52,13 +52,9 @@ export const platformUserCreateSchema = accountSchema.extend({
   role: z.literal("BUSINESS_OWNER", { errorMap: () => ({ message: "The super admin creates owner accounts only; owners create their staff" }) }).default("BUSINESS_OWNER"),
 });
 
-/** Super admin: set a new password for an owner who is locked out (signs them out everywhere). */
-export const ownerPasswordResetSchema = z.object({
-  password: z.string().min(8, "Password must be at least 8 characters"),
-});
 
 /** Super admin: create another platform administrator. */
 export const platformAdminCreateSchema = accountSchema.extend({
   email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(8),
+  password: newPasswordSchema,
 });

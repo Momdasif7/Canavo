@@ -18,6 +18,8 @@ const schema = z.object({
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
   TRUST_PROXY: z.string().default("loopback, linklocal, uniquelocal"),
   PUBLIC_API_URL: z.string().default("http://localhost:4000"),
+  /** Web app URL, for links in emails/SMS (password setup and reset) */
+  WEB_APP_URL: z.string().default("http://localhost:3000"),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   RECEIPT_LINK_SECRET: z.string().min(32),
@@ -91,6 +93,11 @@ export function productionConfigProblems(e = env): string[] {
   if (!e.DATA_ENCRYPTION_KEY) problems.push("DATA_ENCRYPTION_KEY is required (encrypted Aadhaar and WhatsApp tokens)");
   if (/localhost|127\.0\.0\.1/.test(e.PUBLIC_API_URL)) problems.push("PUBLIC_API_URL points at localhost (receipt links would be broken)");
   if (e.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) problems.push("CORS_ORIGINS must not be *");
+  if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");
+  // D13: password setup/reset links must reach people by email or SMS.
+  if (!e.SMTP_HOST && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID)) {
+    problems.push("Configure email (SMTP_HOST) or SMS (MSG91_AUTH_KEY + MSG91_ALERT_TEMPLATE_ID): password setup and reset links are sent through them");
+  }
   return problems;
 }
 
