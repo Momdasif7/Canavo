@@ -14,7 +14,8 @@ export type Success =
   | { kind: "online"; order: Order; change: number }
   /** Cash on Delivery: nothing paid yet, the delivery partner collects at the door */
   | { kind: "cod"; order: Order }
-  | { kind: "offline"; clientOrderId: string; total: number; change: number; modes: string[] };
+  /** invoiceNumber: final number from this browser's offline series (OFFLINE_INVOICE_SERIES), else null */
+  | { kind: "offline"; clientOrderId: string; invoiceNumber?: string | null; total: number; change: number; modes: string[] };
 
 function AnimatedCheck({ tone = "green" }: { tone?: "green" | "amber" }) {
   return (
@@ -40,7 +41,7 @@ export function SuccessPanel({ success, onNewBill }: { success: Success | null; 
       open
       onClose={onNewBill}
       size="md"
-      title={success.kind === "online" ? `Paid · ${success.order.invoiceNumber}` : "Saved offline"}
+      title={success.kind === "online" ? `Paid · ${success.order.invoiceNumber}` : success.invoiceNumber ? `Saved offline · ${success.invoiceNumber}` : "Saved offline"}
       footer={<NewBillButton onClick={onNewBill} />}
     >
       <div className="mb-5 space-y-3 text-center">
@@ -79,8 +80,15 @@ export function SuccessPanel({ success, onNewBill }: { success: Success | null; 
           <CloudArrowUp size={24} className="shrink-0" />
           <p>
             <strong>Not sent to the kitchen yet.</strong> The bill is saved on this device and reaches the kitchen automatically when the
-            connection is back — tell the kitchen directly if it&apos;s urgent. The invoice number and receipt are issued then; you can reprint it
-            from Bills afterwards.
+            connection is back — tell the kitchen directly if it&apos;s urgent.{" "}
+            {success.invoiceNumber ? (
+              <>
+                Bill number <strong data-testid="offline-invoice-number">{success.invoiceNumber}</strong> is final; the receipt is issued on sync and you
+                can reprint it from Bills afterwards.
+              </>
+            ) : (
+              <>The invoice number and receipt are issued then; you can reprint it from Bills afterwards.</>
+            )}
           </p>
         </div>
       )}

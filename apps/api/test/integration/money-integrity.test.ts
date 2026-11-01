@@ -155,5 +155,13 @@ describe("reports", () => {
     const reported = Math.round(g.gstr1.b2cs.reduce((s: number, b: { camt: number }) => s + b.camt, 0) * 100);
     expect(Math.abs(reported - ((paid._sum.cgst ?? 0) - (cn._sum.cgst ?? 0)))).toBeLessThanOrEqual(g.gstr1.b2cs.length);
     expect(g.notes.join(" ")).toMatch(/credit note/);
+    // Document summary: credit notes issued this month as GSTN nature 5 (Credit Note).
+    const notes = await db.creditNote.findMany({ where: { outletId: h.outletId, order: { documentType: "TAX_INVOICE" } }, select: { number: true }, orderBy: { number: "asc" } });
+    expect(notes.length).toBeGreaterThan(0);
+    const det = g.gstr1.doc_issue.doc_det as { doc_num: number; docs: { from: string; to: string; totnum: number; cancel: number; net_issue: number }[] }[];
+    const cnDocs = det.find((d) => d.doc_num === 5)?.docs ?? [];
+    expect(cnDocs.reduce((s, d) => s + d.totnum, 0)).toBe(notes.length);
+    expect(cnDocs.every((d) => d.cancel === 0 && d.net_issue === d.totnum)).toBe(true);
+    expect(cnDocs.map((d) => d.from)).toContain(notes[0].number);
   });
 });
