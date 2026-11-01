@@ -9,6 +9,7 @@ import { platformPrisma, prisma } from "./db";
 import { startJobs, stopJobs } from "./jobs";
 import { registerAllJobs } from "./jobs-all";
 import { startOutboxPublisher, stopOutboxPublisher } from "./lib/outbox";
+import { assertNoDemoLogins } from "./lib/demo-guard";
 
 const server = http.createServer(createApp());
 initRealtime(server);
@@ -28,9 +29,16 @@ if (env.NODE_ENV !== "test" && env.JOBS_MODE === "embedded") {
   startJobs({ tick: true, work: true }).catch((e) => console.error("[jobs] failed to start", e));
 }
 
-server.listen(env.PORT, () => {
-  console.info(`CANAVO API listening on http://localhost:${env.PORT} (docs: /docs) · jobs: ${env.JOBS_MODE}`);
-});
+assertNoDemoLogins(platformPrisma, { NODE_ENV: env.NODE_ENV, ALLOW_DEMO_SEED: process.env.ALLOW_DEMO_SEED })
+  .then(() =>
+    server.listen(env.PORT, () => {
+      console.info(`CANAVO API listening on http://localhost:${env.PORT} (docs: /docs) · jobs: ${env.JOBS_MODE}`);
+    }),
+  )
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
 
 let stopping = false;
 const shutdown = async (signal: string) => {
