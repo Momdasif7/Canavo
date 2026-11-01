@@ -109,7 +109,7 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
 });
 
 /** Phase 5.3: the slot open now and its menu; null when the outlet has no active slots (normal menu). */
-async function currentSlotMenu(outletId: string) {
+export async function currentSlotMenu(outletId: string) {
   const rows = await prisma.mealSlotItem.findMany({ where: { slot: { outletId, active: true } }, select: { slotId: true, menuItemId: true, price: true } });
   if (!(await prisma.mealSlot.count({ where: { outletId, active: true } }))) return null;
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { timezone: true } });

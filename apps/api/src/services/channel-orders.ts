@@ -27,6 +27,17 @@ export async function channelUser(businessId: string) {
   });
 }
 
+/** A request-shaped actor for the "Online orders" account (billing, audit and KOT helpers take a Request). */
+export async function systemRequest(outletId: string, businessId: string, ip?: string) {
+  const user = await channelUser(businessId);
+  return {
+    outletId,
+    businessId,
+    ip,
+    user: { id: user.id, name: user.name, role: user.role, businessId, outletIds: [outletId] },
+  } as unknown as Request;
+}
+
 /**
  * Create an order for a channel at an outlet, inside that outlet's tenant context.
  * Idempotent per (outlet, channel, channelOrderId) when a channel order id is given.
@@ -43,13 +54,7 @@ export async function createChannelOrder(
       const dup = await platformPrisma.order.findFirst({ where: { outletId, channel, channelOrderId: opts.channelOrderId } });
       if (dup) return { order: dup, duplicate: true, effects: (): void => undefined };
     }
-    const user = await channelUser(outlet.businessId);
-    const req = {
-      outletId,
-      businessId: outlet.businessId,
-      ip: opts.ip,
-      user: { id: user.id, name: user.name, role: user.role, businessId: outlet.businessId, outletIds: [outletId] },
-    } as unknown as Request;
+    const req = await systemRequest(outletId, outlet.businessId, opts.ip);
     const result = await createOrder(req, input, { ...opts, channel });
     return { ...result, duplicate: result.duplicate as boolean };
   });

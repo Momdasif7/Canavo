@@ -11,6 +11,8 @@ import { env, isProd } from "./env";
 import { errorHandler, notFound } from "./lib/http";
 import { openapi } from "./openapi";
 import { publicRouter } from "./routes/public";
+import { storefrontPublicRouter } from "./routes/storefront-public";
+import { storefrontRouter } from "./routes/storefront";
 import { authRouter } from "./routes/auth";
 import { outletsRouter } from "./routes/outlets";
 import { staffRouter } from "./routes/staff";
@@ -56,6 +58,9 @@ export function createApp() {
   app.use(publicRouter);
   app.use(express.json({ limit: "1mb" }));
 
+  // Phase 6.3/6.4: customers' QR table page and online ordering page (no login).
+  app.use(storefrontPublicRouter);
+
   app.get("/health", (_req, res) => res.json({ ok: true, service: "canavo-api" }));
   app.get("/metrics", metricsEndpoint);
   /** Readiness for the host's health check: the database must answer. */
@@ -93,6 +98,7 @@ export function createApp() {
   app.use("/cash-shifts", cashShiftsRouter);
   app.use("/gift-cards", giftCardsRouter);
   app.use("/settlements", settlementsRouter);
+  app.use("/storefront", storefrontRouter);
   // Meal slots / pre-orders / production / subscriptions handle only their own sub-paths and pass the rest on.
   app.use("/canteen", canteenMealsRouter);
   app.use("/canteen", canteenRouter);
