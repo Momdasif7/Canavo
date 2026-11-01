@@ -12,6 +12,7 @@ import {
   TrendUp,
   UserList,
   UsersThree,
+  WarningOctagon,
 } from "@phosphor-icons/react";
 import { PageContainer } from "@/components/layout/PageHeader";
 import { ReportRangeProvider } from "@/components/reports/range";
@@ -30,6 +31,7 @@ const TABS: TabLink[] = [
   { href: "/reports/customers", label: "Customers", icon: UserList },
   { href: "/reports/inventory", label: "Inventory", icon: Package },
   { href: "/reports/delivery", label: "Delivery", icon: Moped },
+  { href: "/reports/exceptions", label: "Exceptions", icon: WarningOctagon },
   { href: "/reports/outlets", label: "All outlets", icon: Buildings },
 ];
 

@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowCounterClockwise, CaretLeft, CaretRight, CloudArrowUp, FileXls, HandCoins, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
-import { formatINR } from "@canavo/shared";
+import { ArrowCounterClockwise, ArrowUUpLeft, CaretLeft, CaretRight, CloudArrowUp, FileXls, HandCoins, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
+import { REFUND_REASON_LABELS, formatINR } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { addDaysISO, todayISO } from "@/lib/dates";
 import { ORDER_TYPE_LABELS, PAYMENT_MODE_LABELS, formatDateTime, formatTime } from "@/lib/format";
 import { listQueue, subscribeQueue, type QueuedOrder } from "@/lib/offline";
-import type { Order, OrderStatus, OrderType } from "@/lib/types";
+import type { CreditNote, Order, OrderStatus, OrderType } from "@/lib/types";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useDebouncedValue } from "@/hooks/useDebounced";
 import { useSession } from "@/components/providers/SessionProvider";
@@ -24,6 +24,8 @@ import { Dialog, Sheet } from "@/components/ui/Dialog";
 import { Table, THead, Th, Td, Tr } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { ReceiptActions } from "@/components/bills/ReceiptActions";
+import { RefundDialog } from "@/components/bills/RefundDialog";
+import { useApproval } from "@/components/providers/ApprovalProvider";
 import { CodBadge, codPartnerName, isCodPending } from "@/components/bills/CodBadge";
 import { DownloadButton } from "@/components/reports/ExportButtons";
 import {
@@ -382,9 +384,14 @@ function OfflineQueueCard() {
 }
 
 function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; onClose: () => void; onChanged: () => void }) {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const toast = useToast();
+  const withApproval = useApproval();
   const order = useApiQuery<Order>(orderId ? `order:${orderId}` : null, () => api.get<Order>(`/orders/${orderId}`));
+  const creditNotes = useApiQuery<CreditNote[]>(orderId ? `credit-notes:${orderId}` : null, () => api.get<CreditNote[]>(`/orders/${orderId}/credit-notes`));
+  const [refundOpen, setRefundOpen] = useState(false);
+  // Voids and refunds: order:cancel as before, or a cashier with a manager's PIN when approvals are on (Phase 3.3).
+  const canVoid = can("order:cancel") || (Boolean(me?.features?.APPROVAL_PINS) && can("payment:collect"));
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -398,7 +405,7 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
     if (!o) return;
     setCancelling(true);
     try {
-      await api.post(`/orders/${o.id}/cancel`, { reason: reason.trim() });
+      await withApproval((approval) => api.post(`/orders/${o.id}/cancel`, { reason: reason.trim(), approval }));
       toast(`Bill ${o.invoiceNumber} cancelled`, "success");
       setCancelOpen(false);
       setReason("");
@@ -545,12 +552,38 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
                   Mark Cash on Delivery
                 </Button>
               ))}
-            {o.status !== "CANCELLED" && can("order:cancel") && (
+            {o.status === "PAID" && canVoid && (o.refundedAmount ?? 0) < o.grandTotal && (
+              <Button variant="outline" icon={<ArrowUUpLeft size={20} />} onClick={() => setRefundOpen(true)}>
+                Refund
+              </Button>
+            )}
+            {o.status !== "CANCELLED" && canVoid && !(o.refundedAmount ?? 0) && (
               <Button variant="outline" className="text-red-600" icon={<Prohibit size={20} />} onClick={() => setCancelOpen(true)}>
                 Cancel bill
               </Button>
             )}
           </div>
+
+          {(creditNotes.data ?? []).length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Refunds (credit notes)</h3>
+              <ul className="space-y-1 text-sm">
+                {creditNotes.data!.map((cn) => (
+                  <li key={cn.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      <span className="font-semibold">{cn.number}</span>
+                      <span className="text-muted">
+                        {" "}
+                        · {formatDateTime(cn.createdAt)} · {REFUND_REASON_LABELS[cn.reason as keyof typeof REFUND_REASON_LABELS] ?? cn.reason} · {cn.refundMode.toLowerCase()}
+                        {cn.items.length > 0 && ` · ${cn.items.map((l) => `${l.quantity}× ${l.name}`).join(", ")}`}
+                      </span>
+                    </span>
+                    <span className="tabular font-semibold text-red-600 dark:text-red-300">−{formatINR(cn.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {o.status !== "CANCELLED" && (
             <div className="border-t border-line pt-5">
@@ -564,7 +597,7 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
             onClose={() => setCancelOpen(false)}
             size="sm"
             title={`Cancel ${o.invoiceNumber}?`}
-            description={o.status === "PAID" ? "This bill is already paid — refund the customer separately." : undefined}
+            description={o.status === "PAID" ? "This bill is already paid. To give money back, use Refund instead: it issues a credit note and keeps the bill." : undefined}
             footer={
               <>
                 <Button variant="ghost" onClick={() => setCancelOpen(false)}>
@@ -578,6 +611,20 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
           >
             <Textarea label="Reason" placeholder="e.g. Customer changed order" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Dialog>
+
+          <RefundDialog
+            order={o}
+            credited={creditNotes.data ?? []}
+            open={refundOpen}
+            onClose={() => setRefundOpen(false)}
+            onDone={(cn) => {
+              setRefundOpen(false);
+              toast(`Credit note ${cn.number}: refunded ${formatINR(cn.amount)}`, "success");
+              void order.reload();
+              void creditNotes.reload();
+              onChanged();
+            }}
+          />
 
           <PaymentDialog
             checkout={collectCheckout}

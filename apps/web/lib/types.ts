@@ -101,6 +101,8 @@ export interface Me {
   outlets: OutletRef[];
   /** Effective permissions = role ∩ enabled modules. Gate UI on these. */
   permissions: Permission[];
+  /** Effective per-hotel feature flags (on + required modules enabled) */
+  features?: Partial<Record<string, boolean>>;
   /** Two-step login is on for this account */
   twoFactorEnabled?: boolean;
   /** Platform admin inside a hotel under the owner's support grant (read-only) */
@@ -134,6 +136,8 @@ export interface Outlet {
   geofenceMeters: number;
   timezone: string;
   invoicePrefix: string;
+  /** Phase 3.3: manual discount above this % needs a manager PIN (APPROVAL_PINS) */
+  approvalDiscountPercent?: number;
   pricesIncludeTax: boolean;
   compositionScheme: boolean;
   serviceChargeEnabled: boolean;
@@ -285,6 +289,8 @@ export interface Kot {
 export interface Order {
   id: string;
   clientOrderId: string | null;
+  /** Total of credit notes issued against this bill (Phase 3.1) */
+  refundedAmount?: number;
   outletId: string;
   cashierId: string;
   invoiceNumber: string;
@@ -584,4 +590,18 @@ export interface NotificationPage {
   unread: number;
   hasMore: boolean;
   nextBefore: string | null;
+}
+
+/** Credit note (refund) against a paid bill (Phase 3.1). */
+export interface CreditNote {
+  id: string;
+  orderId: string;
+  number: string;
+  reason: string;
+  note: string | null;
+  refundMode: "CASH" | "UPI" | "CARD" | "KHATA";
+  items: { orderItemId: string; name: string; quantity: number; total: number }[];
+  amount: number;
+  restocked: boolean;
+  createdAt: string;
 }

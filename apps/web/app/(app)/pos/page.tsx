@@ -13,6 +13,7 @@ import { useSession } from "@/components/providers/SessionProvider";
 import { useConnectivity } from "@/components/providers/ConnectivityProvider";
 import { useSocketEvent } from "@/components/providers/SocketProvider";
 import { useToast } from "@/components/providers/ToastProvider";
+import { useApproval } from "@/components/providers/ApprovalProvider";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useDebouncedValue } from "@/hooks/useDebounced";
 import { ErrorState, LoadingState } from "@/components/ui/States";
@@ -53,6 +54,7 @@ export default function PosPage() {
   useSocketEvent("outlet:updated", () => void reloadOutlet());
   const { online } = useConnectivity();
   const toast = useToast();
+  const withApproval = useApproval();
 
   // ----- Menu -----
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -448,13 +450,15 @@ export default function PosPage() {
     setCharging(true);
     try {
       let order: Order;
+      // A discount above the outlet's limit asks for a manager's PIN, then retries (APPROVAL_PINS).
+      const create = (body: typeof input) => withApproval((approval) => api.post<Order>("/orders", { ...body, approval }));
       try {
-        order = await api.post<Order>("/orders", input);
+        order = await create(input);
       } catch (e) {
         // The chosen partner can't take another order: managers / owners may assign anyway.
         const blocked = partnerUnavailable(e);
         if (!blocked?.canForce || !input.delivery || !confirmForceAssign(blocked.message)) throw e;
-        order = await api.post<Order>("/orders", { ...input, delivery: { ...input.delivery, forceAssign: true } });
+        order = await create({ ...input, delivery: { ...input.delivery, forceAssign: true } });
       }
       if (serverPreview && order.grandTotal !== serverPreview.bill.grandTotal) {
         toast(`Final total ${formatINR(order.grandTotal)} differs from the preview (${formatINR(serverPreview.bill.grandTotal)})`, "info");

@@ -79,6 +79,8 @@ outletsRouter.patch("/current", requireOutlet, requirePermission("settings:outle
   if (BILLING_FIELDS.some((f) => data[f] !== undefined) && !can(req.user!.role, "settings:billing")) {
     throw forbidden("You don't have permission to change billing / GST settings");
   }
+  // The approval limit guards managers' own discounts: only the owner changes it (Phase 3.3).
+  if (data.approvalDiscountPercent !== undefined && !can(req.user!.role, "outlet:manage")) throw forbidden("Only the owner can change the approval limit");
   const current = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   // Turning GST off also ends the composition scheme (it is a GST registration type).
   if (data.gstEnabled === false) data.compositionScheme = false;
