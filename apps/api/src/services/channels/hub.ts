@@ -82,7 +82,9 @@ const webhookSchema = z.discriminatedUnion("event", [
     event: z.literal("rider.status"),
     order: ref,
     status: z.enum(["assigned", "at_store", "picked_up", "delivered"]),
-    rider: z.object({ name: z.string().max(100).optional(), phone: z.string().max(20).optional() }).optional(),
+    rider: z
+      .object({ name: z.string().max(100).optional(), phone: z.string().max(20).optional(), pickupCode: z.string().max(20).optional(), eta: z.string().max(40).optional() })
+      .optional(),
   }),
 ]);
 
@@ -151,6 +153,10 @@ export class HubAdapter implements ChannelAdapter {
 
   setStoreOpen(open: boolean) {
     return this.call("PUT", `${this.store()}/status`, { open });
+  }
+
+  setItemsAvailable(externalIds: string[], available: boolean) {
+    return this.call("PUT", `${this.store()}/items/availability`, { externalIds, available });
   }
 
   acknowledge(order: ChannelOrderRef) {

@@ -9,6 +9,7 @@ import { authenticate, requireOutlet, requirePermission, requireModule } from ".
 import { emitToOutlet } from "../realtime";
 import { alertOrderReady } from "../services/alerts";
 import { onKotReady } from "../services/channels/service";
+import { emitBoardChange, isBoardChannel } from "../services/channels/board";
 
 export const kotRouter = Router();
 kotRouter.use(authenticate, requireOutlet, requireModule("KOT"));
@@ -79,6 +80,10 @@ kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
   });
   const [shaped] = await present([kot]);
   emitToOutlet(req.outletId!, "kot:updated", shaped);
+  // Phase 6: kitchen progress moves an online-channel order NEW → PREPARING on the packing board.
+  if (kot.orderId && status !== found.status && isBoardChannel(kot.order?.channel)) {
+    void emitBoardChange(req.outletId!, kot.orderId).catch((e) => console.error("[channels] board emit failed", e));
+  }
   if (status === "READY" && found.status !== "READY") void alertOrderReady(req.outletId!, kot.id);
   if (kot.sessionId) emitToOutlet(req.outletId!, "table:updated", { tableIds: [kot.session!.tableId, ...kot.session!.mergedTableIds], sessionId: kot.sessionId, action: "kot" });
   res.json(shaped);

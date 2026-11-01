@@ -62,3 +62,22 @@ The migrations in order produce exactly the merged schema (verified: empty diff)
 ## Could not verify
 
 Real hub, aggregator and ONDC sandboxes, which need vendor onboarding (as planned in Phase 0).
+
+## Follow-up: packing and handover for aggregator orders (`agent/aggflow`)
+
+The owner asked for this: "Swiggy / Zomato / any delivery partner's order is directly billed and packed for delivery."
+
+- **Online orders board.** It's under Billing & orders → Online orders, for people with `channel:manage` or `order:create` when CHANNELS is on. Columns are New, Preparing, Packed and Handed over. It updates live through `channel:board`. Each card has Packed, Handed to rider (with the rider's name), a packing slip print, and rider details (name, phone, pickup code, ETA, at the store). The API (`/channels/board…`) is documented in `channels-hub-contract.md`. The mobile app uses the same API.
+- **Packed** sends `food_ready` once, shared with the KOT-ready hook. **Handed to rider** sends `dispatched`. When the rider's `picked_up` update arrives, the order is marked handed over without pushing anything back.
+- **Auto-print.** The setting is on Settings → Channels and on the board. A counter browser with the board open prints the bill, KOTs and packing slip of each new order through `window.print`. Each device can opt out.
+- **"We deliver" hub orders** become DELIVERY bills on our Delivery board, with auto-assignment, when the business has DELIVERY. Otherwise they stay a takeaway with the address in the notes. This replaces decision 1's "later" note.
+- **UrbanPiper adapter** (provider `URBANPIPER`, picked on Settings → Channels). It was written without their docs, so it must be checked at onboarding. See "UrbanPiper mapping — verify at onboarding".
+- **OpenAPI** entries for all Phase 6 routes are in `src/openapi-channels.ts`.
+
+Migrations: `20261102090000_order_handover` adds `OrderHandover` (forced RLS) and `ChannelOrder.foodReadyQueuedAt`. `20261102090100_idx_order_outlet_channel_created` adds an index on Order (outlet, channel, createdAt), built CONCURRENTLY.
+
+Decisions to confirm:
+1. **PREPARING** means the kitchen tapped Preparing or Ready on a KOT. A KOT that was only printed (RECEIVED) still shows as NEW.
+2. The board carries over orders from the **last 7 days** that weren't handed over.
+3. "We deliver" orders need a **valid phone and an address**, or they fall back to takeaway. Zone rules and the zone fee don't apply to them.
+4. For UrbanPiper, `channelOrderId` is UrbanPiper's own order id. The Zomato / Swiggy id is shown on the board and slip.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowsClockwise, Copy, FloppyDisk, Moped, PlugsConnected } from "@phosphor-icons/react";
-import { ORDER_CHANNEL_LABELS, formatINR, type OrderChannel } from "@canavo/shared";
+import { CHANNEL_PROVIDERS, CHANNEL_PROVIDER_LABELS, ORDER_CHANNEL_LABELS, formatINR, type ChannelProvider, type OrderChannel } from "@canavo/shared";
 import { api, apiBase, errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -12,7 +12,7 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Input, Toggle } from "@/components/ui/Input";
+import { Input, Select, Toggle } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { ChannelBadge } from "@/components/bills/ChannelBadge";
@@ -20,6 +20,7 @@ import { ChannelBadge } from "@/components/bills/ChannelBadge";
 /** GET /channels/connection (secrets masked as "••••abcd"). */
 interface Connection {
   id: string;
+  provider: ChannelProvider;
   enabled: boolean;
   storeOpen: boolean;
   baseUrl: string;
@@ -80,6 +81,7 @@ export function ChannelsSettings() {
   return (
     <div className="space-y-5">
       <ConnectionCard connection={c} failed={conn.data.failed} onChange={conn.reload} />
+      <AutoPrintCard />
       {c && (
         <>
           <StoreCard connection={c} onChange={conn.reload} />
@@ -93,7 +95,7 @@ export function ChannelsSettings() {
 
 function ConnectionCard({ connection: c, failed, onChange }: { connection: Connection | null; failed: FailedPush[]; onChange: () => Promise<void> }) {
   const toast = useToast();
-  const [form, setForm] = useState({ enabled: false, baseUrl: "", externalStoreId: "", apiKey: "", webhookSecret: "", commission: {} as Record<string, string> });
+  const [form, setForm] = useState({ provider: "HUB" as ChannelProvider, enabled: false, baseUrl: "", externalStoreId: "", apiKey: "", webhookSecret: "", commission: {} as Record<string, string> });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -101,6 +103,7 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
 
   useEffect(() => {
     setForm({
+      provider: c?.provider ?? "HUB",
       enabled: c?.enabled ?? false,
       baseUrl: c?.baseUrl ?? "",
       externalStoreId: c?.externalStoreId ?? "",
@@ -126,6 +129,7 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
     setSaving(true);
     try {
       await api.put("/channels/connection", {
+        provider: form.provider,
         enabled: form.enabled,
         baseUrl: form.baseUrl.trim(),
         externalStoreId: form.externalStoreId.trim(),
@@ -219,6 +223,19 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
         )}
         <Toggle checked={form.enabled} onChange={(v) => setForm((f) => ({ ...f, enabled: v }))} label="Connection on" description="When off, orders from the hub are refused." />
         <div className="grid gap-4 md:grid-cols-2">
+          <Select
+            label="Hub provider"
+            value={form.provider}
+            onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value as ChannelProvider }))}
+            hint={form.provider === "URBANPIPER" ? "Field names are checked with UrbanPiper when you onboard." : "Any hub that follows the CANAVO hub contract."}
+          >
+            {CHANNEL_PROVIDERS.map((p) => (
+              <option key={p} value={p}>
+                {CHANNEL_PROVIDER_LABELS[p]}
+              </option>
+            ))}
+          </Select>
+          <span className="hidden md:block" />
           <Input label="Hub address" type="url" value={form.baseUrl} onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))} placeholder="https://api.your-hub.example" hint="Given by your hub provider" />
           <Input label="Store id at the hub" value={form.externalStoreId} onChange={(e) => setForm((f) => ({ ...f, externalStoreId: e.target.value }))} hint="This outlet's id in the hub's dashboard" />
           <Input
@@ -228,7 +245,7 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
             value={form.apiKey}
             onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
             placeholder={c?.apiKey ?? "API key"}
-            hint={c?.apiKey ? "Saved — leave blank to keep it" : "Used when we send menus and order updates to the hub"}
+            hint={c?.apiKey ? "Saved — leave blank to keep it" : form.provider === "URBANPIPER" ? "Enter as username:api-key (from UrbanPiper)" : "Used when we send menus and order updates to the hub"}
           />
           <Input
             label="Webhook secret"
@@ -237,7 +254,13 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
             value={form.webhookSecret}
             onChange={(e) => setForm((f) => ({ ...f, webhookSecret: e.target.value }))}
             placeholder={c?.webhookSecret ?? "Shared secret"}
-            hint={c?.webhookSecret ? "Saved — leave blank to keep it" : "The hub signs every order it sends with this secret"}
+            hint={
+              c?.webhookSecret
+                ? "Saved — leave blank to keep it"
+                : form.provider === "URBANPIPER"
+                  ? "Ask UrbanPiper to send it in the x-canavo-webhook-secret header"
+                  : "The hub signs every order it sends with this secret"
+            }
           />
         </div>
         {webhookUrl && (
@@ -269,6 +292,35 @@ function ConnectionCard({ connection: c, failed, onChange }: { connection: Conne
           <p className="text-xs text-muted">The sales report estimates what each app keeps using these percentages.</p>
         </section>
       </fieldset>
+    </Card>
+  );
+}
+
+/** Auto-print on arrival (outlet setting, also on the Online orders board). */
+function AutoPrintCard() {
+  const { outletId } = useSession();
+  const toast = useToast();
+  const q = useApiQuery<{ autoPrint: boolean }>(outletId ? `channel-board-settings:${outletId}` : null, () => api.get("/channels/board/settings"));
+  const toggle = async (v: boolean) => {
+    try {
+      q.setData(await api.put<{ autoPrint: boolean }>("/channels/board/settings", { autoPrint: v }));
+      toast(v ? "New channel orders will print automatically" : "Automatic printing off", "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+  return (
+    <Card>
+      <CardHeader title="Printing" subtitle="Aggregator and online orders arrive billed. The counter packs them on Billing & orders → Online orders." />
+      <div className="p-5">
+        <Toggle
+          checked={Boolean(q.data?.autoPrint)}
+          onChange={(v) => void toggle(v)}
+          disabled={!q.data}
+          label="Print bill and KOT automatically when a channel order arrives"
+          description="A counter device with the Online orders board open prints the bill, KOTs and packing slip of each new order through the browser's print dialog."
+        />
+      </div>
     </Card>
   );
 }
@@ -338,7 +390,8 @@ function ChannelOrdersCard() {
     if (!o.order) return;
     setBusy(o.id);
     try {
-      await api.post(`/channels/orders/${o.order.id}/status`, { status: "DISPATCHED" });
+      // Same as "Handed to rider" on the Online orders board (records the handover, pushes DISPATCHED).
+      await api.post(`/channels/board/${o.order.id}/handover`, {});
       toast(`${o.order.invoiceNumber}: told ${ORDER_CHANNEL_LABELS[o.sourceChannel]} it's with the rider`, "success");
       setTimeout(() => void orders.reload(), 1500);
     } catch (e) {

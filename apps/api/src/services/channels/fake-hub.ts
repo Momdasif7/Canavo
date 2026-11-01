@@ -12,10 +12,12 @@ export interface FakeHubCall {
   method: string;
   path: string;
   apiKey: string | undefined;
+  /** Authorization header (UrbanPiper-style "apikey user:key") */
+  authorization: string | undefined;
   body: unknown;
 }
 
-export async function startFakeHub(opts: { apiKey?: string } = {}) {
+export async function startFakeHub(opts: { apiKey?: string; authorization?: string } = {}) {
   const calls: FakeHubCall[] = [];
   let failures = 0;
   let failStatus = 500;
@@ -31,9 +33,9 @@ export async function startFakeHub(opts: { apiKey?: string } = {}) {
         body = text;
       }
       const apiKey = req.headers["x-api-key"] as string | undefined;
-      calls.push({ method: req.method ?? "", path: req.url ?? "", apiKey, body });
+      calls.push({ method: req.method ?? "", path: req.url ?? "", apiKey, authorization: req.headers.authorization, body });
       res.setHeader("content-type", "application/json");
-      if (opts.apiKey && apiKey !== opts.apiKey) {
+      if ((opts.apiKey && apiKey !== opts.apiKey) || (opts.authorization && req.headers.authorization !== opts.authorization)) {
         res.statusCode = 401;
         return res.end(JSON.stringify({ message: "Invalid API key" }));
       }

@@ -40,6 +40,8 @@ export interface InboundItem {
 
 export interface InboundNewOrder extends ChannelOrderRef {
   type: "NEW_ORDER";
+  /** The id staff and riders know the order by when it differs from channelOrderId (e.g. the Zomato id behind a hub's own id) */
+  displayId?: string;
   placedAt?: string;
   customer: { name?: string; phone?: string };
   items: InboundItem[];
@@ -61,10 +63,17 @@ export interface InboundCancelled extends ChannelOrderRef {
 export interface InboundRiderStatus extends ChannelOrderRef {
   type: "RIDER_STATUS";
   status: "ASSIGNED" | "AT_STORE" | "PICKED_UP" | "DELIVERED";
-  rider?: { name?: string; phone?: string };
+  /** pickupCode = the OTP / code the rider shows at the counter; eta = ISO time or text like "8 min" */
+  rider?: { name?: string; phone?: string; pickupCode?: string; eta?: string };
 }
 
-export type InboundEvent = InboundNewOrder | InboundCancelled | InboundRiderStatus;
+/** A webhook we understand but don't act on (e.g. a hub echoing a status we pushed). Answered 200. */
+export interface InboundIgnored {
+  type: "IGNORED";
+  reason: string;
+}
+
+export type InboundEvent = InboundNewOrder | InboundCancelled | InboundRiderStatus | InboundIgnored;
 
 /** Thrown by parseWebhook: bad signature (401) or a payload we can't read (400). */
 export class WebhookError extends Error {
@@ -86,6 +95,8 @@ export interface ChannelAdapter {
   /** Tell the channel we accepted an order (same as updateStatus ACCEPTED) */
   acknowledge(order: ChannelOrderRef): Promise<void>;
   updateStatus(order: ChannelOrderRef, status: ChannelPushStatus, reason?: string): Promise<void>;
+  /** Mark items in / out of stock without a full menu push (external item ids) */
+  setItemsAvailable(externalIds: string[], available: boolean): Promise<void>;
   /** Verify the signature and normalize a webhook body; throws WebhookError */
   parseWebhook(rawBody: Buffer, headers: Record<string, string | string[] | undefined>): InboundEvent;
 }

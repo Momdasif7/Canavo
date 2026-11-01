@@ -1,11 +1,12 @@
 import express, { Router } from "express";
 import { z } from "zod";
-import { CHANNEL_PUSH_STATUSES, channelConnectionSchema } from "@canavo/shared";
+import { CHANNEL_PUSH_STATUSES, channelBoardSettingsSchema, channelConnectionSchema, channelHandoverSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
 import { kickOutbox } from "../lib/outbox";
-import { authenticate, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireAnyPermission, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
+import { arrivalPrintText, boardOrders, getAutoPrint, markHandedOver, markPacked, packingSlip, setAutoPrint } from "../services/channels/board";
 import {
   adapterFor,
   buildChannelMenu,
@@ -26,8 +27,8 @@ import {
 export const channelsRouter = Router();
 channelsRouter.use(authenticate, requireOutlet, requireModule("CHANNELS"), requirePermission("channel:manage"));
 
-const PROVIDER = "HUB";
-const getConn = (outletId: string) => prisma.channelConnection.findUnique({ where: { outletId_provider: { outletId, provider: PROVIDER } } });
+/** One connection per outlet; its provider (HUB / URBANPIPER) picks the adapter. */
+const getConn = (outletId: string) => prisma.channelConnection.findFirst({ where: { outletId }, orderBy: { createdAt: "asc" } });
 async function mustConn(outletId: string) {
   const conn = await getConn(outletId);
   if (!conn) throw notFound("Channel connection");
@@ -45,6 +46,7 @@ channelsRouter.put("/connection", async (req, res) => {
   const existing = await getConn(req.outletId!);
   if (!existing && (!input.apiKey || !input.webhookSecret)) throw badRequest("Enter the hub's API key and webhook secret");
   const data = {
+    provider: input.provider,
     enabled: input.enabled,
     baseUrl: input.baseUrl,
     externalStoreId: input.externalStoreId,
@@ -54,8 +56,9 @@ channelsRouter.put("/connection", async (req, res) => {
   };
   const conn = existing
     ? await prisma.channelConnection.update({ where: { id: existing.id }, data })
-    : await prisma.channelConnection.create({ data: { ...data, outletId: req.outletId!, provider: PROVIDER } });
+    : await prisma.channelConnection.create({ data: { ...data, outletId: req.outletId! } });
   await audit(req, existing ? "channel.update" : "channel.create", "ChannelConnection", conn.id, {
+    provider: input.provider,
     enabled: input.enabled,
     baseUrl: input.baseUrl,
     apiKeyChanged: Boolean(input.apiKey),
@@ -156,6 +159,55 @@ channelsRouter.post("/orders/:orderId/status", async (req, res) => {
   kickOutbox();
   await audit(req, "channel.status", "Order", order.id, { status });
   res.json({ queued: true });
+});
+
+/**
+ * Phase 6 — Online orders board (packing / handover). Mounted at /channels/board before
+ * channelsRouter: counter staff and the kitchen use it, not only channel managers.
+ * The mobile app codes against these shapes (ChannelBoardOrder in @canavo/shared).
+ */
+export const channelBoardRouter = Router();
+channelBoardRouter.use(authenticate, requireOutlet, requireModule("CHANNELS"), requireAnyPermission("order:create", "kot:view", "channel:manage"));
+
+channelBoardRouter.get("/", async (req, res) => {
+  res.json({ orders: await boardOrders(req.outletId!) });
+});
+
+/** Auto-print on arrival (outlet setting; the counter's open board does the printing). */
+channelBoardRouter.get("/settings", async (req, res) => {
+  res.json({ autoPrint: await getAutoPrint(req.outletId!) });
+});
+
+channelBoardRouter.put("/settings", requirePermission("channel:manage"), async (req, res) => {
+  const { autoPrint } = parse(channelBoardSettingsSchema, req.body);
+  await setAutoPrint(req.outletId!, autoPrint);
+  await audit(req, "channel.auto_print", "Outlet", req.outletId!, { autoPrint });
+  res.json({ autoPrint });
+});
+
+channelBoardRouter.post("/:orderId/packed", async (req, res) => {
+  const order = await markPacked(req, param(req, "orderId"));
+  kickOutbox();
+  await audit(req, "channel.packed", "Order", order.orderId);
+  res.json(order);
+});
+
+channelBoardRouter.post("/:orderId/handover", async (req, res) => {
+  const { riderName } = parse(channelHandoverSchema, req.body ?? {});
+  const order = await markHandedOver(req, param(req, "orderId"), riderName);
+  kickOutbox();
+  await audit(req, "channel.handover", "Order", order.orderId, { riderName: riderName ?? null });
+  res.json(order);
+});
+
+channelBoardRouter.get("/:orderId/slip", async (req, res) => {
+  res.json(await packingSlip(req.outletId!, param(req, "orderId")));
+});
+
+/** Bill + KOTs + packing slip as one plain-text print job (auto-print on arrival). */
+channelBoardRouter.get("/:orderId/print", async (req, res) => {
+  const paper = req.query.paper === "80" ? 80 : 58;
+  res.json({ text: await arrivalPrintText(req.outletId!, param(req, "orderId"), paper) });
 });
 
 /**
