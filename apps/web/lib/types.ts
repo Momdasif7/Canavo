@@ -15,9 +15,13 @@ export type StaffStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 export type SalaryType = "DAILY" | "MONTHLY";
 
 export interface Session {
+  /** In cookie mode: memory only, re-obtained from the httpOnly cookie after a reload */
   accessToken: string;
-  refreshToken: string;
+  /** Storage mode only; in cookie mode the refresh token lives in an httpOnly cookie */
+  refreshToken?: string;
   expiresIn: number;
+  /** "cookie" = refresh token in an httpOnly cookie (Phase 2.7) */
+  sessionMode?: "cookie";
 }
 
 export interface OutletRef {

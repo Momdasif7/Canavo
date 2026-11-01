@@ -29,6 +29,7 @@ import {
   verifyMfaTicket,
 } from "../services/two-factor";
 import type { Request } from "express";
+import { clearSessionCookies, cookieRefreshToken, readCookie, REFRESH_COOKIE, sendSession, setProbeCookie } from "../lib/session-cookies";
 import { sendOtpSms } from "../services/sms";
 import { authenticate, TWO_FACTOR_REQUIRED_ROLES } from "../middleware/auth";
 
@@ -80,7 +81,9 @@ authRouter.post("/login", async (req, res) => {
     await registerFailure(user.id, user.failedLogins);
     throw unauthorized("Invalid email or password");
   }
-  res.json(await completeFirstStep(req, user));
+  const result = await completeFirstStep(req, user);
+  if ("mfaRequired" in result) return res.json(result);
+  sendSession(req, res, result);
 });
 
 /**
@@ -134,16 +137,50 @@ authRouter.post("/otp/verify", async (req, res) => {
     throw unauthorized("Invalid OTP");
   }
   await prisma.otpCode.update({ where: { id: otp.id }, data: { consumed: true } });
-  res.json(await completeFirstStep(req, user, deviceId));
+  const result = await completeFirstStep(req, user, deviceId);
+  if ("mfaRequired" in result) return res.json(result);
+  sendSession(req, res, result);
 });
 
+/** Refresh token from the body (mobile, storage-mode web) or from the httpOnly cookie (cookie-mode web, CSRF-checked). */
+function presentedRefreshToken(req: Request): string {
+  if (req.body?.refreshToken !== undefined) return parse(refreshSchema, req.body).refreshToken;
+  const fromCookie = cookieRefreshToken(req);
+  if (!fromCookie) throw unauthorized("Not signed in");
+  return fromCookie;
+}
+
 authRouter.post("/refresh", async (req, res) => {
-  const { refreshToken } = parse(refreshSchema, req.body);
-  res.json(await rotateRefresh(refreshToken));
+  const viaCookie = req.body?.refreshToken === undefined && Boolean(readCookie(req, REFRESH_COOKIE));
+  try {
+    const session = await rotateRefresh(presentedRefreshToken(req));
+    if (viaCookie) req.headers["x-session-mode"] = "cookie";
+    sendSession(req, res, session);
+  } catch (e) {
+    if (viaCookie && e instanceof HttpError && e.status === 401) clearSessionCookies(req, res);
+    throw e;
+  }
+});
+
+/** The web app checks it can read this cookie before using cookie sessions (D16 fallback). */
+authRouter.post("/cookie-probe", (req, res) => {
+  setProbeCookie(req, res);
+  res.json({ ok: true });
 });
 
 authRouter.post("/logout", async (req, res) => {
-  const { refreshToken } = parse(refreshSchema, req.body);
+  const viaCookie = req.body?.refreshToken === undefined;
+  let refreshToken: string;
+  try {
+    refreshToken = presentedRefreshToken(req);
+  } catch (e) {
+    if (viaCookie) {
+      clearSessionCookies(req, res);
+      return res.status(204).end();
+    }
+    throw e;
+  }
+  if (viaCookie) clearSessionCookies(req, res);
   const row = await prisma.refreshToken.findUnique({ where: { tokenHash: sha256(refreshToken) } });
   if (row) {
     await prisma.refreshToken.updateMany({
@@ -180,7 +217,7 @@ authRouter.post("/2fa/verify", async (req, res) => {
     await securityAudit(req, user, "auth.2fa.recovery_code_used", { left });
   }
   await platformPrisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
-  res.json(await issueSession(user, sessionMeta(req, deviceId)));
+  sendSession(req, res, await issueSession(user, sessionMeta(req, deviceId)));
 });
 
 authRouter.get("/2fa", authenticate, async (req, res) => {

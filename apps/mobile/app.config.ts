@@ -15,7 +15,7 @@ const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID;
 
 const LOCATION_WHY =
   "CANAVO uses your location to confirm you are at the outlet when you clock in or out, to pin delivery addresses, and to share your position with the outlet while you are out on a delivery.";
-const CAMERA_WHY = "CANAVO uses the camera to scan barcodes on stock items and QR codes.";
+const CAMERA_WHY = "CANAVO uses the camera to scan barcodes on stock items and QR codes, and to take a selfie when you clock in if your employer requires it.";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,

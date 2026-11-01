@@ -18,6 +18,8 @@ const schema = z.object({
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
   TRUST_PROXY: z.string().default("loopback, linklocal, uniquelocal"),
   PUBLIC_API_URL: z.string().default("http://localhost:4000"),
+  /** Cookie domain for web sessions shared by app.<domain> and api.<domain>, e.g. ".example.in" (Phase 2.7) */
+  AUTH_COOKIE_DOMAIN: z.string().optional(),
   /** Web app URL, for links in emails/SMS (password setup and reset) */
   WEB_APP_URL: z.string().default("http://localhost:3000"),
   JWT_ACCESS_SECRET: z.string().min(32),

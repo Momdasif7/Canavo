@@ -42,7 +42,7 @@ export function createApp() {
   app.use(requestId);
   app.use(httpMetrics);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-  app.use(cors({ origin: allowedOrigin(), exposedHeaders: ["content-disposition"] }));
+  app.use(cors({ origin: allowedOrigin(), exposedHeaders: ["content-disposition"], credentials: true }));
   // Structured JSON access logs in production (or LOG_FORMAT=json); short lines in development.
   if (isProd || env.LOG_FORMAT === "json") app.use(httpLogger);
   else app.use(morgan("dev"));

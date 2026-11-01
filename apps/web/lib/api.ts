@@ -53,6 +53,12 @@ export function errorMessage(e: unknown): string {
 // ---------- Session storage ----------
 const isBrowser = typeof window !== "undefined";
 
+/**
+ * Session storage. Storage mode (default, and the fallback): the whole session in
+ * localStorage. Cookie mode (Phase 2.7, D16): the refresh token is in an httpOnly cookie and
+ * the access token in memory only; localStorage keeps just a marker so a reload knows to
+ * refresh through the cookie. Scripts injected into the page can't steal a cookie session.
+ */
 function readStoredSession(): Session | null {
   if (!isBrowser) return null;
   try {
@@ -62,6 +68,8 @@ function readStoredSession(): Session | null {
     return null;
   }
 }
+
+const isCookieSession = (s: Session | null | undefined) => s?.sessionMode === "cookie";
 
 let session: Session | null = readStoredSession();
 const sessionListeners = new Set<(s: Session | null) => void>();
@@ -74,7 +82,8 @@ export function setSession(next: Session | null) {
   session = next;
   if (isBrowser) {
     try {
-      if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+      // Cookie mode stores only the marker, never a token.
+      if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(isCookieSession(next) ? { sessionMode: "cookie", accessToken: "", expiresIn: 0 } : next));
       else localStorage.removeItem(SESSION_KEY);
     } catch {
       /* storage unavailable (private mode) — keep the in-memory session */
@@ -145,6 +154,36 @@ export function setOutletId(id: string | null) {
   }
 }
 
+// ---------- Cookie sessions (Phase 2.7) ----------
+
+/** NEXT_PUBLIC_SESSION_MODE: "auto" (default: cookies when the browser shares them with the API), "storage" or "cookie". */
+const SESSION_MODE = (process.env.NEXT_PUBLIC_SESSION_MODE ?? "auto") as "auto" | "storage" | "cookie";
+
+function readBrowserCookie(name: string): string | undefined {
+  if (!isBrowser) return undefined;
+  const hit = document.cookie.split(";").find((c) => c.trim().startsWith(`${name}=`));
+  return hit ? decodeURIComponent(hit.trim().slice(name.length + 1)) : undefined;
+}
+
+let cookieSupport: Promise<boolean> | null = null;
+/**
+ * Can this browser use cookie sessions with the API? Only if a cookie the API sets is readable
+ * here (same site: app.example.in + api.example.in with AUTH_COOKIE_DOMAIN, or one origin
+ * through a gateway). *.vercel.app + *.onrender.com fails the probe and stays on storage mode.
+ */
+export function cookieSessionsSupported(): Promise<boolean> {
+  if (SESSION_MODE === "storage" || !isBrowser) return Promise.resolve(false);
+  cookieSupport ??= fetch(`${apiBase()}/auth/cookie-probe`, { method: "POST", credentials: "include" })
+    .then(() => SESSION_MODE === "cookie" || readBrowserCookie("canavo_probe") === "1")
+    .catch(() => false);
+  return cookieSupport;
+}
+
+/** Headers + credentials for auth calls that create or use a cookie session. */
+async function sessionCallOptions(): Promise<{ headers: Record<string, string>; credentials?: RequestCredentials }> {
+  return (await cookieSessionsSupported()) ? { headers: { "x-session-mode": "cookie" }, credentials: "include" } : { headers: {} };
+}
+
 // ---------- Reachability ----------
 const reachListeners = new Set<(reachable: boolean) => void>();
 let lastReachable = true;
@@ -192,17 +231,21 @@ async function runRefresh(staleToken: string | undefined): Promise<string | null
     // Another tab may have rotated the token while we waited for the lock.
     const stored = readStoredSession() ?? session;
     if (!stored) return null;
-    if (staleToken && stored.accessToken !== staleToken) {
+    const cookieMode = isCookieSession(stored);
+    if (!cookieMode && staleToken && stored.accessToken !== staleToken) {
       session = stored;
       return stored.accessToken;
     }
+    if (cookieMode && session?.accessToken && session.accessToken !== staleToken) return session.accessToken;
     let res: Response;
     try {
-      res = await fetch(`${apiBase()}/auth/refresh`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ refreshToken: stored.refreshToken }),
-      });
+      res = await fetch(
+        `${apiBase()}/auth/refresh`,
+        cookieMode
+          ? // The httpOnly cookie carries the refresh token; the readable CSRF cookie is echoed in a header.
+            { method: "POST", credentials: "include", headers: { "x-session-mode": "cookie", "x-csrf-token": readBrowserCookie("canavo_csrf") ?? "" } }
+          : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: stored.refreshToken }) },
+      );
     } catch {
       markReachable(false);
       throw new ApiError(0, "Network unavailable", undefined, true);
@@ -312,7 +355,9 @@ export async function request(path: string, opts: RequestOptions = {}): Promise<
   const method = (opts.method ?? "GET").toUpperCase();
   if (method !== "GET" && opts.auth !== false && !opts.idempotencyKey) opts = { ...opts, idempotencyKey: newIdempotencyKey() };
   const useAuth = opts.auth !== false;
-  const token = useAuth ? session?.accessToken : undefined;
+  let token = useAuth ? session?.accessToken || undefined : undefined;
+  // Cookie session after a reload: get an access token from the cookie first.
+  if (useAuth && !token && isCookieSession(session)) token = (await refreshAccessToken(undefined)) ?? undefined;
   let res = await send(path, opts, token);
   if (res.status === 401 && useAuth && token) {
     const fresh = await refreshAccessToken(token);
@@ -352,14 +397,29 @@ export const api = {
 // ---------- Auth helpers ----------
 /** Password sign-in. With two-step login on, returns the challenge instead (call verifyTwoFactor next). */
 export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
-  const s = await json<Session | MfaChallenge>("/auth/login", { method: "POST", body: { email, password }, auth: false, outletId: null });
+  const s = await authJson<Session | MfaChallenge>("/auth/login", { email, password });
   if (!("mfaRequired" in s)) setSession(s);
   return s;
 }
 
+/** POST to a sign-in endpoint, asking for a cookie session when the browser supports one. */
+async function authJson<T>(path: string, body: unknown): Promise<T> {
+  const { headers, credentials } = await sessionCallOptions();
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body), credentials, cache: "no-store" });
+  } catch {
+    markReachable(false);
+    throw new ApiError(0, "Network unavailable — check your connection", undefined, true);
+  }
+  markReachable(true);
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as T;
+}
+
 /** Second sign-in step: a 6-digit app code or a recovery code. */
 export async function verifyTwoFactor(mfaToken: string, input: { code?: string; recoveryCode?: string }): Promise<Session> {
-  const s = await json<Session>("/auth/2fa/verify", { method: "POST", body: { mfaToken, ...input }, auth: false, outletId: null });
+  const s = await authJson<Session>("/auth/2fa/verify", { mfaToken, ...input });
   setSession(s);
   return s;
 }
@@ -375,7 +435,11 @@ export async function logout(): Promise<void> {
   setSession(null);
   if (current) {
     try {
-      await send("/auth/logout", { method: "POST", body: { refreshToken: current.refreshToken }, outletId: null }, undefined);
+      if (isCookieSession(current)) {
+        await fetch(`${apiBase()}/auth/logout`, { method: "POST", credentials: "include", headers: { "x-csrf-token": readBrowserCookie("canavo_csrf") ?? "" } });
+      } else {
+        await send("/auth/logout", { method: "POST", body: { refreshToken: current.refreshToken }, outletId: null }, undefined);
+      }
     } catch {
       /* best effort */
     }
