@@ -10,6 +10,7 @@ import { deliverExternal } from "./services/notify";
 import { notifyNoPartner } from "./services/delivery-assign";
 import { announceDelivery } from "./services/service-context";
 import { notifyAvailability } from "./services/stock-availability";
+import { PUSH_TASK, pushStatusTask, type PushPayload } from "./services/channels/service";
 
 registerOutboxTask<{ outletId: string; kotIds: string[]; label: string }>("kitchen.alert", async ({ outletId, kotIds, label }) => {
   const kots = await prisma.kotTicket.findMany({ where: { id: { in: kotIds }, outletId } });
@@ -28,3 +29,6 @@ registerOutboxTask<{ userIds: string[]; title: string; body: string; kind: strin
   "notify.external",
   ({ userIds, title, body, kind, link, outletId, idByUser }) => deliverExternal(userIds, title, body, kind, link, outletId, idByUser),
 );
+
+// Phase 6.1: order status → the channel hub (retried with backoff; dead-letters show on Settings → Channels).
+registerOutboxTask<PushPayload>(PUSH_TASK, pushStatusTask);

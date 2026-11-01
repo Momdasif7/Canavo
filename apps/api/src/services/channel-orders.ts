@@ -59,3 +59,18 @@ export async function createChannelOrder(
     return { ...result, duplicate: result.duplicate as boolean };
   });
 }
+
+/**
+ * A request-shaped actor for system work at an outlet done as "Online orders" (Phase 6.1:
+ * a channel cancelling its order). Call inside the outlet's tenant context.
+ */
+export async function channelRequest(outletId: string, ip?: string): Promise<Request> {
+  const outlet = await platformPrisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { businessId: true } });
+  const user = await channelUser(outlet.businessId);
+  return {
+    outletId,
+    businessId: outlet.businessId,
+    ip,
+    user: { id: user.id, name: user.name, role: user.role, businessId: outlet.businessId, outletIds: [outletId] },
+  } as unknown as Request;
+}

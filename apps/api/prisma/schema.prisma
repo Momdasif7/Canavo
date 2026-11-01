@@ -89,6 +89,9 @@ model Outlet {
   /// Phase 6.3/6.4: QR ordering and online ordering settings (see storefrontSettingsSchema)
   storefront              Json                 @default("{}")
   channelRequests         ChannelRequest[]
+  channelConnections      ChannelConnection[]
+  channelItemMaps         ChannelItemMap[]
+  channelOrders           ChannelOrder[]
 
   @@index([businessId])
 }
@@ -593,6 +596,8 @@ enum PaymentMode {
   WALLET
   /// Phase 5.2 (CANTEEN): prepaid meal token(s)
   MEAL_TOKEN
+  /// Phase 6.1: paid online / collected by the channel (aggregator, online ordering page)
+  ONLINE
 }
 
 enum PaymentStatus {
@@ -1973,4 +1978,80 @@ model ChannelRequest {
 
   @@index([outletId, status, createdAt])
   @@index([tableId, createdAt])
+}
+
+// ---------- Phase 6.1: online channels (aggregators through a partner hub) ----------
+
+/// An outlet's link to an order hub (UrbanPiper-style) that relays Zomato / Swiggy / other orders.
+model ChannelConnection {
+  id               String    @id @default(cuid())
+  outletId         String
+  /// Adapter: "HUB" (generic partner hub, see docs/build/channels-hub-contract.md)
+  provider         String    @default("HUB")
+  enabled          Boolean   @default(false)
+  /// Taking orders on the channels right now (pushed to the hub)
+  storeOpen        Boolean   @default(false)
+  baseUrl          String
+  /// This outlet's store id at the hub
+  externalStoreId  String
+  /// Encrypted (AES-256-GCM, DATA_ENCRYPTION_KEY)
+  apiKeyEnc        String?
+  webhookSecretEnc String?
+  /// Commission % per source channel, e.g. { "ZOMATO": 25, "SWIGGY": 22 } (estimate for reports)
+  commission       Json      @default("{}")
+  lastMenuSyncAt   DateTime?
+  lastError        String?
+  lastErrorAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  outlet           Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, provider])
+}
+
+/// External item id a channel uses for a menu item (default: the menu item id itself).
+model ChannelItemMap {
+  id         String @id @default(cuid())
+  outletId   String
+  menuItemId String
+  externalId String
+  outlet     Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, menuItemId])
+  @@unique([outletId, externalId])
+}
+
+/// Every order a channel sent us (accepted or rejected), with their payload and totals for reconciliation.
+model ChannelOrder {
+  id             String   @id @default(cuid())
+  outletId       String
+  connectionId   String
+  /// ZOMATO / SWIGGY / OTHER … (ORDER_CHANNELS)
+  sourceChannel  String
+  channelOrderId String
+  /// Our bill (null when rejected)
+  orderId        String?
+  /// ACCEPTED | REJECTED | CANCELLED
+  status         String
+  /// Last status we told the channel (ACCEPTED, FOOD_READY, DISPATCHED, DELIVERED, CANCELLED)
+  pushedStatus   String?
+  pushError      String?
+  /// Rider updates from the channel: ASSIGNED, AT_STORE, PICKED_UP, DELIVERED
+  riderStatus    String?
+  rider          Json?
+  /// What the channel says the customer paid, paise
+  channelTotal   Int      @default(0)
+  /// Our bill's grand total, paise (menu prices + our GST)
+  ourTotal       Int      @default(0)
+  /// channelTotal and ourTotal differ by more than ₹1
+  mismatch       Boolean  @default(false)
+  error          String?
+  payload        Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  outlet         Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, sourceChannel, channelOrderId])
+  @@index([outletId, createdAt])
+  @@index([orderId])
 }

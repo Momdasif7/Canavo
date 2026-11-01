@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { formatINR } from "@canavo/shared";
 import { addDaysISO } from "@/lib/dates";
+import { ORDER_CHANNELS, type OrderChannel } from "@canavo/shared";
 import type { OrderStatus, OrderType, PaymentMode } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -28,6 +29,8 @@ export interface BillFilterState {
   status: OrderStatus | "";
   paymentMode: BillPaymentFilter | "";
   orderType: OrderType | "";
+  /** Phase 6: where the bill came from (counter, QR, Zomato …) */
+  channel?: OrderChannel | "";
   /** Debounced search (invoice / phone / customer name) — searches all dates */
   search: string;
   /** "COD pending" chip: unpaid Cash-on-Delivery bills */
@@ -78,7 +81,7 @@ export function matchPreset(from: string, to: string, today: string): BillPreset
 }
 
 const STATUSES: OrderStatus[] = ["OPEN", "PAID", "CANCELLED"];
-const MODES: BillPaymentFilter[] = ["CASH", "UPI", "CARD", "KHATA", "COD"];
+const MODES: BillPaymentFilter[] = ["CASH", "UPI", "CARD", "KHATA", "ONLINE", "COD"];
 const TYPES: OrderType[] = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"];
 
 /** Filters from the page URL (?range=last7 | ?from=…&to=…, status, payment, type, search, cod=1). */
@@ -97,6 +100,7 @@ export function filtersFromQuery(q: URLSearchParams, today: string): BillFilterS
     status: pick(q.get("status"), STATUSES),
     paymentMode: pick(q.get("payment"), MODES),
     orderType: pick(q.get("type"), TYPES),
+    channel: pick(q.get("channel"), ORDER_CHANNELS),
     search: (q.get("search") ?? "").trim().slice(0, 100),
     cod: q.get("cod") === "1",
   };
@@ -112,6 +116,7 @@ export function filtersToQuery(f: BillFilterState, today: string): string {
   if (f.status) q.set("status", f.status);
   if (f.paymentMode) q.set("payment", f.paymentMode);
   if (f.orderType) q.set("type", f.orderType);
+  if (f.channel) q.set("channel", f.channel);
   if (f.search) q.set("search", f.search);
   if (f.cod) q.set("cod", "1");
   return q.toString();
@@ -125,6 +130,7 @@ export function apiQuery(f: BillFilterState): Record<string, string | undefined>
     status: f.cod ? "OPEN" : f.status || undefined,
     paymentMode: f.cod ? "COD" : f.paymentMode || undefined,
     orderType: f.orderType || undefined,
+    channel: f.channel || undefined,
     search: f.search || undefined,
   };
 }

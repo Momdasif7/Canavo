@@ -2,13 +2,13 @@
  * Response shapes of the CANAVO API as consumed by the web app.
  * Dates arrive as ISO strings; all money is integer paise.
  */
-import type { DeliveryStatusValue, ModuleKey, Permission, Role } from "@canavo/shared";
+import type { DeliveryStatusValue, ModuleKey, OrderChannel, Permission, Role } from "@canavo/shared";
 
 export type FoodType = "VEG" | "NON_VEG" | "EGG";
 export type ItemStatus = "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN";
 export type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "PRE_ORDER";
 export type OrderStatus = "OPEN" | "PAID" | "CANCELLED";
-export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA" | "GIFT_CARD" | "CORPORATE" | "WALLET" | "MEAL_TOKEN";
+export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA" | "GIFT_CARD" | "CORPORATE" | "WALLET" | "MEAL_TOKEN" | "ONLINE";
 export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
 export type KotStatus = "RECEIVED" | "PREPARING" | "READY" | "SERVED";
 export type StaffStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
@@ -289,6 +289,7 @@ export interface Kot {
     status: OrderStatus;
     scheduledFor?: string | null;
     customerName?: string | null;
+    channel?: string;
   } | null;
   /** Running-tab KOTs */
   session?: { id: string; tableLabel: string; table?: { label: string } } | null;
@@ -297,6 +298,9 @@ export interface Kot {
 export interface Order {
   id: string;
   clientOrderId: string | null;
+  /** Phase 6: where the order came from (POS = counter) and the channel's own order id */
+  channel?: OrderChannel;
+  channelOrderId?: string | null;
   /** Total of credit notes issued against this bill (Phase 3.1) */
   refundedAmount?: number;
   outletId: string;

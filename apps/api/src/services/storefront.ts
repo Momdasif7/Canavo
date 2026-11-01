@@ -17,7 +17,7 @@ import { hhmmToMinutes, startOfLocalDay, zonedParts } from "../lib/time";
 import { featureOn, moduleEnabled, runForOutlet } from "../lib/tenant";
 import { emitToOutlet } from "../realtime";
 import { currentSlotMenu } from "../routes/menu";
-import { cancelOrderTx } from "../routes/orders";
+import { cancelOrderInTx } from "./order-cancel";
 import { addItemsToSession, findOpenSession, openSession } from "../routes/tables";
 import { getOrder } from "./billing";
 import { createChannelOrder, systemRequest } from "./channel-orders";
@@ -384,7 +384,7 @@ export async function rejectRequest(req: Request, request: ChannelRequest, reaso
   if (request.orderId) {
     const order = await getOrder(request.orderId, request.outletId);
     if (order.status !== "CANCELLED") {
-      await prisma.$transaction((tx) => cancelOrderTx(req, order, `Online order rejected: ${reason}`, tx));
+      await prisma.$transaction((tx) => cancelOrderInTx(tx, req, order, `Online order rejected: ${reason}`));
       emitToOutlet(request.outletId, "order:cancelled", { id: order.id });
     }
   }

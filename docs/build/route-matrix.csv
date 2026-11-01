@@ -59,6 +59,9 @@ GET /canteen/subscriptions/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,
 GET /cash-shifts,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /cash-shifts/:id,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /cash-shifts/current,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /channels/connection,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /channels/items,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /channels/orders,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
 GET /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 GET /customers/:id,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 GET /customers/:id/khata,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
@@ -238,6 +241,12 @@ POST /canteen/subscriptions/:id/skips,canteen-meals.ts,yes,yes,,canteen:manage,C
 POST /cash-shifts/current/close,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /cash-shifts/current/movements,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /cash-shifts/open,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /channels/connection/menu-sync,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/retry-failed,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/store,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/test,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/orders/:orderId/status,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/hub/:connectionId/webhook,channels.ts,NO,,,(public; HMAC per connection),CHANNELS,all
 POST /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 POST /customers/:id/block,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 POST /customers/:id/khata/remind,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
@@ -329,6 +338,8 @@ POST /webhooks/razorpay,public.ts,NO,,,(public),,all
 PUT /admin/settings/:scope/:key,admin.ts,yes,,,settings:outlet|platform(GLOBAL),,all
 PUT /admin/whatsapp,admin.ts,yes,business,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
 PUT /canteen/slots/:id/items,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PUT /channels/connection,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+PUT /channels/items/:menuItemId,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
 PUT /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 PUT /inventory/audits/:id/counts,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 PUT /inventory/recipes/:menuItemId,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER

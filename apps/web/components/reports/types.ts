@@ -26,6 +26,8 @@ export interface SalesReport {
   periods: SalesBucket[];
   byOrderType: { orderType: string; orders: number; gross: number; net: number; share: number }[];
   byPaymentMode: { mode: string; count: number; amount: number; share: number }[];
+  /** Phase 6.1 (CHANNELS only): sales by channel with the estimated aggregator commission */
+  byChannel?: { channel: string; label: string; orders: number; gross: number; net: number; share: number; commissionPercent: number; commission: number; afterCommission: number }[];
 }
 
 export interface ItemRow {

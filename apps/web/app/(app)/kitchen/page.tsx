@@ -15,6 +15,7 @@ import { useSocketEvent, useSocketStatus } from "@/components/providers/SocketPr
 import { useToast } from "@/components/providers/ToastProvider";
 import { IconButton } from "@/components/ui/Button";
 import { ErrorState, LoadingState } from "@/components/ui/States";
+import { ChannelBadge } from "@/components/bills/ChannelBadge";
 
 const COLUMNS: { status: KotStatus; title: string; accent: string }[] = [
   { status: "RECEIVED", title: "Received", accent: "bg-sky-500" },
@@ -324,6 +325,7 @@ function KotCard({
             </>
           )}
           {kot.order && <span> · {kot.order.invoiceNumber}</span>}
+          <ChannelBadge channel={kot.order?.channel} className="ml-2" />
         </p>
         <ul className="space-y-1">
           {kot.items.map((it, i) => (

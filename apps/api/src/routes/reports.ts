@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import type { Outlet } from "@prisma/client";
-import { exclusiveOf, financialYearLabel, REPORT_KEYS, type ReportKey } from "@canavo/shared";
+import { exclusiveOf, financialYearLabel, ORDER_CHANNEL_LABELS, REPORT_KEYS, type OrderChannel, type ReportKey } from "@canavo/shared";
 import { prisma } from "../db";
 import { dayOutcome } from "../services/attendance";
 import { badRequest, forbidden, parse } from "../lib/http";
@@ -105,7 +105,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   const orders = await prisma.order.findMany({
     where: { ...window(ctx), status: { in: ["PAID", "CANCELLED"] } },
     select: {
-      status: true, createdAt: true, orderType: true, grandTotal: true, discount: true, promoDiscount: true,
+      status: true, createdAt: true, orderType: true, channel: true, grandTotal: true, discount: true, promoDiscount: true,
       extraCharges: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
       payments: { where: { status: "SUCCESS" }, select: { mode: true, amount: true } },
     },
@@ -127,6 +127,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   const total = blank("Total");
   const byType = new Map<string, { orderType: string; orders: number; gross: number; net: number }>();
   const byMode = new Map<string, { mode: string; count: number; amount: number }>();
+  const byChannel = new Map<string, { channel: string; orders: number; gross: number; net: number }>();
 
   for (const o of orders) {
     const b = buckets.get(periodKey(localParts(o.createdAt, ctx.outlet.timezone).date, groupBy))!;
@@ -153,6 +154,11 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
     ty.gross += o.grandTotal;
     ty.net += o.grandTotal - taxOf(o) - o.roundOff;
     byType.set(o.orderType, ty);
+    const ch = byChannel.get(o.channel) ?? { channel: o.channel, orders: 0, gross: 0, net: 0 };
+    ch.orders++;
+    ch.gross += o.grandTotal;
+    ch.net += o.grandTotal - taxOf(o) - o.roundOff;
+    byChannel.set(o.channel, ch);
     for (const p of o.payments) {
       const m = byMode.get(p.mode) ?? { mode: p.mode, count: 0, amount: 0 };
       m.count++;
@@ -164,6 +170,18 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   total.aov = avg(total.gross, total.orders);
   const orderTypes = [...byType.values()].map((t) => ({ ...t, share: pct(t.gross, total.gross) })).sort((a, b) => b.gross - a.gross);
   const paymentModes = [...byMode.values()].map((m) => ({ ...m, share: pct(m.amount, total.gross) })).sort((a, b) => b.amount - a.amount);
+  // Phase 6.1: sales by channel, with the aggregator commission estimated from Settings → Channels.
+  const channelsOn = moduleEnabled("CHANNELS");
+  const commission = channelsOn
+    ? (((await prisma.channelConnection.findFirst({ where: { outletId: ctx.outlet.id }, select: { commission: true } }))?.commission ?? {}) as Record<string, number>)
+    : {};
+  const channels = [...byChannel.values()]
+    .map((c) => {
+      const commissionPercent = Number(commission[c.channel] ?? 0);
+      const est = Math.round((c.gross * commissionPercent) / 100);
+      return { ...c, label: ORDER_CHANNEL_LABELS[c.channel as OrderChannel] ?? c.channel, share: pct(c.gross, total.gross), commissionPercent, commission: est, afterCommission: c.gross - est };
+    })
+    .sort((a, b) => b.gross - a.gross);
 
   const cols: ExportColumn[] = [
     { key: "period", header: groupBy === "day" ? "Date" : groupBy === "week" ? "Week of" : "Month", width: 12 },
@@ -181,7 +199,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   ];
   return {
     title: "Sales report",
-    data: { from: ctx.from, to: ctx.to, groupBy, totals: total, periods, byOrderType: orderTypes, byPaymentMode: paymentModes },
+    data: { from: ctx.from, to: ctx.to, groupBy, totals: total, periods, byOrderType: orderTypes, byPaymentMode: paymentModes, ...(channelsOn && { byChannel: channels }) },
     tables: [
       { title: "Sales", subtitle: subtitle(ctx, `grouped by ${groupBy}`), columns: cols, rows: periods, totals: { ...total, period: "Total" } },
       {
@@ -207,6 +225,26 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
         rows: paymentModes,
         totals: true,
       },
+      ...(channelsOn
+        ? [
+            {
+              title: "By channel",
+              subtitle: "Commission is an estimate from the % set in Settings → Channels",
+              columns: [
+                { key: "label", header: "Channel", width: 14 },
+                { key: "orders", header: "Orders", type: "int" },
+                { key: "gross", header: "Gross", type: "money", width: 14 },
+                { key: "net", header: "Net", type: "money", width: 14 },
+                { key: "commissionPercent", header: "Commission %", width: 12 },
+                { key: "commission", header: "Commission (est.)", type: "money", width: 14 },
+                { key: "afterCommission", header: "After commission", type: "money", width: 14 },
+                { key: "share", header: "Share", type: "percent" },
+              ] as ExportColumn[],
+              rows: channels,
+              totals: true as const,
+            },
+          ]
+        : []),
     ],
   };
 }

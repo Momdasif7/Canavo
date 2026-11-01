@@ -233,8 +233,32 @@ export const ORDER_TYPES = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"] as c
 /** Phase 6: where an order came from */
 export const ORDER_CHANNELS = ["POS", "QR", "ONLINE", "ZOMATO", "SWIGGY", "ONDC", "OTHER"] as const;
 export type OrderChannel = (typeof ORDER_CHANNELS)[number];
+export const ORDER_CHANNEL_LABELS: Record<OrderChannel, string> = {
+  POS: "Counter",
+  QR: "QR table",
+  ONLINE: "Online",
+  ZOMATO: "Zomato",
+  SWIGGY: "Swiggy",
+  ONDC: "ONDC",
+  OTHER: "Other app",
+};
+/** Phase 6.1: statuses we push to an aggregator (through the hub) */
+export const CHANNEL_PUSH_STATUSES = ["ACCEPTED", "FOOD_READY", "DISPATCHED", "DELIVERED", "CANCELLED"] as const;
+export type ChannelPushStatus = (typeof CHANNEL_PUSH_STATUSES)[number];
 
-export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "CORPORATE", "WALLET", "MEAL_TOKEN"] as const;
+/** Settings → Channels: the outlet's hub connection. Secrets are only replaced when sent. */
+export const channelConnectionSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().trim().url().max(300),
+  externalStoreId: z.string().trim().min(1).max(100),
+  apiKey: z.string().trim().min(1).max(500).optional(),
+  webhookSecret: z.string().trim().min(8).max(500).optional(),
+  /** Commission % per source channel (estimate for reports) */
+  commission: z.record(z.enum(ORDER_CHANNELS), z.number().min(0).max(100)).default({}),
+});
+export type ChannelConnectionInput = z.infer<typeof channelConnectionSchema>;
+
+export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "CORPORATE", "WALLET", "MEAL_TOKEN", "ONLINE"] as const;
 
 export const orderItemInputSchema = z.object({
   menuItemId: z.string(),
