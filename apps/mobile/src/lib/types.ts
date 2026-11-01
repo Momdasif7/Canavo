@@ -1161,3 +1161,55 @@ export interface OutletsOverview {
   outlets: OutletOverviewRow[];
   totals: Omit<OutletOverviewRow, "outletId" | "name">;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 — sales channels (CHANNELS module)
+// ---------------------------------------------------------------------------
+
+/** Where an order came from (mirrors ORDER_CHANNELS in @canavo/shared). */
+export type OrderChannelName = "POS" | "QR" | "ONLINE" | "ZOMATO" | "SWIGGY" | "ONDC" | "OTHER";
+
+export type ChannelBoardStage = "NEW" | "PREPARING" | "PACKED" | "HANDED_OVER" | "CANCELLED";
+
+/** One order on the online / aggregator board (`GET /channels/board`). */
+export interface ChannelBoardOrder {
+  orderId: string;
+  invoiceNumber: string;
+  channel: OrderChannelName | string;
+  channelOrderId: string | null;
+  stage: ChannelBoardStage;
+  customerName: string | null;
+  items: { name: string; quantity: number; notes: string | null }[];
+  total: Paise;
+  /** Paid online (prepaid); false = collect `total` on handover / delivery */
+  paid: boolean;
+  /** Our own rider delivers (false = the aggregator's rider picks up) */
+  weDeliver: boolean;
+  placedAt: string;
+  packedAt: string | null;
+  handedOverAt: string | null;
+  rider: { name: string | null; phone: string | null; pickupCode: string | null; eta: string | null; arrived: boolean } | null;
+}
+
+export interface ChannelBoard {
+  orders: ChannelBoardOrder[];
+}
+
+/** A QR / online order waiting for staff to accept it (`GET /storefront/requests`). */
+export interface ChannelRequest {
+  id: string;
+  channel: "QR" | "ONLINE" | string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED";
+  createdAt: string;
+  tableId: string | null;
+  tableLabel: string | null;
+  order: { id: string; invoiceNumber: string; orderType: string; grandTotal: Paise; status: string; notes: string | null } | null;
+  items: { menuItemId: string; variantId?: string; addonIds: string[]; quantity: number; notes?: string; name: string; unitPrice: Paise }[];
+  total: Paise;
+  customerName: string | null;
+  customerPhone: string | null;
+  notes: string | null;
+  /** Online orders: COUNTER | COD | UPI */
+  payment: "COUNTER" | "COD" | "UPI" | null;
+  rejectReason: string | null;
+}

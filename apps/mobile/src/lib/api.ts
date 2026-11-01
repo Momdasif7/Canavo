@@ -9,6 +9,9 @@ import * as secure from "./secure";
 import type {
   ActiveOffer,
   AttendanceCalendar,
+  ChannelBoard,
+  ChannelBoardOrder,
+  ChannelRequest,
   CustomerList,
   CustomerLookupResult,
   CustomerProfile,
@@ -506,6 +509,15 @@ export const endpoints = {
   purchases: (status?: "DRAFT" | "RECEIVED") => api.get<PurchaseRow[]>("/inventory/purchases", { query: { status, limit: 50 } }),
   purchase: (id: string) => api.get<PurchaseDetail>(`/inventory/purchases/${id}`),
   receivePurchase: (id: string) => api.post<PurchaseDetail>(`/inventory/purchases/${id}/receive`, {}),
+
+  // Sales channels (CHANNELS module): aggregator / online order board + QR / online requests to confirm
+  channelBoard: () => api.get<ChannelBoard>("/channels/board"),
+  channelPacked: (orderId: string) => api.post<ChannelBoardOrder>(`/channels/board/${encodeURIComponent(orderId)}/packed`, {}),
+  channelHandover: (orderId: string, riderName?: string) =>
+    api.post<ChannelBoardOrder>(`/channels/board/${encodeURIComponent(orderId)}/handover`, riderName ? { riderName } : {}),
+  channelRequests: () => api.get<ChannelRequest[]>("/storefront/requests"),
+  acceptChannelRequest: (id: string) => api.post<unknown>(`/storefront/requests/${encodeURIComponent(id)}/accept`, {}),
+  rejectChannelRequest: (id: string, reason: string) => api.post<unknown>(`/storefront/requests/${encodeURIComponent(id)}/reject`, { reason }),
 
   // Notifications
   notifications: (q: { unread?: boolean; before?: string | null; limit?: number } = {}) =>

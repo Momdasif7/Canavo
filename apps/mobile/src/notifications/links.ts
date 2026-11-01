@@ -14,6 +14,7 @@ export type AppRoute =
   | "/(tabs)/tables"
   | "/(tabs)/deliveries"
   | "/(tabs)/kot"
+  | "/(tabs)/online"
   | "/(tabs)/stock"
   | "/(tabs)/reports"
   | "/delivery-board"
@@ -44,6 +45,7 @@ const KIND_LINKS: [prefix: string, link: string][] = [
   ["crm", "/customers"],
   ["customer", "/customers"],
   ["platform", "/settings"],
+  ["channel", "/pos"],
 ];
 
 export const linkForKind = (kind: string | null | undefined): string | null =>
@@ -83,6 +85,8 @@ export function routeForNotification(n: { link?: string | null; kind?: string | 
   const can = (p: Parameters<typeof hasPermission>[1]) => hasPermission(me, p);
   const tabs = visibleTabs(me);
   const { section, query } = parseLink(link);
+  // QR / online orders to accept (kind "channel.*"): the Online tab has the queue and the board.
+  if (n.kind?.startsWith("channel") && tabs.includes("online")) return "/(tabs)/online";
 
   switch (section) {
     case "delivery":
@@ -146,7 +150,7 @@ export const ANDROID_CHANNEL_URGENT = "urgent";
 /** Normal channel keeps the id "default", which pushes without a channelId land in. */
 export const ANDROID_CHANNEL_NORMAL = "default";
 
-const URGENT_PREFIXES = ["kot.new", "order.ready", "delivery", "table.attention", "payment.received"];
+const URGENT_PREFIXES = ["kot.new", "order.ready", "delivery", "table.attention", "payment.received", "channel.order"];
 
 /** Kitchen tickets, ready orders, deliveries, tables needing attention and payments ring; the rest stay quiet. */
 export const isUrgentKind = (kind: string | null | undefined): boolean =>
