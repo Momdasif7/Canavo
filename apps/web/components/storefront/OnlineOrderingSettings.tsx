@@ -102,7 +102,7 @@ export function OnlineOrderingSettings() {
       )}
 
       <Card>
-        <CardHeader title="Online ordering page" subtitle="Your own page for takeaway and delivery orders — no commission. Customers order with their name and phone (no OTP yet)." />
+        <CardHeader title="Online ordering page" subtitle="Your own page for takeaway and delivery orders — no commission. Customers order with their name and mobile number." />
         <div className="space-y-4 px-5 py-4">
           <Input
             label="Web address"
@@ -120,6 +120,12 @@ export function OnlineOrderingSettings() {
               onChange={(v) => set({ onlineNeedsConfirmation: v })}
               label="Online orders need staff confirmation"
               description="The cashier accepts each order on the POS before the kitchen gets it. Off: straight to the kitchen."
+            />
+            <Toggle
+              checked={s.verifyPhoneOtp}
+              onChange={(v) => set({ verifyPhoneOtp: v })}
+              label="Verify customer phone by OTP"
+              description="Recommended. Customers confirm their mobile number with a 6-digit SMS code before ordering, so fake orders can't reach your kitchen."
             />
             <Toggle checked={s.takeaway} onChange={(v) => set({ takeaway: v })} label="Takeaway / pickup" />
             <Toggle

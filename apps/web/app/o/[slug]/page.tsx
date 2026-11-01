@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { formatINR } from "@canavo/shared";
-import { errorMessage } from "@/lib/api";
-import { publicCall, type OutletPage } from "@/lib/storefront";
+import { ApiError, errorMessage } from "@/lib/api";
+import { publicCall, type DeliveryQuote, type OutletPage } from "@/lib/storefront";
+import type { LatLng } from "@/components/delivery/map/DeliveryMap";
+import { DeliveryPin } from "@/components/storefront/DeliveryPin";
+import { forgetPhoneToken, PhoneVerify, savedPhoneToken } from "@/components/storefront/PhoneVerify";
 import { useToast } from "@/components/providers/ToastProvider";
 import { CartBar, CartLines, StoreHeader, StoreMenu, useCart } from "@/components/storefront/StoreMenu";
 import { Button } from "@/components/ui/Button";
@@ -48,6 +51,10 @@ export default function OnlineOrderPage() {
   const [payment, setPayment] = useState<Pay | "">("");
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [phoneToken, setPhoneToken] = useState<string | null>(null);
+  const [pin, setPin] = useState<LatLng | null>(null);
+  const [quote, setQuote] = useState<DeliveryQuote | null>(null);
+  const [pickArea, setPickArea] = useState(false);
   const cart = useCart(`canavo.onlinecart.${slug}`);
   const { prune } = cart;
   const slots = useMemo(() => (open ? timeSlots() : []), [open]);
@@ -89,6 +96,10 @@ export default function OnlineOrderPage() {
     if (page.payments.UPI) opts.push("UPI");
     return opts;
   }, [page, orderType]);
+  // A verified number stays verified in this tab; a different number needs a new code.
+  useEffect(() => {
+    setPhoneToken(/^[6-9]\d{9}$/.test(phone.trim()) ? savedPhoneToken(slug, phone.trim()) : null);
+  }, [phone, slug]);
   useEffect(() => {
     if (payment && !payOptions.includes(payment)) setPayment("");
     if (!payment && payOptions.length === 1) setPayment(payOptions[0]);
@@ -97,14 +108,20 @@ export default function OnlineOrderPage() {
   if (error && !page) return <main className="mx-auto max-w-md p-6"><ErrorState message={error} onRetry={load} /></main>;
   if (!page) return <LoadingState label="Opening the menu…" />;
 
-  const zone = page.zones.find((z) => z.id === zoneId);
+  // Map pin when the outlet's location is known and the map works; otherwise the area picker.
+  const usePin = orderType === "DELIVERY" && Boolean(page.location) && !pickArea;
+  const zone = usePin ? (quote?.deliverable ? (quote.zone ?? undefined) : undefined) : page.zones.find((z) => z.id === zoneId);
   const phoneOk = /^[6-9]\d{9}$/.test(phone.trim());
   const belowMin = cart.total < page.minOrder || (orderType === "DELIVERY" && zone ? cart.total < zone.minOrder : false);
   const problems = [
     name.trim().length < 2 && "Enter your name",
     !phoneOk && "Enter a 10-digit mobile number",
+    phoneOk && page.verifyPhone && !phoneToken && "Verify your mobile number with the code we text you",
     orderType === "DELIVERY" && address.trim().length < 5 && "Enter your delivery address",
-    orderType === "DELIVERY" && page.zones.length > 0 && !zoneId && "Choose your area",
+    usePin && !pin && "Put the pin on the map where we should deliver",
+    usePin && pin && !quote && "Checking delivery…",
+    usePin && quote && !quote.deliverable && (quote.message ?? "We don't deliver there"),
+    orderType === "DELIVERY" && !usePin && page.zones.length > 0 && !zoneId && "Choose your area",
     !payment && "Choose how to pay",
     belowMin && `Minimum order is ${formatINR(Math.max(page.minOrder, zone?.minOrder ?? 0))}`,
   ].filter(Boolean) as string[];
@@ -116,11 +133,19 @@ export default function OnlineOrderPage() {
         orderType,
         customerName: name.trim(),
         customerPhone: phone.trim(),
+        phoneToken: page.verifyPhone ? (phoneToken ?? undefined) : undefined,
         pickupAt: when || undefined,
         payment,
         notes: notes.trim() || undefined,
         items: cart.lines.map((l) => ({ menuItemId: l.menuItemId, variantId: l.variantId, addonIds: l.addonIds, quantity: l.quantity, notes: l.notes?.trim() || undefined })),
-        delivery: orderType === "DELIVERY" ? { address: address.trim(), landmark: landmark.trim() || undefined, zoneId: zoneId || undefined } : undefined,
+        delivery:
+          orderType === "DELIVERY"
+            ? {
+                address: address.trim(),
+                landmark: landmark.trim() || undefined,
+                ...(usePin && pin ? { latitude: Number(pin.lat.toFixed(6)), longitude: Number(pin.lng.toFixed(6)) } : { zoneId: zoneId || undefined }),
+              }
+            : undefined,
       });
       try {
         localStorage.setItem("canavo.customer", JSON.stringify({ name: name.trim(), phone: phone.trim(), address: address.trim() }));
@@ -130,6 +155,11 @@ export default function OnlineOrderPage() {
       cart.clear();
       router.push(`/o/${slug}/order/${r.token}`);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 403) {
+        // The verification expired: ask for a new code.
+        forgetPhoneToken(slug);
+        setPhoneToken(null);
+      }
       toast(errorMessage(e), "error");
       void load();
     } finally {
@@ -187,11 +217,26 @@ export default function OnlineOrderPage() {
               <Input label="Your name" autoComplete="name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
               <Input label="Mobile number" inputMode="numeric" autoComplete="tel-national" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} />
             </div>
+            {page.verifyPhone && <PhoneVerify slug={slug} phone={phone.trim()} token={phoneToken} onVerified={setPhoneToken} />}
             {orderType === "DELIVERY" && (
               <>
                 <Textarea label="Delivery address" autoComplete="street-address" rows={2} maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
                 <Input label="Landmark (optional)" maxLength={200} value={landmark} onChange={(e) => setLandmark(e.target.value)} />
-                {page.zones.length > 0 && (
+                {usePin && (
+                  <DeliveryPin
+                    slug={slug}
+                    page={page}
+                    pin={pin}
+                    onPin={(p) => {
+                      setPin(p);
+                      setQuote(null);
+                    }}
+                    quote={quote}
+                    onQuote={setQuote}
+                    onFallback={() => setPickArea(true)}
+                  />
+                )}
+                {!usePin && page.zones.length > 0 && (
                   <Select label="Area" value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
                     <option value="">Choose your area</option>
                     {page.zones.map((z) => (
@@ -219,7 +264,7 @@ export default function OnlineOrderPage() {
             <p className="text-xs text-muted">
               Item total {formatINR(cart.total)}. {page.outlet.gstEnabled && !page.outlet.pricesIncludeTax ? "GST, " : ""}
               {page.outlet.packagingCharge > 0 ? "packaging, " : ""}
-              {orderType === "DELIVERY" ? "delivery fee and " : ""}any offers are worked out when you place the order.
+              {orderType === "DELIVERY" ? (zone ? `delivery fee ${formatINR(zone.fee)} and ` : "delivery fee and ") : ""}any offers are worked out when you place the order.
               {page.needsConfirmation ? " The restaurant confirms your order before cooking." : ""}
             </p>
           </div>

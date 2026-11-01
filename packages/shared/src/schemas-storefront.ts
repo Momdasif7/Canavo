@@ -34,6 +34,12 @@ export const storefrontSettingsSchema = z.object({
   payAtCounter: z.boolean().default(true),
   cashOnDelivery: z.boolean().default(true),
   upiPrepaid: z.boolean().default(false),
+  /**
+   * Online orders need the customer's phone verified by an OTP. Stored default is off so
+   * outlets set up before this existed keep working as they did; a new online page set up
+   * from the settings screen starts with it on (see the staff settings route).
+   */
+  verifyPhoneOtp: z.boolean().default(false),
 });
 export type StorefrontSettings = z.infer<typeof storefrontSettingsSchema>;
 
@@ -77,12 +83,14 @@ export type QrOrderInput = z.infer<typeof qrOrderSchema>;
 export const PUBLIC_PAYMENT_OPTIONS = ["COUNTER", "COD", "UPI"] as const;
 export type PublicPaymentOption = (typeof PUBLIC_PAYMENT_OPTIONS)[number];
 
-/** An order from the online ordering page. Name and phone are required (no OTP yet). */
+/** An order from the online ordering page. Name and phone are required. */
 export const onlineOrderSchema = z.object({
   ...publicCart,
   orderType: z.enum(["TAKEAWAY", "DELIVERY"]),
   customerName: z.string().trim().min(2, "Enter your name").max(60),
   customerPhone: indianPhone,
+  /** Signed proof the phone was verified by OTP (required when the outlet turns OTP on) */
+  phoneToken: z.string().max(400).optional(),
   /** Pickup / delivery time; empty = as soon as possible */
   pickupAt: z.string().datetime().optional(),
   payment: z.enum(PUBLIC_PAYMENT_OPTIONS),
@@ -101,3 +109,18 @@ export type OnlineOrderInput = z.infer<typeof onlineOrderSchema>;
 export const tableCallSchema = z.object({ kind: z.enum(["WAITER", "BILL"]) });
 
 export const channelRejectSchema = z.object({ reason: z.string().trim().min(3, "Give a reason").max(200) });
+
+/** Customer phone OTP on the online ordering page. */
+export const CUSTOMER_OTP = { ttlSeconds: 300, cooldownSeconds: 30, maxAttempts: 5, tokenTtlSeconds: 1800 } as const;
+export const customerOtpRequestSchema = z.object({ phone: indianPhone });
+export const customerOtpVerifySchema = z.object({ phone: indianPhone, code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code") });
+
+/** Delivery quote for a map pin on the online ordering page. */
+export const publicDeliveryQuoteSchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+});
+
+/** Refund status of a rejected / cancelled online order paid by UPI. */
+export const ONLINE_REFUND_STATUSES = ["PROCESSED", "PENDING", "MANUAL", "FAILED"] as const;
+export type OnlineRefundStatus = (typeof ONLINE_REFUND_STATUSES)[number];

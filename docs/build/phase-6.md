@@ -47,15 +47,15 @@ The migrations in order produce exactly the merged schema (verified: empty diff)
 3. **Totals:** we bill at our menu prices. The channel's total is kept only to check for differences.
 4. **"Paid online"** can't be chosen for counter bills.
 5. **QR orders join the table's running tab.** The final tab bill shows channel POS; the QR origin is kept on the request record.
-6. **Online orders that need confirmation** become an open bill straight away with KOTs held. Rejecting one cancels the bill, and a UPI payment already made must be refunded by hand for now.
-7. **Confirmation defaults on** for both QR and online orders. Customer phone numbers aren't verified (no OTP yet).
+6. **Online orders that need confirmation** become an open bill straight away with KOTs held. Rejecting one cancels the bill. If the customer already paid by Razorpay UPI, see 9.
+7. **Confirmation defaults on** for both QR and online orders.
+8. **Phone OTP for online orders** ("Verify customer phone by OTP", Settings → Online ordering). The stored default is off, so outlets that already had an online page keep working as before. An outlet setting up its page for the first time (no web address yet) starts with it on. Codes are 6 digits, hashed, valid 5 minutes, 30 s between requests, 5 wrong tries then a new code. Limits: 5 requests per phone and 15 per IP in 15 minutes. They're kept in their own `CustomerOtp` table (per outlet, RLS), never in the staff `OtpCode` table, so a customer's code can't log anyone in. A correct code gives a signed token that proves the phone for 30 minutes. The order must carry it, and it only works for that outlet and number. Without SMS set up (dev), the code is shown on the page like staff OTP.
+9. **Automatic UPI refunds.** When an online order is rejected, or an accepted one is cancelled before the kitchen starts (new: Cancel order in the POS online-orders panel, needs `order:cancel`), every successful Razorpay UPI payment on it is refunded through the Razorpay refunds API. A fully paid bill already has a GST invoice, so it is not voided. It stays as issued and a full credit note reverses it (refund mode UPI, items restocked, no manager approval because the refund can't be declined). Its delivery is cancelled and kitchen tickets not yet started are removed. A bill paid only in part is voided as before and the UPI part refunded. The refund id and status (processed / pending / manual / failed) show on the customer's order page and in the staff list, and the `refund.processed` / `refund.failed` webhooks update them. Without Razorpay keys, or for a simulated payment, the refund is marked "refund pending — do it in the Razorpay dashboard" and the managers get a notification. If Razorpay refuses, it is marked failed and the managers are told too. The staff void flow is unchanged.
+10. **Map pin for delivery.** When the outlet's location is set, checkout shows an OpenStreetMap (Leaflet) map with "Use my location". The server picks the zone from the pin: the smallest active zone whose radius covers the distance. Any zone the client sends is ignored. Addresses outside every zone are refused with a clear message, and the fee is quoted before ordering (`GET /public/o/:slug/delivery-quote`). If the outlet has no location or the map fails to load, checkout falls back to the area picker.
 
 ## Not done yet
 
 - A real hub adapter (e.g. UrbanPiper) and direct Zomato/Swiggy APIs. They need vendor onboarding and credentials.
-- OTP for online orders.
-- Automatic UPI refunds when an online order is rejected.
-- A map pin for delivery addresses (customers choose a zone).
 - Mobile screens.
 - API documentation (OpenAPI) for the new routes.
 

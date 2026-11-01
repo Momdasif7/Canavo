@@ -1,5 +1,9 @@
 /** Phase 6.3 / 6.4 — QR table ordering and the online ordering page (CHANNELS). */
+import crypto from "node:crypto";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { env } from "../../src/env";
 import { createHotel, db, login, startServer, type Client, type Hotel } from "./helpers";
 
 const ALL = ["BILLING", "KOT", "TABLES", "DELIVERY", "INVENTORY", "CUSTOMERS", "OFFERS", "REPORTS", "CHANNELS"];
@@ -8,10 +12,14 @@ let srv: Awaited<ReturnType<typeof startServer>>;
 let h: Hotel, off: Hotel;
 let owner: Client, cashier: Client;
 let slug: string;
+let rotateIp = false;
 
 /** Anonymous call (a customer's phone). */
 async function pub<T = any>(method: string, path: string, body?: unknown): Promise<{ status: number; body: T }> { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const r = await fetch(`${srv.base}${path}`, { method, headers: body !== undefined ? { "content-type": "application/json" } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const headers: Record<string, string> = body !== undefined ? { "content-type": "application/json" } : {};
+  // Later blocks place many orders: a different client address per call keeps clear of the per-IP limits.
+  if (rotateIp) headers["x-forwarded-for"] = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+  const r = await fetch(`${srv.base}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   const text = await r.text();
   return { status: r.status, body: text ? JSON.parse(text) : null };
 }
@@ -32,7 +40,11 @@ beforeAll(async () => {
   owner = await login(srv.base, h.users.owner.email, h.outletId);
   cashier = await login(srv.base, h.users.cashier.email, h.outletId);
   slug = `sf-${Date.now().toString(36)}`;
-  expect((await settings({ slug, qrOrdering: true, onlineOrdering: true })).status).toBe(200);
+  const first = await settings({ slug, qrOrdering: true, onlineOrdering: true });
+  expect(first.status).toBe(200);
+  // A new online page starts with phone OTP on; most tests below run without it.
+  expect(first.body.settings.verifyPhoneOtp).toBe(true);
+  expect((await settings({ verifyPhoneOtp: false })).status).toBe(200);
 });
 afterAll(() => srv.close());
 
@@ -227,5 +239,290 @@ describe("online ordering", () => {
     const other = await createHotel("SlugClash", { modules: ALL });
     const oc = await login(srv.base, other.users.owner.email, other.outletId);
     expect((await oc.call("PUT", "/storefront/settings", { slug })).status).toBe(409);
+  });
+});
+
+describe("phone OTP for online orders", () => {
+  beforeAll(() => {
+    rotateIp = true;
+  });
+  const takeaway = (phone: string, phoneToken?: string) => ({ orderType: "TAKEAWAY", customerName: "Otp", customerPhone: phone, phoneToken, payment: "COUNTER", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
+
+  it("existing outlets keep OTP off (stored default false)", async () => {
+    const other = await createHotel("OtpLegacy", { modules: ALL });
+    await db.outlet.update({ where: { id: other.outletId }, data: { publicSlug: `${slug}-legacy`, storefront: { onlineOrdering: true } } });
+    const oc = await login(srv.base, other.users.owner.email, other.outletId);
+    const r = await oc.call("PUT", "/storefront/settings", { minOrder: 0 });
+    expect(r.body.settings.verifyPhoneOtp).toBe(false);
+    expect((await pub("GET", `/public/o/${slug}-legacy`)).body.verifyPhone).toBe(false);
+  });
+
+  it("refuses orders without a verified phone; request → cooldown → wrong code → right code → order", async () => {
+    await settings({ verifyPhoneOtp: true });
+    expect((await pub("GET", `/public/o/${slug}`)).body.verifyPhone).toBe(true);
+    const phone = "9811100001";
+    const refused = await pub("POST", `/public/o/${slug}/orders`, takeaway(phone));
+    expect(refused.status).toBe(403);
+    expect(refused.body.details.code).toBe("PHONE_NOT_VERIFIED");
+    expect((await pub("POST", `/public/o/${slug}/orders`, takeaway(phone, "bogus.token"))).status).toBe(403);
+
+    const req1 = await pub("POST", `/public/o/${slug}/otp/request`, { phone });
+    expect(req1.status).toBe(200);
+    expect(req1.body).toMatchObject({ ok: true, expiresIn: 300, cooldown: 30 });
+    expect(req1.body.devCode).toMatch(/^\d{6}$/);
+    // Hashed, never stored in clear, and not in the staff OTP table.
+    const row = await db.customerOtp.findFirstOrThrow({ where: { outletId: h.outletId, phone } });
+    expect(row.codeHash).not.toContain(req1.body.devCode);
+    expect(await db.otpCode.count({ where: { phone } })).toBe(0);
+    // 30-second cooldown.
+    expect((await pub("POST", `/public/o/${slug}/otp/request`, { phone })).status).toBe(429);
+
+    const wrong = req1.body.devCode === "000000" ? "111111" : "000000";
+    const bad = await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: wrong });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain("4 tries left");
+    const ok = await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: req1.body.devCode });
+    expect(ok.status).toBe(200);
+    expect(ok.body.phoneToken).toBeTruthy();
+    // Single use.
+    expect((await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: req1.body.devCode })).status).toBe(400);
+    // The token works for this phone only.
+    expect((await pub("POST", `/public/o/${slug}/orders`, takeaway("9811100002", ok.body.phoneToken))).status).toBe(403);
+    // …and doesn't log anyone in to the staff app.
+    expect((await pub("POST", "/auth/otp/verify", { phone, code: req1.body.devCode })).status).toBe(401);
+    const placed = await pub("POST", `/public/o/${slug}/orders`, takeaway(phone, ok.body.phoneToken));
+    expect(placed.status).toBe(201);
+  });
+
+  it("codes expire after 5 minutes and lock after 5 wrong tries", async () => {
+    const phone = "9811100003";
+    const r = await pub("POST", `/public/o/${slug}/otp/request`, { phone });
+    await db.customerOtp.updateMany({ where: { outletId: h.outletId, phone }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const expired = await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: r.body.devCode });
+    expect(expired.status).toBe(400);
+    expect(expired.body.error).toContain("expired");
+
+    // A fresh code (cooldown passed), then five wrong tries.
+    await db.customerOtp.updateMany({ where: { outletId: h.outletId, phone }, data: { createdAt: new Date(Date.now() - 60_000) } });
+    const r2 = await pub("POST", `/public/o/${slug}/otp/request`, { phone });
+    expect(r2.status).toBe(200);
+    const wrong = r2.body.devCode === "000000" ? "111111" : "000000";
+    const errors: string[] = [];
+    for (let i = 0; i < 5; i++) errors.push((await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: wrong })).body.error);
+    expect(errors[4]).toContain("too many times");
+    // Even the right code is refused now.
+    expect((await pub("POST", `/public/o/${slug}/otp/verify`, { phone, code: r2.body.devCode })).status).toBe(400);
+    await settings({ verifyPhoneOtp: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Automatic UPI refunds (fake Razorpay server)
+// ---------------------------------------------------------------------------
+
+describe("UPI refunds when an online order is rejected or cancelled", () => {
+  let fake: http.Server;
+  let fakeBase = "";
+  const calls: { method: string; path: string; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let refundReply: { status: number; body: object } = { status: 200, body: { id: "rfnd_TEST1", status: "processed" } };
+  const saved = { id: env.RAZORPAY_KEY_ID, secret: env.RAZORPAY_KEY_SECRET, hook: env.RAZORPAY_WEBHOOK_SECRET, base: env.RAZORPAY_BASE_URL };
+  let qrSeq = 0;
+
+  beforeAll(async () => {
+    fake = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        calls.push({ method: req.method!, path: req.url!, body: raw ? JSON.parse(raw) : null });
+        res.setHeader("content-type", "application/json");
+        if (req.url === "/v1/payments/qr_codes") return res.end(JSON.stringify({ id: `qr_TEST${++qrSeq}${Date.now()}`, image_url: "https://example.test/qr.png" }));
+        if (/^\/v1\/payments\/pay_\w+\/refund$/.test(req.url!)) {
+          res.statusCode = refundReply.status;
+          return res.end(JSON.stringify(refundReply.body));
+        }
+        res.statusCode = 404;
+        res.end("{}");
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, "127.0.0.1", r));
+    fakeBase = `http://127.0.0.1:${(fake.address() as AddressInfo).port}`;
+    await settings({ upiPrepaid: true, onlineNeedsConfirmation: true });
+  });
+  afterAll(async () => {
+    Object.assign(env, { RAZORPAY_KEY_ID: saved.id, RAZORPAY_KEY_SECRET: saved.secret, RAZORPAY_WEBHOOK_SECRET: saved.hook, RAZORPAY_BASE_URL: saved.base });
+    await settings({ upiPrepaid: false, onlineNeedsConfirmation: true });
+    await new Promise<void>((r) => fake.close(() => r()));
+  });
+
+  const useRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: "rzp_test_fake", RAZORPAY_KEY_SECRET: "fake_secret", RAZORPAY_WEBHOOK_SECRET: "whsec_fake", RAZORPAY_BASE_URL: fakeBase });
+  const noRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: undefined, RAZORPAY_KEY_SECRET: undefined, RAZORPAY_BASE_URL: fakeBase });
+
+  async function webhook(event: object) {
+    const body = JSON.stringify(event);
+    const sig = crypto.createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET!).update(body).digest("hex");
+    const r = await fetch(`${srv.base}/webhooks/razorpay`, { method: "POST", headers: { "content-type": "application/json", "x-razorpay-signature": sig }, body });
+    expect(r.status).toBe(200);
+    return r.json();
+  }
+
+  /** Place a UPI order and pay it through the (fake) Razorpay webhook. */
+  async function paidUpiOrder(name: string, payId: string) {
+    const r = await pub("POST", `/public/o/${slug}/orders`, { orderType: "TAKEAWAY", customerName: name, customerPhone: "9822200001", payment: "UPI", items: [{ menuItemId: h.items.biryani, quantity: 1 }] });
+    expect(r.status).toBe(201);
+    const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: r.body.token } });
+    const pay = await db.payment.findFirstOrThrow({ where: { orderId: req.orderId!, mode: "UPI", status: "PENDING" } });
+    const order = await db.order.findUniqueOrThrow({ where: { id: req.orderId! } });
+    await webhook({ event: "qr_code.credited", payload: { qr_code: { entity: { id: pay.gatewayRef } }, payment: { entity: { id: payId, amount: order.grandTotal } } } });
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PAID");
+    return { token: r.body.token as string, req, order };
+  }
+
+  it("rejecting a UPI-paid order refunds it through Razorpay once, with a UPI credit note", async () => {
+    useRazorpay();
+    const { token, req, order } = await paidUpiOrder("Refund Ravi", "pay_TESTREJ1");
+    calls.length = 0;
+    const rej = await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Kitchen closed" });
+    expect(rej.status).toBe(200);
+    const refunds = calls.filter((c) => c.path.endsWith("/refund"));
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ method: "POST", path: "/v1/payments/pay_TESTREJ1/refund", body: { amount: order.grandTotal } });
+
+    const after = await db.channelRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after).toMatchObject({ status: "REJECTED", refundStatus: "PROCESSED", refundRef: "rfnd_TEST1", refundAmount: order.grandTotal });
+    const cn = await db.creditNote.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(cn).toMatchObject({ refundMode: "UPI", amount: order.grandTotal, id: after.creditNoteId });
+    // The bill stays as issued (paid, refunded in full) — never voided after a GST invoice.
+    expect(await db.order.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ status: "PAID", refundedAmount: order.grandTotal });
+
+    const view = await pub("GET", `/public/o/${slug}/orders/${token}`);
+    expect(view.body).toMatchObject({ stage: "cancelled", refund: { status: "PROCESSED", amount: order.grandTotal } });
+    const list = (await cashier.call("GET", "/storefront/requests?status=REJECTED")).body as { id: string; refund: { status: string } | null }[];
+    expect(list.find((x) => x.id === req.id)?.refund?.status).toBe("PROCESSED");
+    // A second reject does nothing (and doesn't refund again).
+    expect((await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Again" })).status).toBe(409);
+    expect(calls.filter((c) => c.path.endsWith("/refund"))).toHaveLength(1);
+  });
+
+  it("a refund Razorpay reports as failed later is flagged for the manager", async () => {
+    useRazorpay();
+    refundReply = { status: 200, body: { id: "rfnd_TEST2", status: "pending" } };
+    const { req } = await paidUpiOrder("Refund Pending", "pay_TESTREJ2");
+    await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Too busy" });
+    expect((await db.channelRequest.findUniqueOrThrow({ where: { id: req.id } })).refundStatus).toBe("PENDING");
+    await webhook({ event: "refund.failed", payload: { refund: { entity: { id: "rfnd_TEST2", payment_id: "pay_TESTREJ2", amount: 1, status: "failed" } } } });
+    expect((await db.channelRequest.findUniqueOrThrow({ where: { id: req.id } })).refundStatus).toBe("FAILED");
+    expect(await db.notification.count({ where: { userId: h.users.owner.id, kind: "channel.refund", title: "UPI refund failed" } })).toBe(1);
+    refundReply = { status: 200, body: { id: "rfnd_TEST1", status: "processed" } };
+  });
+
+  it("without Razorpay keys: refund pending — do it in the dashboard, manager notified, credit note still issued", async () => {
+    noRazorpay();
+    calls.length = 0;
+    const r = await pub("POST", `/public/o/${slug}/orders`, { orderType: "TAKEAWAY", customerName: "Dev Mode", customerPhone: "9822200002", payment: "UPI", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
+    const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: r.body.token } });
+    const pay = await db.payment.findFirstOrThrow({ where: { orderId: req.orderId!, mode: "UPI", status: "PENDING" } });
+    expect(pay.gatewayRef).toMatch(/^mock_/);
+    expect((await cashier.call("POST", `/orders/${req.orderId}/payments/${pay.id}/dev-simulate`)).body.paid).toBe(true);
+    expect((await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Out of stock" })).status).toBe(200);
+    expect(calls).toHaveLength(0);
+    const after = await db.channelRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after).toMatchObject({ refundStatus: "MANUAL", refundRef: null });
+    expect(await db.creditNote.count({ where: { orderId: req.orderId!, refundMode: "UPI" } })).toBe(1);
+    const note = await db.notification.findFirst({ where: { userId: h.users.owner.id, kind: "channel.refund", body: { contains: "Razorpay dashboard" } }, orderBy: { createdAt: "desc" } });
+    expect(note?.title).toContain("by hand");
+    expect((await pub("GET", `/public/o/${slug}/orders/${r.body.token}`)).body.refund.status).toBe("MANUAL");
+  });
+
+  it("cancelling an accepted order before the kitchen starts refunds it; once preparing it can't be cancelled", async () => {
+    useRazorpay();
+    const { req, order } = await paidUpiOrder("Cancel Early", "pay_TESTCAN1");
+    expect((await cashier.call("POST", `/storefront/requests/${req.id}/accept`)).status).toBe(200);
+    expect(await db.kotTicket.count({ where: { orderId: order.id } })).toBe(1);
+    // Needs order:cancel (a manager).
+    const manager = await login(srv.base, h.users.manager.email, h.outletId);
+    calls.length = 0;
+    const c = await manager.call("POST", `/storefront/requests/${req.id}/cancel`, { reason: "Customer called to cancel" });
+    expect(c.status).toBe(200);
+    expect(c.body).toMatchObject({ status: "REJECTED", refundStatus: "PROCESSED" });
+    expect(calls.filter((x) => x.path === "/v1/payments/pay_TESTCAN1/refund")).toHaveLength(1);
+    expect(await db.kotTicket.count({ where: { orderId: order.id } })).toBe(0);
+
+    const second = await paidUpiOrder("Cancel Late", "pay_TESTCAN2");
+    await cashier.call("POST", `/storefront/requests/${second.req.id}/accept`);
+    await db.kotTicket.updateMany({ where: { orderId: second.order.id }, data: { status: "PREPARING" } });
+    calls.length = 0;
+    expect((await manager.call("POST", `/storefront/requests/${second.req.id}/cancel`, { reason: "Customer called" })).status).toBe(409);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("an unpaid online order is voided as before (no refund)", async () => {
+    useRazorpay();
+    calls.length = 0;
+    const r = await pub("POST", `/public/o/${slug}/orders`, { orderType: "TAKEAWAY", customerName: "Unpaid", customerPhone: "9822200003", payment: "UPI", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
+    const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: r.body.token } });
+    await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Closed" });
+    expect((await db.order.findUniqueOrThrow({ where: { id: req.orderId! } })).status).toBe("CANCELLED");
+    expect((await db.channelRequest.findUniqueOrThrow({ where: { id: req.id } })).refundStatus).toBeNull();
+    expect(calls.filter((c) => c.path.endsWith("/refund"))).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delivery map pin
+// ---------------------------------------------------------------------------
+
+describe("delivery address by map pin", () => {
+  const OUTLET = { latitude: 13.0, longitude: 80.2 };
+  let near: { id: string }, far: { id: string };
+
+  beforeAll(async () => {
+    await db.outlet.update({ where: { id: h.outletId }, data: { ...OUTLET, deliveryEnabled: true } });
+    near = (await owner.call("POST", "/delivery/zones", { name: "Near", radiusKm: 3, fee: 2000, etaMinutes: 25 })).body;
+    far = (await owner.call("POST", "/delivery/zones", { name: "Far", radiusKm: 6, fee: 5000, etaMinutes: 45 })).body;
+    await settings({ delivery: true, cashOnDelivery: true });
+  });
+  afterAll(async () => {
+    await settings({ delivery: false });
+  });
+
+  const order = (lat: number, lng: number, zoneId?: string) => ({
+    orderType: "DELIVERY",
+    customerName: "Pin",
+    customerPhone: "9833300001",
+    payment: "COD",
+    items: [{ menuItemId: h.items.biryani, quantity: 1 }],
+    delivery: { address: "12 Beach Road", latitude: lat, longitude: lng, zoneId },
+  });
+
+  it("quotes the zone and fee for a pin, and refuses one outside every zone", async () => {
+    const page = await pub("GET", `/public/o/${slug}`);
+    expect(page.body.location).toEqual({ lat: 13, lng: 80.2 });
+    const inside = await pub("GET", `/public/o/${slug}/delivery-quote?lat=13.01&lng=80.2`);
+    expect(inside.body).toMatchObject({ deliverable: true, zone: { id: near.id, fee: 2000, etaMinutes: 25 } });
+    const outside = await pub("GET", `/public/o/${slug}/delivery-quote?lat=13.2&lng=80.2`);
+    expect(outside.body.deliverable).toBe(false);
+    expect(outside.body.message).toMatch(/don't deliver there.*within 6 km/);
+  });
+
+  it("the server picks the zone from the coordinates (client zone ignored) and refuses outside addresses", async () => {
+    const bad = await pub("POST", `/public/o/${slug}/orders`, order(13.2, 80.2, near.id));
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/don't deliver there/);
+
+    const ok = await pub("POST", `/public/o/${slug}/orders`, order(13.01, 80.2, far.id));
+    expect(ok.status).toBe(201);
+    const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: ok.body.token } });
+    const o = await db.order.findUniqueOrThrow({ where: { id: req.orderId! }, include: { delivery: true } });
+    expect(o.delivery).toMatchObject({ zoneId: near.id, latitude: 13.01, longitude: 80.2 });
+    expect(o.chargesBreakup).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Delivery fee", amount: 2000 })]));
+  });
+
+  it("without the outlet's location it falls back to the chosen area", async () => {
+    await db.outlet.update({ where: { id: h.outletId }, data: { latitude: null, longitude: null } });
+    const q = await pub("GET", `/public/o/${slug}/delivery-quote?lat=13.01&lng=80.2`);
+    expect(q.body).toMatchObject({ outletLocation: false, deliverable: false });
+    expect((await pub("POST", `/public/o/${slug}/orders`, order(13.01, 80.2))).status).toBe(400);
+    expect((await pub("POST", `/public/o/${slug}/orders`, order(13.01, 80.2, far.id))).status).toBe(201);
+    await db.outlet.update({ where: { id: h.outletId }, data: OUTLET });
   });
 });

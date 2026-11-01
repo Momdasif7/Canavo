@@ -1,6 +1,6 @@
 import express, { Router } from "express";
 import jwt from "jsonwebtoken";
-import { prisma } from "../db";
+import { platformPrisma, prisma } from "../db";
 import { env } from "../env";
 import { notFound, param, unauthorized } from "../lib/http";
 import { buildReceipt, getOrder, settleIfPaid } from "../services/billing";
@@ -9,6 +9,7 @@ import { verifyWebhookSignature } from "../services/razorpay";
 import { emitToOutlet } from "../realtime";
 import { runForOutlet } from "../lib/tenant";
 import { alertPaymentReceived } from "../services/alerts";
+import { notify, outletManagers } from "../services/notify";
 
 export const publicRouter = Router();
 
@@ -32,6 +33,7 @@ interface RazorpayQrWebhook {
   payload: {
     qr_code?: { entity: { id: string } };
     payment?: { entity: { id: string; amount: number; vpa?: string; contact?: string } };
+    refund?: { entity: { id: string; payment_id: string; amount: number; status: string } };
   };
 }
 
@@ -42,6 +44,7 @@ interface RazorpayQrWebhook {
 publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
   if (!verifyWebhookSignature(req.body as Buffer, req.header("x-razorpay-signature"))) throw unauthorized("Bad signature");
   const event = JSON.parse((req.body as Buffer).toString("utf8")) as RazorpayQrWebhook;
+  if (event.event === "refund.processed" || event.event === "refund.failed") return res.json(await refundEvent(event));
   if (event.event !== "qr_code.credited") return res.json({ ignored: event.event });
 
   const qrId = event.payload.qr_code?.entity.id;
@@ -80,3 +83,30 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
   if (paid) emitToOutlet(payment.order.outletId, "order:paid", { id: payment.orderId, invoiceNumber: payment.order.invoiceNumber });
   res.json({ ok: true });
 });
+
+/** Razorpay refund outcome for an online order refunded automatically (Phase 6 follow-up). */
+async function refundEvent(event: RazorpayQrWebhook) {
+  const refund = event.payload.refund?.entity;
+  if (!refund?.id) return { ignored: "missing payload" };
+  const request = await platformPrisma.channelRequest.findFirst({ where: { refundRef: { contains: refund.id } } });
+  if (!request) return { ignored: "unknown refund" };
+  const status = event.event === "refund.processed" ? "PROCESSED" : "FAILED";
+  if (request.refundStatus === status) return { ok: true, duplicate: true };
+  await runForOutlet(request.outletId, async () => {
+    await prisma.channelRequest.update({
+      where: { id: request.id },
+      data: { refundStatus: status, ...(status === "FAILED" && { refundError: "Razorpay couldn't complete the refund" }) },
+    });
+    if (status === "FAILED") {
+      await notify(
+        await outletManagers(request.outletId),
+        "UPI refund failed",
+        `Razorpay couldn't refund the online order of ${request.customerName ?? "a customer"} — refund it in the Razorpay dashboard.`,
+        "channel.refund",
+        { outletId: request.outletId, link: "/pos" },
+      ).catch(() => undefined);
+    }
+  });
+  emitToOutlet(request.outletId, "channel:request", { id: request.id, action: "refund" });
+  return { ok: true };
+}

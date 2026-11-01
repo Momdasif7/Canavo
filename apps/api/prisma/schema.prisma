@@ -89,6 +89,7 @@ model Outlet {
   /// Phase 6.3/6.4: QR ordering and online ordering settings (see storefrontSettingsSchema)
   storefront              Json                 @default("{}")
   channelRequests         ChannelRequest[]
+  customerOtps            CustomerOtp[]
   channelConnections      ChannelConnection[]
   channelItemMaps         ChannelItemMap[]
   channelOrders           ChannelOrder[]
@@ -1973,6 +1974,16 @@ model ChannelRequest {
   rejectReason  String?
   decidedById   String?
   decidedAt     DateTime?
+  /// Automatic UPI refund after a Razorpay-paid online order was rejected / cancelled:
+  /// PROCESSED | PENDING (gateway still processing) | MANUAL (do it in the Razorpay dashboard) | FAILED
+  refundStatus  String?
+  /// Razorpay refund id(s), comma separated
+  refundRef     String?
+  /// Refunded to the customer's UPI, paise
+  refundAmount  Int?
+  /// Credit note issued for the refund (paid bills)
+  creditNoteId  String?
+  refundError   String?
   createdAt     DateTime  @default(now())
   outlet        Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
@@ -2054,4 +2065,21 @@ model ChannelOrder {
   @@unique([outletId, sourceChannel, channelOrderId])
   @@index([outletId, createdAt])
   @@index([orderId])
+}
+
+/// One-time code a customer of the online ordering page uses to prove their phone (Phase 6 follow-up).
+/// Separate from OtpCode, so a customer's code can never log anyone in to the staff app.
+model CustomerOtp {
+  id        String   @id @default(cuid())
+  outletId  String
+  phone     String
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  ip        String?
+  createdAt DateTime @default(now())
+  outlet    Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, phone, createdAt])
 }

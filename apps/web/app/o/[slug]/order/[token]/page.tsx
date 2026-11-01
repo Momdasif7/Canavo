@@ -9,7 +9,7 @@ import { CheckCircle, FilePdf, XCircle } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
-import { publicCall, STAGE_LABEL, type OnlineOrderView, type OrderStage } from "@/lib/storefront";
+import { publicCall, REFUND_LABEL, STAGE_LABEL, type OnlineOrderView, type OrderStage } from "@/lib/storefront";
 import { useToast } from "@/components/providers/ToastProvider";
 import { StoreHeader } from "@/components/storefront/StoreMenu";
 import { Button } from "@/components/ui/Button";
@@ -74,7 +74,13 @@ export default function OnlineOrderStatusPage() {
             Order {view.invoiceNumber} · {formatTime(view.createdAt)}
           </p>
           {cancelled && view.rejectReason && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{view.rejectReason}</p>}
-          {cancelled && view.payment === "UPI" && view.balance < view.grandTotal && <p className="mt-2 text-sm text-muted">Your UPI payment will be refunded by the restaurant.</p>}
+          {cancelled && view.refund ? (
+            <p className="mt-3 rounded-xl bg-surface-2 p-3 text-sm text-fg" data-testid="refund-status">
+              <span className="font-semibold">Refund {formatINR(view.refund.amount)}:</span> {REFUND_LABEL[view.refund.status]}
+            </p>
+          ) : (
+            cancelled && view.payment === "UPI" && view.balance < view.grandTotal && <p className="mt-2 text-sm text-muted">Your UPI payment will be refunded by the restaurant.</p>
+          )}
           {!cancelled && (
             <ol className="mt-4 grid grid-cols-4 gap-1 text-xs font-semibold">
               {STEPS.map((s, i) => (
@@ -113,7 +119,7 @@ export default function OnlineOrderStatusPage() {
             </div>
           </section>
         )}
-        {view.status === "PAID" && (
+        {view.status === "PAID" && !cancelled && (
           <p className="rounded-xl bg-secondary/10 p-3 text-center text-sm font-semibold text-secondary dark:text-green-300">Paid — thank you!</p>
         )}
 

@@ -7,7 +7,7 @@ import { conflict, notFound, param, parse } from "../lib/http";
 import { authenticate, requireAnyPermission, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
 import { moduleEnabled } from "../lib/tenant";
 import { razorpayEnabled } from "../services/razorpay";
-import { acceptRequest, newPublicToken, readSettings, rejectRequest } from "../services/storefront";
+import { acceptRequest, cancelAcceptedOnline, newPublicToken, readSettings, rejectRequest } from "../services/storefront";
 import { emitTables } from "./tables";
 
 /**
@@ -19,10 +19,21 @@ storefrontRouter.use(authenticate, requireOutlet, requireModule("CHANNELS"));
 
 // ---------- Settings ----------
 
+/**
+ * Settings with the new-setup defaults: an outlet that never had an online page (no web address,
+ * phone OTP never chosen) starts with "Verify customer phone by OTP" on. Outlets that already had
+ * a page keep the stored default (off), so nothing changes for their customers.
+ */
+function effectiveSettings(outlet: { storefront: Prisma.JsonValue; publicSlug: string | null }) {
+  const stored = outlet.storefront && typeof outlet.storefront === "object" && !Array.isArray(outlet.storefront) ? (outlet.storefront as Record<string, unknown>) : {};
+  const firstSetup = !outlet.publicSlug && !("verifyPhoneOtp" in stored);
+  return { ...readSettings(outlet), ...(firstSetup && { verifyPhoneOtp: true }) };
+}
+
 async function settingsView(outletId: string) {
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId } });
   return {
-    settings: readSettings(outlet),
+    settings: effectiveSettings(outlet),
     slug: outlet.publicSlug,
     outletName: outlet.name,
     deliveryAvailable: moduleEnabled("DELIVERY") && outlet.deliveryEnabled,
@@ -38,7 +49,7 @@ storefrontRouter.get("/settings", requirePermission("channel:manage"), async (re
 storefrontRouter.put("/settings", requirePermission("channel:manage"), async (req, res) => {
   const { slug, ...patch } = parse(storefrontUpdateSchema, req.body);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! } });
-  const settings = { ...readSettings(outlet), ...patch };
+  const settings = { ...effectiveSettings(outlet), ...patch };
   if (slug) {
     // Slugs are global (one web address space for every hotel).
     const taken = await platformPrisma.outlet.findFirst({ where: { publicSlug: slug, id: { not: outlet.id } }, select: { id: true } });
@@ -120,6 +131,7 @@ storefrontRouter.get("/requests", canHandle, async (req, res) => {
       notes: r.notes,
       payment: r.payment,
       rejectReason: r.rejectReason,
+      refund: r.refundStatus ? { status: r.refundStatus, amount: r.refundAmount ?? 0, ref: r.refundRef, error: r.refundError } : null,
     })),
   );
 });
@@ -142,5 +154,14 @@ storefrontRouter.post("/requests/:id/reject", canHandle, async (req, res) => {
   const request = await findRequest(param(req, "id"), req.outletId!);
   const updated = await rejectRequest(req, request, reason);
   await audit(req, "channel.request.reject", "ChannelRequest", request.id, { channel: request.channel, reason });
+  res.json(updated);
+});
+
+/** Cancel an accepted online order before the kitchen started on it (a UPI payment is refunded). */
+storefrontRouter.post("/requests/:id/cancel", requirePermission("order:cancel"), async (req, res) => {
+  const { reason } = parse(channelRejectSchema, req.body);
+  const request = await findRequest(param(req, "id"), req.outletId!);
+  const updated = await cancelAcceptedOnline(req, request, reason);
+  await audit(req, "channel.request.cancel", "ChannelRequest", request.id, { channel: request.channel, reason, refund: updated.refundStatus ?? "none" });
   res.json(updated);
 });
