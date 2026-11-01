@@ -265,6 +265,8 @@ export const orderCreateSchema = z.object({
   createdAt: z.string().datetime().optional(),
   /** Manager approval for a discount above the outlet's limit (APPROVAL_PINS) */
   approval: approvalSchema.optional(),
+  /** Phase 5 (CANTEEN): meal slot of a pre-order; counter bills get the slot open at billing time */
+  mealSlotId: z.string().optional(),
   /** Offline bill numbered from this device's series (OFFLINE_INVOICE_SERIES), e.g. "INVA1-2026-00007" */
   offlineInvoiceNumber: z.string().max(16).optional(),
   /** Promotions & loyalty */

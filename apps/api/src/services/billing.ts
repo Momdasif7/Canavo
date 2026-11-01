@@ -20,6 +20,7 @@ import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
 import { emitToOutlet } from "../realtime";
 import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
 import { acceptOfflineNumber } from "./offline-series";
+import { slotAt } from "./meal-slots";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { applyPromotions, onOrderCreated, onOrderPaid } from "./promotions";
 import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from "./service-context";
@@ -167,6 +168,15 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
 
   const fy = financialYearStart(createdAt, outlet.timezone);
 
+  // Phase 5 (CANTEEN): tag the bill with its meal slot (chosen for pre-orders, else open now).
+  let mealSlotId: string | null = null;
+  if (moduleEnabled("CANTEEN")) {
+    if (input.mealSlotId) {
+      if (!(await prisma.mealSlot.findFirst({ where: { id: input.mealSlotId, outletId }, select: { id: true } }))) throw badRequest("Unknown meal slot");
+      mealSlotId = input.mealSlotId;
+    } else mealSlotId = (await slotAt(outletId, createdAt, outlet.timezone))?.id ?? null;
+  }
+
   // Phase 3.3: a manual discount above the outlet's limit needs a manager (APPROVAL_PINS).
   const manualBill = input.discount ? (input.discount.type === "FLAT" ? input.discount.value : Math.round((bill.subtotal * input.discount.value) / 100)) : 0;
   const manualDiscount = manualBill + lines.reduce((s, l) => s + (l.line.discount ?? 0), 0);
@@ -219,6 +229,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
         grandTotal: bill.grandTotal,
         taxBreakup: bill.taxBreakup as unknown as Prisma.InputJsonValue,
         syncedOffline: offline,
+        mealSlotId,
         customerId: pricing.customerId,
         scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : undefined,
         tableSessionId: opts.tableSessionId,

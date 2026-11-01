@@ -492,6 +492,8 @@ model Order {
   /// Total of credit notes issued against this bill (Phase 3.1), paise
   refundedAmount Int           @default(0)
   creditNotes    CreditNote[]
+  /// Phase 5 (CANTEEN): meal slot the bill belongs to (counter bills: the slot open at billing time; pre-orders: the chosen slot)
+  mealSlotId     String?
 
   @@unique([outletId, invoiceNumber])
   @@index([outletId, createdAt])
