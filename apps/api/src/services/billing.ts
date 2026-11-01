@@ -36,6 +36,9 @@ import { alertKitchenNewKots } from "./alerts";
 export const billingTestHooks: { beforeCommit?: (input: OrderCreateInput) => void | Promise<void> } = {};
 
 export interface CreateOrderOptions {
+  /** Phase 6: where the order came from (default POS) and the channel's own order id */
+  channel?: string;
+  channelOrderId?: string;
   /** Items were already sent to the kitchen (dine-in running tab) — don't fire KOTs again */
   skipKot?: boolean;
   /** Dine-in running tab being billed */
@@ -263,6 +266,8 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
         taxBreakup: bill.taxBreakup as unknown as Prisma.InputJsonValue,
         syncedOffline: offline,
         mealSlotId,
+        channel: opts.channel ?? "POS",
+        channelOrderId: opts.channelOrderId,
         customerId: member?.id ?? pricing.customerId,
         scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : undefined,
         tableSessionId: opts.tableSessionId,
