@@ -5,7 +5,8 @@
  *
  *  - b2cs  : B2C (small) supplies grouped by place of supply + rate + supply type
  *  - hsn   : HSN/SAC summary per HSN + rate
- *  - doc_issue : invoice series ranges per financial-year series
+ *  - doc_issue : document series ranges per financial-year series — nature 1 (invoices for
+ *                outward supply) and nature 5 (credit notes issued in the month)
  *
  * Amounts in the GSTN JSON are rupees with 2 decimals; inputs are paise.
  *
@@ -25,7 +26,8 @@
  * CMP-08 / GSTR-4, not GSTR-1. B2B (registered buyer GSTIN), B2CL (inter-state
  * > ₹1 lakh) are not produced because the POS does not capture buyer GSTINs.
  * Credit notes on B2C bills (Phase 3.1) reduce b2cs and hsn in the month they're issued
- * (GST rules for unregistered buyers); CDNR/CDNUR need buyer GSTINs (Phase 8.4).
+ * (GST rules for unregistered buyers) and are listed in doc_issue as nature 5; CDNR/CDNUR
+ * need buyer GSTINs (Phase 8.4).
  */
 
 export interface Gstr1Line {
@@ -160,6 +162,41 @@ const DEFAULT_HSN_DESC: Record<string, string> = {
   "996337": "Contract food services",
 };
 
+/**
+ * GSTN document-summary ranges: documents grouped by series ("INV-2026-"), each reported as
+ * from / to / count / cancelled. `others` are numbers of the same series that are not reported
+ * here (e.g. plain BILLs), so they don't count as gaps in the warning.
+ */
+export function docRanges(docs: { number: string; cancelled: boolean }[], others: string[], label: string, warnings: string[]): DocRange[] {
+  const otherSeqs = new Map<string, Set<number>>();
+  for (const n of others) {
+    const { series: s, seq } = splitInvoiceNumber(n);
+    otherSeqs.set(s, (otherSeqs.get(s) ?? new Set()).add(seq));
+  }
+  const series = new Map<string, { seqs: { seq: number; inv: string }[]; cancel: number }>();
+  for (const d of docs) {
+    const { series: s, seq } = splitInvoiceNumber(d.number);
+    const e = series.get(s) ?? { seqs: [], cancel: 0 };
+    e.seqs.push({ seq, inv: d.number });
+    if (d.cancelled) e.cancel++;
+    series.set(s, e);
+  }
+  return [...series.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([s, e], i) => {
+      e.seqs.sort((a, b) => a.seq - b.seq);
+      const first = e.seqs[0];
+      const last = e.seqs[e.seqs.length - 1];
+      const span = last.seq - first.seq + 1;
+      const between = [...(otherSeqs.get(s) ?? [])].filter((n) => n > first.seq && n < last.seq).length;
+      const missing = span - e.seqs.length - between;
+      if (missing > 0) {
+        warnings.push(`Series ${s}: ${missing} ${label} number(s) missing between ${first.inv} and ${last.inv} (issued in another period or not found).`);
+      }
+      return { num: i + 1, from: first.inv, to: last.inv, totnum: e.seqs.length, cancel: e.cancel, net_issue: e.seqs.length - e.cancel };
+    });
+}
+
 export function buildGstr1(input: Gstr1Input): Gstr1Result {
   const notes: string[] = [];
   const warnings: string[] = [];
@@ -266,47 +303,35 @@ export function buildGstr1(input: Gstr1Input): Gstr1Result {
       csamt: rupees(h.csamt),
     }));
 
-  // --- doc_issue: every tax invoice number issued in the period, per series ---
+  // --- doc_issue: every tax invoice / credit note number issued in the period, per series ---
   // Plain BILLs / Bills of Supply share the invoice series; their numbers are not gaps.
-  const otherSeqs = new Map<string, Set<number>>();
-  for (const o of input.orders) {
-    if (o.documentType === "TAX_INVOICE") continue;
-    const { series: s, seq } = splitInvoiceNumber(o.invoiceNumber);
-    otherSeqs.set(s, (otherSeqs.get(s) ?? new Set()).add(seq));
-  }
-  const series = new Map<string, { seqs: { seq: number; inv: string }[]; cancel: number }>();
-  for (const o of taxInvoices) {
-    const { series: s, seq } = splitInvoiceNumber(o.invoiceNumber);
-    const e = series.get(s) ?? { seqs: [], cancel: 0 };
-    e.seqs.push({ seq, inv: o.invoiceNumber });
-    if (o.status === "CANCELLED") e.cancel++;
-    series.set(s, e);
-  }
-  const docs: DocRange[] = [...series.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([s, e], i) => {
-      e.seqs.sort((a, b) => a.seq - b.seq);
-      const first = e.seqs[0];
-      const last = e.seqs[e.seqs.length - 1];
-      const span = last.seq - first.seq + 1;
-      const others = [...(otherSeqs.get(s) ?? [])].filter((n) => n > first.seq && n < last.seq).length;
-      const missing = span - e.seqs.length - others;
-      if (missing > 0) {
-        warnings.push(`Series ${s}: ${missing} invoice number(s) missing between ${first.inv} and ${last.inv} (issued in another period or not found).`);
-      }
-      return { num: i + 1, from: first.inv, to: last.inv, totnum: e.seqs.length, cancel: e.cancel, net_issue: e.seqs.length - e.cancel };
-    });
+  const invoiceDocs = docRanges(
+    taxInvoices.map((o) => ({ number: o.invoiceNumber, cancelled: o.status === "CANCELLED" })),
+    input.orders.filter((o) => o.documentType !== "TAX_INVOICE").map((o) => o.invoiceNumber),
+    "invoice",
+    warnings,
+  );
+  // Credit notes are never cancelled once issued; those on non-GST bills share the CN series.
+  const creditDocs = docRanges(
+    credits.map((c) => ({ number: c.number, cancelled: false })),
+    (input.creditNotes ?? []).filter((c) => c.documentType !== "TAX_INVOICE").map((c) => c.number),
+    "credit note",
+    warnings,
+  );
+  const docDet: Gstr1Payload["doc_issue"]["doc_det"] = [];
+  if (invoiceDocs.length) docDet.push({ doc_num: 1, doc_typ: "Invoices for outward supply", docs: invoiceDocs });
+  if (creditDocs.length) docDet.push({ doc_num: 5, doc_typ: "Credit Note", docs: creditDocs });
 
   const payload: Gstr1Payload = {
     gstin: input.gstin ?? "",
     fp,
     b2cs: b2csOut,
     hsn: { data: hsnOut },
-    doc_issue: { doc_det: docs.length ? [{ doc_num: 1, doc_typ: "Invoices for outward supply", docs }] : [] },
+    doc_issue: { doc_det: docDet },
   };
   notes.push(
     "Place of supply = outlet state (customer state is not captured).",
-    "B2B, B2CL, exports and credit/debit notes are not generated (the POS does not record buyer GSTINs or issue credit notes).",
+    "B2B, B2CL, exports and CDNR/CDNUR are not generated (the POS does not record buyer GSTINs); credit notes are netted in B2CS/HSN and listed in the document summary.",
   );
   return {
     excluded: false,

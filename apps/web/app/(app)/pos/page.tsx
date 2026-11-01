@@ -6,6 +6,7 @@ import { WifiSlash } from "@phosphor-icons/react";
 import { indianPhone, type OrderCreateInput } from "@canavo/shared";
 import { api, errorMessage, isNetworkError } from "@/lib/api";
 import { enqueueOrder, loadMenu, type QueuedPayment } from "@/lib/offline";
+import { clearOfflineSeries, nextOfflineInvoiceNumber, refreshOfflineSeries } from "@/lib/offline-series";
 import { PAYMENT_MODE_LABELS, formatINR } from "@/lib/format";
 import type { Menu, MenuItem, Order } from "@/lib/types";
 import type { ActiveOffer, CustomerLookupResult, DeliveryAgent, DeliveryQuote, PromotionPreview } from "@/lib/types-service";
@@ -83,6 +84,16 @@ export default function PosPage() {
   }, [online, fromCache, fetchMenu]);
 
   useSocketEvent("menu:changed", () => void fetchMenu());
+
+  // ----- Offline invoice series (Phase 3.4): fetched while online so offline bills get final numbers -----
+  const seriesOn = Boolean(me?.features?.OFFLINE_INVOICE_SERIES);
+  const meLoaded = Boolean(me);
+  useEffect(() => {
+    // Wait for the session: clearing on a not-yet-loaded `me` would drop the series while offline.
+    if (!outletId || !meLoaded) return;
+    if (!seriesOn) return clearOfflineSeries(outletId);
+    if (online) void refreshOfflineSeries(outletId);
+  }, [outletId, meLoaded, seriesOn, online]);
 
   // ----- Active offers banner -----
   const [offers, setOffers] = useState<ActiveOffer[]>([]);
@@ -526,11 +537,13 @@ export default function PosPage() {
     const pending = pendingInput.current;
     if (!pending || !outletId) return;
     const createdAt = new Date().toISOString();
+    // This browser's own series (if the hotel uses it) gives the final number now; else it's assigned at sync.
+    const invoiceNumber = seriesOn ? nextOfflineInvoiceNumber(outletId, createdAt, outlet?.timezone ?? "Asia/Kolkata") : null;
     try {
       await enqueueOrder({
         clientOrderId: pending.input.clientOrderId!,
         outletId,
-        order: { ...pending.input, createdAt },
+        order: { ...pending.input, createdAt, ...(invoiceNumber && { offlineInvoiceNumber: invoiceNumber }) },
         payments,
         tendered,
         previewTotal: pending.previewTotal,
@@ -540,6 +553,7 @@ export default function PosPage() {
       setSuccess({
         kind: "offline",
         clientOrderId: pending.input.clientOrderId!,
+        invoiceNumber,
         total: payments.reduce((s, x) => s + x.amount, 0),
         change,
         modes: [...new Set(payments.map((x) => PAYMENT_MODE_LABELS[x.mode]))],

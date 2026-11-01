@@ -139,4 +139,24 @@ describe("GSTR-1 builder", () => {
     const r = buildGstr1({ gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [o] });
     expect(r.payload.b2cs[0]).toMatchObject({ sply_ty: "INTER", rt: 5, txval: 100, iamt: 5, csamt: 1 });
   });
+
+  it("lists this month's credit notes as nature 5 in the document summary", () => {
+    const neg = (o: Gstr1Order) => o.items.map((l) => ({ ...l, quantity: -l.quantity, taxableValue: -l.taxableValue, serviceCharge: -l.serviceCharge, cgst: -l.cgst, sgst: -l.sgst, igst: -l.igst, total: -l.total }));
+    const cn = (number: string, o: Gstr1Order) => ({ number, documentType: o.documentType, interState: o.interState, items: neg(o) });
+    const plain = order("INV-2026-00011", [{ price: 5000, qty: 1, rate: 5 }], { taxEnabled: false });
+    const r = buildGstr1({
+      gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [...fixture, plain],
+      // CNINV-2026-00002 credits a plain BILL: same CN series but not a GST document, so not a gap.
+      creditNotes: [cn("CNINV-2026-00003", fixture[1]), cn("CNINV-2026-00001", fixture[0]), cn("CNINV-2026-00002", plain)],
+    });
+    expect(r.payload.doc_issue.doc_det.map((d) => [d.doc_num, d.doc_typ])).toEqual([[1, "Invoices for outward supply"], [5, "Credit Note"]]);
+    expect(r.payload.doc_issue.doc_det[1].docs).toEqual([{ num: 1, from: "CNINV-2026-00001", to: "CNINV-2026-00003", totnum: 2, cancel: 0, net_issue: 2 }]);
+    expect(r.warnings.some((w) => w.includes("credit note number(s) missing"))).toBe(false);
+
+    // A real gap in the CN series is flagged like invoice gaps; no credit notes → no nature-5 entry.
+    const gap = buildGstr1({ gstin: "29X", stateCode: "29", month: "2026-09", compositionScheme: false, orders: fixture, creditNotes: [cn("CNINV-2026-00001", fixture[0]), cn("CNINV-2026-00004", fixture[1])] });
+    expect(gap.payload.doc_issue.doc_det[1].docs[0]).toMatchObject({ from: "CNINV-2026-00001", to: "CNINV-2026-00004", totnum: 2 });
+    expect(gap.warnings.some((w) => w.includes("2 credit note number(s) missing"))).toBe(true);
+    expect(res.payload.doc_issue.doc_det.map((d) => d.doc_num)).toEqual([1]);
+  });
 });

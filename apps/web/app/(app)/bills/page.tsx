@@ -362,7 +362,7 @@ function OfflineQueueCard() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
         <div>
           <h2 className="font-bold">Waiting to sync ({queue.length})</h2>
-          <p className="text-sm text-muted">Bills raised offline on this device. They get invoice numbers once synced.</p>
+          <p className="text-sm text-muted">Bills raised offline on this device. Unnumbered ones get their invoice number once synced.</p>
         </div>
         <Button variant="secondary" size="sm" loading={syncing} disabled={!online} onClick={() => void sync()}>
           Sync now
@@ -372,6 +372,8 @@ function OfflineQueueCard() {
         {queue.map((q) => (
           <li key={q.clientOrderId} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
             <span className="tabular text-muted">{formatDateTime(q.createdAt)}</span>
+            {/* The server's number wins once synced (it falls back to its own counter if the device's is taken). */}
+            {(q.invoiceNumber ?? q.order.offlineInvoiceNumber) && <span className="tabular font-semibold">{q.invoiceNumber ?? q.order.offlineInvoiceNumber}</span>}
             <span className="font-semibold">{q.order.items.reduce((s, i) => s + i.quantity, 0)} items</span>
             <span className="text-muted">{q.payments.map((p) => PAYMENT_MODE_LABELS[p.mode]).join(" + ")}</span>
             <span className="tabular ml-auto font-bold">{formatINR(q.previewTotal)}</span>
