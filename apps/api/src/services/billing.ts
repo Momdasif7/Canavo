@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { Prisma } from "@prisma/client";
 import {
   computeBill,
+  withTaxMode,
   financialYearStart,
   formatInvoiceNumber,
   formatINR,
@@ -160,7 +161,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       lineDiscount: (l.line.discount ?? 0) + (pricing.lineDiscounts[i] ?? 0),
     })),
     taxConfigForOutlet(outlet, { interState: input.interState, orderType: input.orderType, extraCharges: service.extraCharges }),
-    [...(input.discount ? [input.discount] : []), ...pricing.billDiscounts],
+    [...(input.discount ? [withTaxMode(input.discount, outlet.flatDiscountsIncludeTax)] : []), ...pricing.billDiscounts],
   );
 
   const fy = financialYearStart(createdAt, outlet.timezone);

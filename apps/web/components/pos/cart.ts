@@ -1,4 +1,4 @@
-import { computeBill, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
+import { computeBill, withTaxMode, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
 import type { DocumentType, FoodType, MenuItem, OrderType, Outlet, TaxDetail, TaxExtra } from "@/lib/types";
 import type { FreeItemSuggestion } from "@/lib/types-service";
 
@@ -275,7 +275,6 @@ export function taxConfig(outlet: Outlet | null, orderType: OrderType): TaxConfi
     serviceChargePercent: base.serviceChargePercent,
     roundOff: base.roundOff,
     interState: false,
-    flatDiscountsIncludeTax: outlet?.flatDiscountsIncludeTax ?? false,
   };
 }
 
@@ -302,7 +301,8 @@ export function previewBill(lines: CartLine[], outlet: Outlet | null, meta: Cart
     return gstOn && l.tax ? { ...base, tax: l.tax } : base;
   });
   const config = { ...taxConfig(outlet, meta.orderType), extraCharges: extraCharges.filter((c) => c.amount > 0), taxEnabled: gstOn };
-  const bill: LocalBill = computeBill(input, config, parseDiscount(meta).discount);
+  const d = parseDiscount(meta).discount;
+  const bill: LocalBill = computeBill(input, config, d && withTaxMode(d, outlet?.flatDiscountsIncludeTax));
   return gstOn ? bill : { ...bill, documentType: "BILL" };
 }
 

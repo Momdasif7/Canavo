@@ -78,7 +78,7 @@ export async function resolveItemTax(items: TaxableItem[], businessId?: string, 
 type OutletTax = Pick<
   Outlet,
   "pricesIncludeTax" | "compositionScheme" | "gstEnabled" | "serviceChargeEnabled" | "serviceChargePercent" | "roundOff"
-> & { flatDiscountsIncludeTax?: boolean };
+>;
 
 /** computeBill config for an outlet. Service charge applies to dine-in only. */
 export function taxConfigForOutlet(
@@ -94,7 +94,6 @@ export function taxConfigForOutlet(
     serviceChargePercent: outlet.serviceChargePercent,
     roundOff: outlet.roundOff,
     extraCharges: opts.extraCharges,
-    flatDiscountsIncludeTax: outlet.flatDiscountsIncludeTax ?? false,
   };
 }
 

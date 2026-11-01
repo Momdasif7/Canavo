@@ -6,6 +6,7 @@ import {
   type LoyaltyConfig,
   type OrderCreateInput,
   totalTaxPercent,
+  billDiscountConfigSchema,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { resolveItemTax } from "./tax";
@@ -180,7 +181,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
   const [outlet, items, ancestry, offers] = await Promise.all([
     prisma.outlet.findUniqueOrThrow({
       where: { id: ctx.outletId },
-      select: { pricesIncludeTax: true, compositionScheme: true, gstEnabled: true },
+      select: { pricesIncludeTax: true, compositionScheme: true, gstEnabled: true, flatDiscountsIncludeTax: true },
     }),
     prisma.menuItem.findMany({
       where: { id: { in: [...new Set(ctx.lines.map((l) => l.menuItemId))] } },
@@ -245,7 +246,11 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
   const remainingBase = preTaxRemaining(billLines, mode, input.discount ? [input.discount] : []);
   const useOffer = (b: BestOffer) => {
     if (b.lineDiscounts) b.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
-    else billDiscounts.push({ type: "FLAT", value: b.saving });
+    else {
+      // D1: a ₹-off bill offer is GST-inclusive when the outlet chose that; a %-off saving is already pre-tax.
+      const flat = billDiscountConfigSchema.safeParse(b.offer.config).data?.discountType === "FLAT";
+      billDiscounts.push({ type: "FLAT", value: b.saving, includesTax: flat && outlet.flatDiscountsIncludeTax });
+    }
     applied.push({ kind: "OFFER", id: b.offer.id, label: b.offer.name, amount: b.saving });
   };
   const remaining = () =>
@@ -284,7 +289,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       } else {
         couponId = coupon.id;
         couponCode = coupon.code;
-        billDiscounts.push({ type: "FLAT", value: amount });
+        billDiscounts.push({ type: "FLAT", value: amount, includesTax: coupon.discountType === "FLAT" && outlet.flatDiscountsIncludeTax });
         applied.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, amount });
       }
     }
@@ -301,7 +306,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       : ({ ok: false, error: "Redeeming points needs the customer's phone number" } as const);
     if (r.ok) {
       pointsRedeemed = r.points;
-      billDiscounts.push({ type: "FLAT", value: r.value });
+      billDiscounts.push({ type: "FLAT", value: r.value, includesTax: outlet.flatDiscountsIncludeTax });
       applied.push({ kind: "POINTS", label: `${r.points} loyalty points`, amount: r.value });
     } else if (opts.dryRun) warnings.push(r.error);
     else throw badRequest(r.error);

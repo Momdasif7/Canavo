@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBill, TaxConfig } from "./gst";
+import { computeBill, TaxConfig, withTaxMode } from "./gst";
 import { allocate } from "./money";
 import { financialYearStart, formatInvoiceNumber } from "./invoice";
 import { distanceMeters } from "./geo";
@@ -291,14 +291,15 @@ describe("flat discounts and GST (D1, Phase 3.6)", () => {
 
   it("GST-inclusive: ₹50 off takes exactly ₹50 off the total", () => {
     const full = computeBill(lines, cfg);
-    const b = computeBill(lines, { ...cfg, flatDiscountsIncludeTax: true }, { type: "FLAT", value: 5000 });
+    const b = computeBill(lines, cfg, { type: "FLAT", value: 5000, includesTax: true });
     expect(full.grandTotal - b.grandTotal).toBe(5000);
   });
 
-  it("percent discounts are the same either way, and bills without GST ignore the option", () => {
-    const pct = { type: "PERCENT" as const, value: 10 };
-    expect(computeBill(lines, { ...cfg, flatDiscountsIncludeTax: true }, pct).grandTotal).toBe(computeBill(lines, cfg, pct).grandTotal);
+  it("withTaxMode marks only ₹ discounts, and bills without GST take ₹50 off either way", () => {
+    expect(withTaxMode({ type: "PERCENT", value: 10 }, true)).toEqual({ type: "PERCENT", value: 10 });
+    expect(withTaxMode({ type: "FLAT", value: 100 }, true)).toEqual({ type: "FLAT", value: 100, includesTax: true });
+    expect(withTaxMode({ type: "FLAT", value: 100 }, false)).toEqual({ type: "FLAT", value: 100 });
     const noGst = { ...cfg, taxEnabled: false };
-    expect(computeBill(lines, { ...noGst, flatDiscountsIncludeTax: true }, { type: "FLAT", value: 5000 }).grandTotal).toBe(15000);
+    expect(computeBill(lines, noGst, { type: "FLAT", value: 5000, includesTax: true }).grandTotal).toBe(15000);
   });
 });

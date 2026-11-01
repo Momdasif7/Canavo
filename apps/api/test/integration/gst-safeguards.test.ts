@@ -45,6 +45,25 @@ describe("₹ discounts and GST (D1)", () => {
     await db.outlet.update({ where: { id: h.outletId }, data: { flatDiscountsIncludeTax: false } });
   });
 
+  it("a % coupon gives the same total whether ₹ discounts include GST or not; a ₹ coupon follows the setting", async () => {
+    await db.coupon.createMany({
+      data: [
+        { businessId: h.businessId, code: "TENPC", discountType: "PERCENT", value: 10 },
+        { businessId: h.businessId, code: "FIFTY", discountType: "FLAT", value: 5000 },
+      ],
+    });
+    const items = [{ menuItemId: h.items.biryani, quantity: 1 }];
+    const total = async (code: string) => (await owner.call("POST", "/orders", { orderType: "TAKEAWAY", items, couponCode: code })).body.grandTotal as number;
+    const full = (await owner.call("POST", "/orders", { orderType: "TAKEAWAY", items })).body.grandTotal as number;
+    const pctOff = await total("TENPC");
+    const flatOff = await total("FIFTY");
+    await db.outlet.update({ where: { id: h.outletId }, data: { flatDiscountsIncludeTax: true } });
+    expect(await total("TENPC")).toBe(pctOff);
+    expect(full - (await total("FIFTY"))).toBe(5000);
+    expect(full - flatOff).toBeGreaterThan(5000);
+    await db.outlet.update({ where: { id: h.outletId }, data: { flatDiscountsIncludeTax: false } });
+  });
+
   it("only the owner can change the approval limit", async () => {
     const manager = await login(srv.base, h.users.manager.email, h.outletId);
     expect((await manager.call("PATCH", "/outlets/current", { approvalDiscountPercent: 50 })).status).toBe(403);
