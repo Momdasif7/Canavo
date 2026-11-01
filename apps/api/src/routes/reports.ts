@@ -10,6 +10,7 @@ import { authenticate, requireOutlet, requirePermission, requireModule } from ".
 import { sendExport, type ExportColumn, type ExportFormat, type ExportTable } from "../services/report-export";
 import { buildGstr1, type Gstr1Order } from "../services/gstr1";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
+import { aboveApprovalLimit, ownerSummary } from "../services/owner-summary";
 
 export const reportsRouter = Router();
 reportsRouter.use(authenticate, requireModule("REPORTS"));
@@ -1133,7 +1134,7 @@ async function exceptionsReport(ctx: ReportCtx): Promise<BuiltReport> {
   const names = new Map((await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   const name = (id: string | null) => (id ? (names.get(id) ?? "") : "");
   const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: ctx.outlet.timezone, dateStyle: "medium", timeStyle: "short" });
-  const bigDiscounts = discounted.filter((o) => o.discount * 100 > o.subtotal * limit);
+  const bigDiscounts = discounted.filter((o) => aboveApprovalLimit(o, limit));
   const unapproved = approvals.filter((a) => !a.approvedById);
 
   const data = {
@@ -1278,6 +1279,15 @@ reportsRouter.get("/outlets/overview", requirePermission("report:view"), async (
     rows,
     totals: { ...totals, name: "Total" },
   }]);
+});
+
+/** Owner home (Phase 4.3): today so far vs the same weekday last week, per outlet + totals — not outlet-scoped. */
+reportsRouter.get("/owner-summary", requirePermission("report:view"), async (req, res) => {
+  const outlets = await prisma.outlet.findMany({
+    where: req.user!.role === "SUPER_ADMIN" ? {} : { id: { in: req.user!.outletIds } },
+    orderBy: { name: "asc" },
+  });
+  res.json(await ownerSummary(outlets));
 });
 
 reportsRouter.use(requireOutlet, requirePermission("report:view"));
@@ -1444,6 +1454,11 @@ reportsRouter.get("/daily", async (req, res) => {
   // Credit notes issued on this day (Phase 3.1), whatever day the bill was from.
   const refundRows = await prisma.creditNote.groupBy({ by: ["refundMode"], where: window, _sum: { amount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true }, _count: true });
   const refundTotal = refundRows.reduce((s, r) => s + (r._sum.amount ?? 0), 0);
+  // Exceptions for the dashboard tiles: bills voided on this day, and cash shifts closed on it.
+  const [voided, shifts] = await Promise.all([
+    prisma.order.aggregate({ where: { outletId: req.outletId, cancelledAt: { gte: from, lt: to } }, _count: true, _sum: { grandTotal: true } }),
+    prisma.cashShift.findMany({ where: { outletId: req.outletId, status: "CLOSED", closedAt: { gte: from, lt: to } }, select: { variance: true } }),
+  ]);
   const refundTax = refundRows.reduce((s, r) => s + (r._sum.cgst ?? 0) + (r._sum.sgst ?? 0) + (r._sum.igst ?? 0) + (r._sum.cess ?? 0) + (r._sum.otherTaxes ?? 0), 0);
 
   const sum = (f: (o: (typeof orders)[number]) => number) => orders.reduce((s, o) => s + f(o), 0);
@@ -1480,6 +1495,9 @@ reportsRouter.get("/daily", async (req, res) => {
       tax: refundTax,
       byMode: Object.fromEntries(refundRows.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
     },
+    voids: { count: voided._count, amount: voided._sum.grandTotal ?? 0 },
+    /** Cash shifts closed on this day: counted − expected (negative = short) */
+    cashDifference: { shifts: shifts.length, amount: shifts.reduce((s, x) => s + (x.variance ?? 0), 0) },
     /** Gross sales minus refunds issued today */
     salesAfterRefunds: gross - refundTotal,
     /** Tips received on top of bills (not sales, not taxed) — Phase 3.8 */

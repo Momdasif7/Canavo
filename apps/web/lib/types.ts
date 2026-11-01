@@ -413,6 +413,13 @@ export interface DailyReport {
   serviceCharge: number;
   orders: number;
   cancelledOrders: number;
+  /** Bills voided on this day */
+  voids: { count: number; amount: number };
+  /** Credit notes issued on this day */
+  refunds: { count: number; amount: number };
+  salesAfterRefunds: number;
+  /** Cash shifts closed on this day: counted − expected (negative = short) */
+  cashDifference: { shifts: number; amount: number };
   averageOrderValue: number;
   byOrderType: Record<string, { orders: number; amount: number }>;
   byPaymentMode: Record<string, { count: number; amount: number }>;

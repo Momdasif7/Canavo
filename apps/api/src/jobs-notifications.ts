@@ -1,11 +1,13 @@
 // Time-based alerts: late deliveries, staff who haven't clocked in, missed
-// clock-outs, and the end-of-day sales summary. Every alert is sent once.
-import { formatINR } from "@canavo/shared";
+// clock-outs, the end-of-day sales summary and owner anomaly alerts. Every alert is sent once.
+import { featureEnabled, formatINR, normalizeFeatures, normalizeModules } from "@canavo/shared";
 import { platformPrisma, prisma } from "./db";
 import { registerJob } from "./jobs";
 import { addDays, hhmmToMinutes, startOfLocalDay, zonedParts } from "./lib/time";
-import { runForOutlet } from "./lib/tenant";
+import { featureOn, runForOutlet } from "./lib/tenant";
+import { detectAnomalies } from "./services/anomaly-rules";
 import { notify, outletManagers } from "./services/notify";
+import { outletDay } from "./services/owner-summary";
 
 const OVERDUE_GRACE_MIN = 5;
 const NOT_CLOCKED_IN_AFTER_MIN = 30;
@@ -134,6 +136,50 @@ export async function sendDailySummaries(now = new Date()) {
   }
 }
 
+/**
+ * Owner anomaly alerts (flag ANOMALY_ALERTS): per outlet, check today's numbers so far
+ * (outlet time) against the rules in anomaly-rules.ts and push each anomaly to the
+ * business owner(s) once per day. Returns how many alerts were sent.
+ */
+export async function alertAnomalies(now = new Date()) {
+  const outlets = await platformPrisma.outlet.findMany({ select: { id: true, businessId: true, business: { select: { modules: true, features: true, status: true } } } });
+  let sent = 0;
+  for (const o of outlets) {
+    // Cheap pre-check so hotels without the flag cost one query, not a tenant switch.
+    if (o.business.status !== "ACTIVE" || !featureEnabled(normalizeFeatures(o.business.features), "ANOMALY_ALERTS", normalizeModules(o.business.modules))) continue;
+    try {
+      sent += await runForOutlet(o.id, async () => {
+        if (!featureOn("ANOMALY_ALERTS")) return 0;
+        const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: o.id } });
+        const day = await outletDay(outlet, now);
+        const found = detectAnomalies({
+          outletName: outlet.name,
+          sales: day.grossSales,
+          bills: day.bills,
+          voids: day.detail.voids,
+          refunds: day.detail.refunds,
+          closedShifts: day.detail.closedShifts,
+          bigDiscounts: day.bigDiscounts,
+          discountLimitPercent: day.discountLimitPercent,
+          lastWeek: { sales: day.lastWeek.grossSales, bills: day.lastWeek.bills },
+        });
+        const already = await sentToday(o.id, "alerts.anomalies", day.date);
+        const fresh = found.filter((a) => !already.has(a.key));
+        if (!fresh.length) return 0;
+        const owners = (await prisma.user.findMany({ where: { businessId: o.businessId, role: "BUSINESS_OWNER", status: "ACTIVE" }, select: { id: true } })).map((u) => u.id);
+        // Mark first: a failed push must not turn into a repeat every 15 minutes.
+        for (const a of fresh) already.add(a.key);
+        await markSent(o.id, "alerts.anomalies", day.date, already);
+        for (const a of fresh) await notify(owners, a.title, a.body, "report.anomaly", { outletId: o.id });
+        return fresh.length;
+      });
+    } catch (e) {
+      console.error(`[job:alerts-anomalies] outlet ${o.id} failed`, e);
+    }
+  }
+  return sent;
+}
+
 export function registerJobs(): void {
   registerJob("alerts-delivery-late", 60_000, async () => {
     await alertOverdueDeliveries();
@@ -143,5 +189,8 @@ export function registerJobs(): void {
   });
   registerJob("alerts-daily-summary", 10 * 60_000, async () => {
     await sendDailySummaries();
+  });
+  registerJob("alerts-anomalies", 15 * 60_000, async () => {
+    await alertAnomalies();
   });
 }
