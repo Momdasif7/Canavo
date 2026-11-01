@@ -7,6 +7,10 @@ Per-hotel switches for new behaviour. Every flag is **OFF** unless the Super Adm
 | `AUTO_STOCK_OUT` | Menu items, or single sizes, whose ingredient stock can't cover one portion become unavailable on the POS, waiter, QR and kiosk menus. They come back when stock is received. Off: items stay sellable, and stock can go negative. | `INVENTORY` | Phase 1 (from the 2026-10-31 request) | Demo Hotel (D14) |
 | `REQUIRE_2FA` | Owners and outlet managers must turn on two-step login before they can use the app (only Account → Security works until then). Other staff can still opt in. | none | Phase 2.1 | none |
 | `STRICT_CLOCK_IN` | Clock-in refuses fake (mock) GPS locations and fixes worse than ±50 m, and no longer widens the outlet's allowed distance by the GPS error. Off: the old rule, but fake GPS and weak accuracy are still recorded and flagged for the manager. | `ATTENDANCE` | Phase 2.6 (D7) | none |
+| `APPROVAL_PINS` | Voids, refunds, cash pay-outs and manual discounts above the outlet's limit (default 10%, owner sets it) need an owner's or manager's PIN at the counter. Cashiers can then void and refund with that approval. Offline bills are accepted and flagged as unapproved. Off: voids and refunds need `order:cancel` (managers), as before. | `BILLING` | Phase 3.3 | none |
+| `REQUIRE_CASH_SHIFT` | Cash payments (and gift cards sold for cash) need an open cash-drawer shift. Offline syncs are exempt. Off: shifts are optional. | `BILLING` | Phase 3.2 | none |
+| `GIFT_CARDS` | Sell closed-loop gift cards and accept them as payment (with split payments, refunds back to the card, and blocking). | `BILLING` | Phase 3.8 | none |
+| `OFFLINE_INVOICE_SERIES` | Each billing device gets its own invoice series (e.g. `INVA1-2026-00007`), so bills raised offline print their final number (mobile app). Off: offline receipts are provisional (`OFF-…`) and numbered at sync. | `BILLING` | Phase 3.4 | none |
 | `CLOCK_IN_SELFIE` | Staff take a front-camera selfie to clock in on the app. It is stored with the attendance record for the manager. No face matching. | `ATTENDANCE` | Phase 2.6 (D7) | none |
 
 Not flags (they apply to everyone, because they are security fixes without a visible rule change for hotels):
@@ -14,6 +18,12 @@ Not flags (they apply to everyone, because they are security fixes without a vis
 - the password policy for new passwords;
 - sign-out per device;
 - the production demo-login guard.
+
+Per-outlet settings, not flags (Settings → Money controls):
+- **₹ discounts include GST** (D1). Default off: pre-tax, as before.
+- **Approval limit %**, owner only.
+
+Per-offer setting: **Can combine with other offers** (default off: one offer per bill).
 
 Aadhaar storage is a per-hotel setting (`Business.aadhaarMode`), not a flag. Existing hotels that store full numbers stay on FULL.
 

@@ -38,6 +38,9 @@ GET /attendance/salary,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSIN
 GET /auth/2fa,auth.ts,yes,,,(public),,all
 GET /auth/me,auth.ts,yes,,,(public),,all
 GET /auth/sessions,auth.ts,yes,,,(public),,all
+GET /cash-shifts,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER
+GET /cash-shifts/:id,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER
+GET /cash-shifts/current,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /customers/:id,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /customers/:id/khata,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
@@ -59,6 +62,8 @@ GET /delivery/partners/:agentId/timeline,delivery.ts,yes,yes,,delivery:manage,DE
 GET /delivery/partners/activity,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /delivery/quote,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /delivery/zones,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /gift-cards,gift-cards.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER
+GET /gift-cards/code/:code,gift-cards.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /inventory/alerts,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER
 GET /inventory/audits,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER
 GET /inventory/audits/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER
@@ -86,6 +91,7 @@ GET /kot,kot.ts,yes,yes,,kot:view,KOT,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITC
 GET /menu,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER
 GET /menu/import/template,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
 GET /menu/items/:id,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER
+GET /menu/tax-check,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER
 GET /notifications,notifications.ts,yes,,,(any logged-in user / in-handler),,all
 GET /offers,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
 GET /offers/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
@@ -95,9 +101,11 @@ GET /offers/coupons/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OU
 GET /offers/coupons/report,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
 GET /orders,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/:id,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /orders/:id/credit-notes,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/:id/payment-status,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/:id/receipt,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/:id/receipt.pdf,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /orders/approvers,orders.ts,yes,yes,,any(order:create | payment:collect | order:cancel),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/export,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /orders/summary,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /outlets,outlets.ts,yes,,,(any logged-in user / in-handler),,all
@@ -116,6 +124,7 @@ GET /reports/outlets/overview,reports.ts,yes,,,report:view,REPORTS,BUSINESS_OWNE
 GET /reservations,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /reservations/:id,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /reservations/pre-orders,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /settlements,settlements.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER
 GET /staff,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER
 GET /staff/:id/performance,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER
 GET /support-access,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
@@ -183,6 +192,9 @@ POST /auth/password/forgot,auth.ts,NO,,,(public),,all
 POST /auth/password/reset,auth.ts,NO,,,(public),,all
 POST /auth/refresh,auth.ts,NO,,,(public),,all
 POST /auth/sessions/revoke-others,auth.ts,yes,,,(public),,all
+POST /cash-shifts/current/close,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /cash-shifts/current/movements,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /cash-shifts/open,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /customers/:id/block,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 POST /customers/:id/khata/remind,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
@@ -200,6 +212,8 @@ POST /delivery/cash/handovers,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSI
 POST /delivery/cash/settle,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /delivery/me/location,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
 POST /delivery/zones,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
+POST /gift-cards,gift-cards.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /gift-cards/:id/active,gift-cards.ts,yes,yes,,outlet:manage,BILLING,BUSINESS_OWNER
 POST /inventory/audits,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 POST /inventory/audits/:id/cancel,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 POST /inventory/audits/:id/complete,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
@@ -230,13 +244,15 @@ POST /offers/:id/toggle,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OU
 POST /offers/coupons,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
 POST /offers/coupons/validate,offers.ts,yes,yes,,order:create,OFFERS | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
-POST /orders/:id/cancel,orders.ts,yes,yes,,order:cancel,BILLING,BUSINESS_OWNER OUTLET_MANAGER
+POST /orders/:id/cancel,orders.ts,yes,yes,,any(order:cancel | payment:collect),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/cod,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/payments,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/payments/:paymentId/confirm,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/payments/:paymentId/dev-simulate,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/refunds,orders.ts,yes,yes,,any(order:cancel | payment:collect),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/share/whatsapp,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/:id/upi-qr,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/offline-series,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /orders/sync,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /outlets,outlets.ts,yes,,,outlet:manage,,BUSINESS_OWNER
 POST /outlets/current/shifts,outlets.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
@@ -249,6 +265,7 @@ POST /reservations,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSI
 POST /reservations/:id/cancel,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /reservations/:id/no-show,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /reservations/:id/seat,reservations.ts,yes,yes,,reservation:manage + table:serve,RESERVATIONS | TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /settlements,settlements.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff/:id/reset-2fa,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff/:id/reset-link,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER

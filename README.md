@@ -234,6 +234,7 @@ CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - **Events after a change** (KOTs, live updates, alerts) are written to an outbox in the same transaction and then delivered. A crash can't lose them. See [ADR 0003](docs/build/adr/0003-transactional-outbox.md).
 - **Retries are safe:** the web and mobile apps send an `Idempotency-Key` on every change. A repeated request returns the first result.
 - **Accounts:** two-step login (authenticator app and recovery codes), signed-in devices with per-device sign-out, and one-time password links. Nobody sets or sees another person's password. Account → Security.
+- **Money integrity:** refunds are GST credit notes (own series), voids and refunds can require a manager's PIN, cash drawer shifts produce a Z-report, and Reports → Exceptions lists voids, refunds, big discounts and approvals.
 - **Support access:** the CANAVO team sees no hotel data unless the owner allows it. Then it's read-only, time-limited and every screen is logged ([ADR 0005](docs/build/adr/0005-consented-support-access.md)).
 - **New behaviour ships behind per-hotel feature flags,** OFF for existing hotels: [FEATURE_FLAGS.md](docs/build/FEATURE_FLAGS.md).
 - **Build programme status:** [docs/build/ROADMAP_STATUS.md](docs/build/ROADMAP_STATUS.md).
@@ -257,4 +258,5 @@ The frontend, backend and database deploy separately. The step-by-step guide is 
 - **Agent live location** is in memory only and uses foreground GPS only.
 - **GSTR-1** covers B2CS, HSN and the document summary. B2B, B2CL and credit notes aren't generated, because buyer GSTINs aren't captured.
 - **Face-recognition clock-in** isn't implemented; PIN and biometric are.
-- **Flat coupons and points** reduce the pre-tax value, so "₹50 off" saves the customer about ₹52.50 including 5% GST.
+- **₹ discounts** (flat coupons, flat offers, points, flat manual discounts) reduce the pre-tax value by default, so "₹50 off" saves the customer about ₹52.50 including 5% GST. An outlet can switch to GST-inclusive ₹ discounts under Settings → Money controls (confirm with your CA).
+- **GSTR-1 credit notes** reduce B2CS/HSN for B2C bills. CDNR/CDNUR sections and the credit-note line in the document summary come with buyer GSTIN capture (Phase 8.4).

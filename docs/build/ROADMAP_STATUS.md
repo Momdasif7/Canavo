@@ -6,8 +6,8 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 |---|---|---|---|
 | 0 Recon and gap confirmation | — | ✅ Done | [phase-0.md](phase-0.md) |
 | 1 Foundation and data safety | 8 (0 / 3 / 5) + indexes + delivery route guards | ✅ Done | [phase-1.md](phase-1.md) |
-| 2 Security and accounts | 8 (0 / 6 / 2) | ✅ Done; **awaiting your review** | [phase-2.md](phase-2.md) |
-| 3 Money integrity | 8 (2 / 2 / 4) | Not started (pilot set) | — |
+| 2 Security and accounts | 8 (0 / 6 / 2) | ✅ Done | [phase-2.md](phase-2.md) |
+| 3 Money integrity | 8 (2 / 2 / 4) | ✅ Done; **awaiting your review** | [phase-3.md](phase-3.md) |
 | 4 Roles and owner experience | 4 (1 / 1 / 2) | Not started (pilot set) | — |
 | 5 Canteen and institutional | 5 (0 / 2 / 3) | Not started | — |
 | 6 Sales channels | 4 (0 / 0 / 4) | Not started; needs vendor decision D3 | — |
@@ -49,7 +49,20 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | 2.7 | Tokens / deep links | ✅ cookie sessions with fallback, [ADR 0006](adr/0006-web-session-cookies.md) |
 | 2.8 | Production seed guard | ✅ |
 
+## Phase 3 items
+
+| # | Item | Result |
+|---|---|---|
+| 3.1 | Refunds / credit notes | ✅ own CN series, items or value, tax reversal, restock, khata / gift card refunds |
+| 3.2 | Cash shifts / Z-report | ✅ float, pay-ins/outs, expected vs counted; `REQUIRE_CASH_SHIFT` flag |
+| 3.3 | Approval PINs, exceptions report | ✅ `APPROVAL_PINS` flag; Reports → Exceptions |
+| 3.4 | Offline invoice numbering | ✅ existed; per-device series behind `OFFLINE_INVOICE_SERIES` (mobile) |
+| 3.5 | Round-off | ✅ existed (verified) |
+| 3.6 | 0% GST safeguard, coupon GST (D1) | ✅ menu warnings; GST-inclusive ₹ discounts setting |
+| 3.7 | Why this offer won, combining | ✅ comparison on the POS; per-offer "can combine" |
+| 3.8 | Card ref, settlement, tips, gift cards | ✅ `GIFT_CARDS` flag; Reports → Settlements |
+
 ## Open decisions carried forward
 
-- D1 (needed for Phase 3), D3, D5, D6: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)). D2, D7, D13 and D16 were answered on 2026-11-01.
-- Please confirm the deviations in [phase-2.md §Decisions](phase-2.md#decisions-and-deviations-please-confirm).
+- D3, D5: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)). D2, D7, D13, D16 were answered on 2026-11-01. D1 and D6 were applied as recommended in Phase 3: please confirm.
+- Please confirm the decisions in [phase-3.md §Decisions](phase-3.md#decisions-please-confirm).
