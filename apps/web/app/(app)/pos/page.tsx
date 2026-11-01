@@ -1,5 +1,6 @@
 "use client";
 
+import { IncomingOrders } from "@/components/storefront/IncomingOrders";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePromotionPreview } from "@/hooks/usePromotionPreview";
 import { WifiSlash } from "@phosphor-icons/react";
@@ -629,6 +630,7 @@ export default function PosPage() {
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Menu side */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {online && <IncomingOrders />}
         {(!online || fromCache) && (
           <div className="flex items-center gap-2 bg-red-600 px-4 py-2 text-sm font-semibold text-white">
             <WifiSlash size={18} />

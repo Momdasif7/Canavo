@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import type { Prisma } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import {
@@ -23,7 +24,7 @@ import { creditGiftCard, redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { redeemTokens, restoreCanteenForOrder, spendWallet } from "../services/canteen";
-import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
+import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid, type OrderWithRelations } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
 import { renderReceiptPdf } from "../services/pdf";
@@ -219,6 +220,26 @@ ordersRouter.get("/:id", requirePermission("order:view"), async (req, res) => {
 });
 
 /**
+ * Mark a bill cancelled and undo what it did (offers, gift cards, canteen wallet, delivery,
+ * stock). Shared by voiding and by rejecting an online order (Phase 6.4).
+ */
+export async function cancelOrderTx(req: Request, order: OrderWithRelations, reason: string, tx: Prisma.TransactionClient) {
+  const u = await tx.order.update({
+    where: { id: order.id },
+    data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
+  });
+  await onOrderCancelled(tx, order.id);
+  for (const p of order.payments.filter((x) => x.mode === "GIFT_CARD" && x.giftCardId && x.status === "SUCCESS")) {
+    await creditGiftCard(tx, p.giftCardId!, p.amount, { outletId: order.outletId, orderId: order.id, note: `Bill ${order.invoiceNumber} cancelled`, userId: req.user!.id });
+  }
+  await restoreCanteenForOrder(tx, order.id, { outletId: order.outletId, invoiceNumber: order.invoiceNumber, userId: req.user!.id });
+  await onOrderCancelledService(tx, order.id);
+  await restoreStockForOrder(tx, order.id);
+  await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
+  return u;
+}
+
+/**
  * Void a bill. Needs order:cancel as before; with APPROVAL_PINS on, a cashier can also void
  * with a manager's PIN, and every void is logged as an approval (Phase 3.3).
  */
@@ -230,19 +251,7 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
   if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
   const updated = await prisma.$transaction(async (tx) => {
     if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: order.grandTotal, reason, approval }, tx);
-    const u = await tx.order.update({
-      where: { id: order.id },
-      data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
-    });
-    await onOrderCancelled(tx, order.id);
-    for (const p of order.payments.filter((x) => x.mode === "GIFT_CARD" && x.giftCardId && x.status === "SUCCESS")) {
-      await creditGiftCard(tx, p.giftCardId!, p.amount, { outletId: req.outletId!, orderId: order.id, note: `Bill ${order.invoiceNumber} cancelled`, userId: req.user!.id });
-    }
-    await restoreCanteenForOrder(tx, order.id, { outletId: req.outletId!, invoiceNumber: order.invoiceNumber, userId: req.user!.id });
-    await onOrderCancelledService(tx, order.id);
-    await restoreStockForOrder(tx, order.id);
-    await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
-    return u;
+    return cancelOrderTx(req, order, reason, tx);
   });
   emitToOutlet(req.outletId!, "order:cancelled", { id: order.id });
   void alertOrderCancelled(req.outletId!, order.id, req.user!, reason);

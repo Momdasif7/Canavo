@@ -84,6 +84,11 @@ model Outlet {
   creditNotes             CreditNote[]
   cashShifts              CashShift[]
   mealSlots               MealSlot[]
+  /// Phase 6.4: address of the public online ordering page (/o/<slug>)
+  publicSlug              String?              @unique
+  /// Phase 6.3/6.4: QR ordering and online ordering settings (see storefrontSettingsSchema)
+  storefront              Json                 @default("{}")
+  channelRequests         ChannelRequest[]
 
   @@index([businessId])
 }
@@ -723,6 +728,8 @@ model DiningTable {
   status       TableStatus    @default(AVAILABLE)
   waiterId     String?
   active       Boolean        @default(true)
+  /// Phase 6.3: unguessable token in the table's QR code (/t/<token>); rotating it kills printed codes
+  qrToken      String?        @unique
   area         DiningArea?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
   waiter       User?          @relation("tableWaiter", fields: [waiterId], references: [id], onDelete: SetNull)
   sessions     TableSession[]
@@ -1929,4 +1936,41 @@ model MealSubscriptionMeal {
   subscription   MealSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@unique([subscriptionId, date])
+}
+
+/// Phase 6.3/6.4: an order a customer placed from a QR code or the online page. QR orders hold
+/// their items here until staff accept them (then they go onto the table's running tab with KOTs);
+/// online orders are bills already (orderId) whose KOTs wait for acceptance when confirmation is on.
+model ChannelRequest {
+  id            String    @id @default(cuid())
+  outletId      String
+  /// QR | ONLINE
+  channel       String
+  /// PENDING | ACCEPTED | REJECTED
+  status        String    @default("PENDING")
+  tableId       String?
+  sessionId     String?
+  orderId       String?   @unique
+  /// [{ menuItemId, variantId, addonIds, quantity, notes, name, unitPrice }]
+  items         Json
+  /// KOTs fired for this request (QR: on the running tab; online: on the bill)
+  kotIds        String[]
+  customerName  String?
+  customerPhone String?
+  notes         String?
+  /// Item total estimate (online: the bill total), paise
+  total         Int       @default(0)
+  /// Unguessable id the customer uses to follow the order
+  publicToken   String    @unique
+  /// COUNTER | COD | UPI (online orders)
+  payment       String?
+  ip            String?
+  rejectReason  String?
+  decidedById   String?
+  decidedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  outlet        Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, status, createdAt])
+  @@index([tableId, createdAt])
 }
