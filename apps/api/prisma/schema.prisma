@@ -1253,3 +1253,22 @@ model DeliveryCashHandover {
 
   @@index([outletId, agentId, receivedAt])
 }
+
+/// Idempotency-Key replay store (Phase 1.4): one row per (user, key); response kept 24 h.
+model IdempotencyKey {
+  id             String   @id @default(cuid())
+  userId         String
+  key            String
+  /// sha256 of method + path + body: the same key with a different request is refused
+  requestHash    String
+  method         String
+  path           String
+  /// null while the first request is still running
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}

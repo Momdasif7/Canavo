@@ -1,4 +1,5 @@
 // Background jobs for the platform module. Register with registerJob(name, everyMs, fn).
+import { purgeExpiredIdempotencyKeys } from "./lib/idempotency";
 import { prisma } from "./db";
 import { registerJob } from "./jobs";
 import { moduleEnabled, runForOutlet } from "./lib/tenant";
@@ -46,6 +47,9 @@ export async function runDailyBackup(now = new Date()) {
 export function registerJobs(): void {
   registerJob("report-schedules", HOUR, async () => {
     await runDueSchedules();
+  });
+  registerJob("idempotency-keys:purge", HOUR, async () => {
+    await purgeExpiredIdempotencyKeys();
   });
   registerJob("daily-backup", HOUR, async () => {
     await runDailyBackup();

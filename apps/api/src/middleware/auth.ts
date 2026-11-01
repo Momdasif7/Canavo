@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { withIdempotency } from "../lib/idempotency";
 import { normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { verifyAccess } from "../lib/tokens";
@@ -48,7 +49,7 @@ function enterBusiness(req: Request, ctx: TenantContext, b: { id: string; status
  * rest of the request. Platform super admins work across businesses: they get
  * a business context from X-Business-Id or, later, from the outlet they act in.
  */
-export async function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) throw unauthorized();
   const claims = verifyAccess(header.slice(7));
@@ -69,7 +70,8 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   const ctx: TenantContext = {};
   // Platform super admins never enter a hotel's data (privacy): no business context for them.
   if (user.businessId) enterBusiness(req, ctx, await loadBusiness(user.businessId));
-  runWithTenant(ctx, next);
+  // Mutations carrying an Idempotency-Key are replay-safe (Phase 1.4).
+  await runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
 }
 
 /** Role permission AND the business has the module that permission belongs to. */

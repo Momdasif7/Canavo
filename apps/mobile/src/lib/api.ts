@@ -95,6 +95,8 @@ export function errorMessage(e: unknown, fallback = "Something went wrong"): str
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {
+  /** Idempotency-Key for mutations (generated per call when omitted; reused on the auth retry) */
+  idempotencyKey?: string;
   body?: unknown;
   query?: Record<string, string | number | undefined>;
   /** Attach the bearer token (default true) */
@@ -218,6 +220,7 @@ class ApiClient {
     if (token) h.Authorization = `Bearer ${token}`;
     const outlet = opts.outletId ?? this.outletId;
     if (outlet) h["X-Outlet-Id"] = outlet;
+    if (opts.idempotencyKey) h["Idempotency-Key"] = opts.idempotencyKey;
     return h;
   }
 
@@ -267,6 +270,8 @@ class ApiClient {
 
   private async authed<T>(method: Method, path: string, opts: RequestOptions): Promise<T> {
     if (opts.auth === false) return this.raw<T>(method, path, opts);
+    // One key per call, reused by the refresh-and-retry below, so a mutation never runs twice.
+    if (method !== "GET" && !opts.idempotencyKey) opts = { ...opts, idempotencyKey: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` };
     const token = await this.freshAccessToken();
     try {
       return await this.raw<T>(method, path, opts, token);

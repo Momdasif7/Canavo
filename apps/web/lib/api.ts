@@ -202,6 +202,8 @@ async function runRefresh(staleToken: string | undefined): Promise<string | null
 type QueryValue = string | number | boolean | undefined | null;
 
 export interface RequestOptions {
+  /** Idempotency-Key for mutations (generated per call when omitted; reused on internal retries) */
+  idempotencyKey?: string;
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   /** JSON body */
   body?: unknown;
@@ -235,6 +237,7 @@ async function send(path: string, opts: RequestOptions, token: string | undefine
   if (outlet) headers["x-outlet-id"] = outlet;
   const business = opts.businessId === undefined ? businessId : opts.businessId;
   if (business) headers["x-business-id"] = business;
+  if (opts.idempotencyKey) headers["idempotency-key"] = opts.idempotencyKey;
   let body: BodyInit | undefined;
   if (opts.rawBody !== undefined) {
     body = opts.rawBody;
@@ -276,7 +279,13 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, details);
 }
 
+/** One key per user action: a retry of the same call (e.g. after a token refresh) can't run twice on the server. */
+const newIdempotencyKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+
 export async function request(path: string, opts: RequestOptions = {}): Promise<Response> {
+  const method = (opts.method ?? "GET").toUpperCase();
+  if (method !== "GET" && opts.auth !== false && !opts.idempotencyKey) opts = { ...opts, idempotencyKey: newIdempotencyKey() };
   const useAuth = opts.auth !== false;
   const token = useAuth ? session?.accessToken : undefined;
   let res = await send(path, opts, token);
