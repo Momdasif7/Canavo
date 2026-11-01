@@ -1,4 +1,5 @@
 /** Phase 5.3 / 5.4 — meal slots & slot menus, next-day pre-orders, production plan, meal subscriptions. */
+import { DEFAULT_PRE_ORDER_LEAD_MIN } from "../../src/services/service-context";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHotel, db, login, startServer, type Client, type Hotel } from "./helpers";
 import { materialiseSubscriptionMeals } from "../../src/jobs-canteen";
@@ -150,7 +151,10 @@ describe("meal subscriptions", () => {
     const order = await db.order.findUnique({ where: { id: meals[0]!.orderId }, include: { kots: true } });
     expect(order).toMatchObject({ orderType: "PRE_ORDER", grandTotal: 0, status: "PAID", mealSlotId: allDay, customerId });
     expect(order!.kots).toHaveLength(1);
-    expect(order!.kots[0]!.releaseAt).not.toBeNull();
+    // The KOT is held until the pre-order lead time before the meal — unless that's already now
+    // (the suite runs within 30 minutes of midnight).
+    const withinLead = order!.scheduledFor!.getTime() - Date.now() <= DEFAULT_PRE_ORDER_LEAD_MIN * 60_000;
+    if (!withinLead) expect(order!.kots[0]!.releaseAt).not.toBeNull();
     // The production plan counts it once (now a pre-order, not a pending plan).
     const plan = (await manager.call("GET", `/canteen/production?date=${tomorrow()}`)).body;
     const biryani = plan.slots[0].items.find((i: { menuItemId: string }) => i.menuItemId === h.items.biryani);
