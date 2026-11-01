@@ -25,7 +25,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { requireAnyPermission, authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
 import { deliveryStatusLink } from "../services/delivery-notify";
@@ -171,6 +171,9 @@ deliveryRouter.get("/quote", requirePermission("delivery:manage"), async (req, r
     zones,
   });
 });
+
+/** Delivery routes used by both the board (managers) and the assigned partner; the handler checks it's their delivery. */
+const managerOrPartner = requireAnyPermission("delivery:manage", "delivery:own");
 
 // ---------- Agents ----------
 /** Delivery partners of the outlet with live availability (on duty, at the outlet / on a run, orders held vs limit). */
@@ -663,7 +666,7 @@ function canSee(req: Request, d: { agentId: string | null }) {
   return can(req.user!.role, "delivery:own") && d.agentId === req.user!.id;
 }
 
-deliveryRouter.get("/:id", async (req, res) => {
+deliveryRouter.get("/:id", managerOrPartner, async (req, res) => {
   const d = await findDelivery(param(req, "id"), req.outletId!);
   if (!canSee(req, d)) throw forbidden();
   res.json({ ...withExtras(d), customerMessage: await customerLink(d) });
@@ -696,7 +699,7 @@ deliveryRouter.patch("/:id/assign", requirePermission("delivery:manage"), async 
   res.json(withExtras(updated));
 });
 
-deliveryRouter.patch("/:id/status", async (req, res) => {
+deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
   const { status, note } = parse(deliveryStatusSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
@@ -752,7 +755,7 @@ function assertMyDeliveryEarly(req: Request, d: { agentId: string | null }) {
  * amount due in cash (recorded against them, adds to cash to hand over);
  * already paid → simply delivered. Then the delivery is marked DELIVERED.
  */
-deliveryRouter.post("/:id/complete", async (req, res) => {
+deliveryRouter.post("/:id/complete", managerOrPartner, async (req, res) => {
   const { cashCollected } = parse(z.object({ cashCollected: z.number().int().nonnegative().optional() }), req.body ?? {});
   const d = await findDelivery(param(req, "id"), req.outletId!);
   const manager = assertMyDeliveryEarly(req, d);
@@ -812,7 +815,7 @@ function assertMyDelivery(req: Request, d: { agentId: string | null }) {
  * Payment received at the door: cash, GPay/UPI (customer paid to the outlet's
  * UPI — enter the UTR) or card. Recorded against the partner who collected it.
  */
-deliveryRouter.post("/:id/collect", async (req, res) => {
+deliveryRouter.post("/:id/collect", managerOrPartner, async (req, res) => {
   const { payments } = parse(deliveryCollectSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
@@ -846,7 +849,7 @@ deliveryRouter.post("/:id/collect", async (req, res) => {
 });
 
 /** Show a UPI QR (GPay/PhonePe/Paytm) for the amount due, at the customer's door. */
-deliveryRouter.post("/:id/upi-qr", async (req, res) => {
+deliveryRouter.post("/:id/upi-qr", managerOrPartner, async (req, res) => {
   const d = await findDelivery(param(req, "id"), req.outletId!);
   assertMyDelivery(req, d);
   if (d.order.status !== "OPEN") throw conflict("Nothing to collect on this order");
@@ -870,7 +873,7 @@ deliveryRouter.post("/:id/upi-qr", async (req, res) => {
 });
 
 /** Partner confirms the customer's UPI payment arrived (no gateway webhook / mock mode). */
-deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", async (req, res) => {
+deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", managerOrPartner, async (req, res) => {
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
   assertMyDelivery(req, d);
@@ -897,7 +900,7 @@ const ISSUE_LABELS = {
 } as const;
 
 /** Partner reports a problem (customer unreachable, wrong address…) — the outlet decides what to do. */
-deliveryRouter.post("/:id/issue", async (req, res) => {
+deliveryRouter.post("/:id/issue", managerOrPartner, async (req, res) => {
   const { reason, note } = parse(deliveryIssueSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);

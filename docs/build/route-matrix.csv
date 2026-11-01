@@ -41,7 +41,7 @@ GET /customers/khata/outstanding,customers.ts,yes,yes,,customer:view,BILLING | C
 GET /customers/lookup,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 GET /delivery,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
-GET /delivery/:id,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
+GET /delivery/:id,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
 GET /delivery/agents,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /delivery/cash,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /delivery/cash/handovers,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
@@ -118,8 +118,8 @@ GET /tables/areas,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MA
 GET /tables/floor,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /tables/sessions,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 GET /tables/sessions/:id,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER
-GET /tax-rates,tax-rates.ts,yes,business,,(any logged-in user / in-handler),,all
-GET /tax-rates/:id,tax-rates.ts,yes,business,,(any logged-in user / in-handler),,all
+GET /tax-rates,tax-rates.ts,yes,business,,any(menu:view | settings:billing),,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER
+GET /tax-rates/:id,tax-rates.ts,yes,business,,any(menu:view | settings:billing),,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER
 GET /uploads/files/:name,uploads.ts,NO,,,(public),,all
 GET /uploads/signature,uploads.ts,yes,,,(any logged-in user / in-handler),,all
 PATCH /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
@@ -127,7 +127,7 @@ PATCH /attendance/:id,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINE
 PATCH /attendance/leaves/:id,attendance.ts,yes,,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /customers/:id,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /delivery/:id/assign,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
-PATCH /delivery/:id/status,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
+PATCH /delivery/:id/status,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
 PATCH /delivery/cash/handovers/:id,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 PATCH /delivery/zones/:id,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
 PATCH /inventory/items/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
@@ -169,12 +169,12 @@ POST /customers/:id/khata/remind,customers.ts,yes,yes,,customer:view,BILLING | C
 POST /customers/:id/khata/settle,customers.ts,yes,yes,,payment:collect,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /customers/:id/loyalty/adjust,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 POST /customers/preview-promotions,customers.ts,yes,yes,,order:create,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
-POST /delivery/:id/collect,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
-POST /delivery/:id/complete,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
-POST /delivery/:id/issue,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
+POST /delivery/:id/collect,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/complete,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/issue,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
 POST /delivery/:id/location,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
-POST /delivery/:id/upi-qr,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
-POST /delivery/:id/upi-qr/:paymentId/confirm,delivery.ts,yes,yes,,(any logged-in user / in-handler),DELIVERY,all
+POST /delivery/:id/upi-qr,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/upi-qr/:paymentId/confirm,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
 POST /delivery/agents/:id/back,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /delivery/cash/handovers,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
 POST /delivery/cash/settle,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER

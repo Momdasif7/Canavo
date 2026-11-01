@@ -49,7 +49,7 @@ export async function createHotel(name = "IT Hotel", opts: { modules?: string[];
   });
   await createDefaultTaxRates(db as never, business.id);
   const mk = (n: string) =>
-    db.outlet.create({ data: { businessId: business.id, name: `${n} ${tag}`, stateCode: "33", gstEnabled: opts.gst ?? false, latitude: 13.0, longitude: 80.2 } });
+    db.outlet.create({ data: { businessId: business.id, name: `${n} ${tag}`, stateCode: "33", gstEnabled: opts.gst ?? false, latitude: 13.0, longitude: 80.2, deliveryEnabled: true } });
   const [o1, o2] = [await mk("Main"), await mk("Second")];
   const user = async (role: Role, key: string, outlets: string[]) => {
     const email = `${key}.${tag}@it.local`;

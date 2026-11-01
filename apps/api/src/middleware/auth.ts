@@ -74,6 +74,20 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   await runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
 }
 
+/**
+ * At least one of the permissions (role ∩ modules). For routes shared by managers and
+ * the person doing the work (e.g. delivery:manage OR delivery:own); handlers still
+ * check row ownership (e.g. "your delivery").
+ */
+export function requireAnyPermission(...permissions: Permission[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) throw unauthorized();
+    const modules = tenant()?.modules ?? null;
+    if (!permissions.some((p) => can(req.user!.role, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
+    next();
+  };
+}
+
 /** Role permission AND the business has the module that permission belongs to. */
 export function requirePermission(...permissions: Permission[]) {
   return (req: Request, _res: Response, next: NextFunction) => {

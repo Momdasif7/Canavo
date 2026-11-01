@@ -39,7 +39,9 @@ for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.end
   };
   // Named middleware constants like `const manage = requirePermission("inventory:manage")`
   const named = {};
+  const namedAny = {};
   for (const m of src.matchAll(/const (\w+) = requirePermission\(([^)]*)\)/g)) named[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  for (const m of src.matchAll(/const (\w+) = requireAnyPermission\(([^)]*)\)/g)) namedAny[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   for (const m of src.matchAll(new RegExp(`${routerName}\\.(get|post|put|patch|delete)\\(\\s*([\`"])([^\`"]+)\\2([^\\n]*)`, "g"))) {
     const [, method, , p, rest] = m;
     const st = stateAt(m.index);
@@ -47,10 +49,15 @@ for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.end
     const head = rest.split(/async\s*\(|\(req|\(_req/)[0];
     const perms = [...st.perms, ...[...head.matchAll(/requirePermission\(([^)]*)\)/g)].flatMap((x) => [...x[1].matchAll(/"([^"]+)"/g)].map((y) => y[1]))];
     for (const [k, v] of Object.entries(named)) if (new RegExp(`[,(\\s]${k}[,\\s)]`).test(head)) perms.push(...v);
+    const anyOf = [...head.matchAll(/requireAnyPermission\(([^)]*)\)/g)].flatMap((x) => [...x[1].matchAll(/"([^"]+)"/g)].map((y) => y[1]));
+    for (const [k, v] of Object.entries(namedAny)) if (new RegExp(`[,(\\s]${k}[,\\s)]`).test(head)) anyOf.push(...v);
     const extra = [];
     if (/requireSettingsAccess/.test(head)) extra.push("settings:outlet|platform(GLOBAL)");
-    const modules = [...new Set([...routerModules, ...perms.map((q) => PERMISSION_MODULE[q]).filter(Boolean)])];
-    const roles = perms.length ? ROLES.filter((r) => perms.every((q) => ROLE_PERMISSIONS[r].includes(q))) : [];
+    if (anyOf.length) extra.push(`any(${anyOf.join(" | ")})`);
+    const modules = [...new Set([...routerModules, ...[...perms, ...anyOf].map((q) => PERMISSION_MODULE[q]).filter(Boolean)])];
+    const roles = perms.length || anyOf.length
+      ? ROLES.filter((r) => perms.every((q) => ROLE_PERMISSIONS[r].includes(q)) && (!anyOf.length || anyOf.some((q) => ROLE_PERMISSIONS[r].includes(q))))
+      : [];
     rows.push({
       route: `${method.toUpperCase()} ${prefix}${p === "/" ? "" : p}`.replace(/\$\{key\}/, ":reportKey"),
       file,
@@ -59,7 +66,7 @@ for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.end
       platformOnly: routerPlatform ? "yes" : "",
       permissions: [...perms, ...extra].join(" + ") || (routerPlatform ? "(platform admin)" : routerAuth ? "(any logged-in user / in-handler)" : "(public)"),
       modules: modules.join(" | "),
-      roles: routerPlatform ? "SUPER_ADMIN (platform)" : roles.join(" ") || (perms.length ? "none" : "all"),
+      roles: routerPlatform ? "SUPER_ADMIN (platform)" : roles.join(" ") || (perms.length || anyOf.length ? "none" : "all"),
     });
   }
 }

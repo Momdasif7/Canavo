@@ -92,8 +92,14 @@ describe("transactional outbox", () => {
 
   it("a failing task is retried later and its error kept (not lost, not hot-looping)", async () => {
     await outboxTask(db, "no.such.task", { a: 1 });
-    await drainOutbox();
-    const row = await db.outboxEvent.findFirst({ where: { name: "no.such.task" }, orderBy: { seq: "desc" } });
+    // The running publisher and an explicit drain may race for the row: wait for the first attempt.
+    let row = null as Awaited<ReturnType<typeof db.outboxEvent.findFirst>>;
+    for (let i = 0; i < 50; i++) {
+      await drainOutbox();
+      row = await db.outboxEvent.findFirst({ where: { name: "no.such.task" }, orderBy: { seq: "desc" } });
+      if (row && row.attempts >= 1 && row.lastError) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(row?.deliveredAt).toBeNull();
     expect(row?.attempts).toBe(1);
     expect(row?.lastError).toMatch(/no outbox task/);
