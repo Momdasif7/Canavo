@@ -37,7 +37,9 @@ import {
  * plan and meal subscriptions. Mounted at /canteen (corporate accounts live in their own router).
  */
 export const canteenMealsRouter = Router();
-canteenMealsRouter.use(authenticate, requireOutlet, requireModule("CANTEEN"));
+// Guards only on our sub-paths: the corporate-accounts router is also mounted at /canteen and
+// its requests must pass through this router untouched.
+canteenMealsRouter.use(["/slots", "/preorders", "/production", "/subscriptions"], authenticate, requireOutlet, requireModule("CANTEEN"));
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 const today = async (outletId: string) => zonedParts(new Date(), (await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { timezone: true } })).timezone).date;
