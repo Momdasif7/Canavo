@@ -77,40 +77,46 @@ model Outlet {
 }
 
 model User {
-  id                   String      @id @default(cuid())
-  businessId           String?
-  name                 String
-  phone                String      @unique
-  email                String?     @unique
-  passwordHash         String?
-  pinHash              String?
-  role                 Role
-  status               StaffStatus @default(ACTIVE)
-  photoUrl             String?
-  salaryType           SalaryType  @default(MONTHLY)
+  id                    String      @id @default(cuid())
+  businessId            String?
+  name                  String
+  phone                 String      @unique
+  email                 String?     @unique
+  passwordHash          String?
+  pinHash               String?
+  role                  Role
+  status                StaffStatus @default(ACTIVE)
+  photoUrl              String?
+  salaryType            SalaryType  @default(MONTHLY)
   /// Paise per day (DAILY) or per month (MONTHLY)
-  salaryAmount         Int         @default(0)
-  shiftId              String?
+  salaryAmount          Int         @default(0)
+  shiftId               String?
   /// Incremented on role change / suspension to force logout of all sessions
-  tokenVersion         Int         @default(0)
-  failedLogins         Int         @default(0)
-  lockedUntil          DateTime?
-  /// AES-256-GCM encrypted Aadhaar number (optional)
-  aadhaarEnc           String?
+  tokenVersion          Int         @default(0)
+  failedLogins          Int         @default(0)
+  lockedUntil           DateTime?
+  /// AES-256-GCM encrypted full Aadhaar number (only when the hotel keeps full numbers: aadhaarMode FULL)
+  aadhaarEnc            String?
+  /// Last 4 digits of the Aadhaar (Phase 2.5: the default; enough to identify a staff record)
+  aadhaarLast4          String?
+  /// Consent record: when, recorded by whom, and which consent text the staff member agreed to
+  aadhaarConsentAt      DateTime?
+  aadhaarConsentById    String?
+  aadhaarConsentVersion String?
   /// Two-factor login (Phase 2.1): encrypted TOTP secret; enabled once confirmed with a code
-  totpSecretEnc        String?
-  totpEnabledAt        DateTime?
+  totpSecretEnc         String?
+  totpEnabledAt         DateTime?
   /// Last accepted 30-second step (a code can't be used twice)
-  totpLastStep         Int?
+  totpLastStep          Int?
   /// Delivery partners: at the outlet (can take orders) vs out on a delivery run
-  deliveryAtOutlet     Boolean     @default(true)
-  deliveryRunStartedAt DateTime?
+  deliveryAtOutlet      Boolean     @default(true)
+  deliveryRunStartedAt  DateTime?
   /// Last GPS fix sent by the partner app while on duty
-  lastLat              Float?
-  lastLng              Float?
-  lastLocationAt       DateTime?
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  lastLat               Float?
+  lastLng               Float?
+  lastLocationAt        DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
   shift          Shift?               @relation(fields: [shiftId], references: [id])
   outlets        UserOutlet[]
@@ -1246,6 +1252,8 @@ model Business {
   coupons        Coupon[]
   taxRates       TaxRate[]
   supportGrants  SupportGrant[]
+  /// Staff Aadhaar storage (Phase 2.5): LAST4 = only the last 4 digits (default); FULL = full number, encrypted
+  aadhaarMode    AadhaarMode     @default(LAST4)
 }
 
 /// A tax rate a business defines for its menu (e.g. "GST 5%" = CGST 2.5 + SGST 2.5, or with cess / VAT).
@@ -1359,4 +1367,9 @@ model SupportGrant {
   business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, expiresAt])
+}
+
+enum AadhaarMode {
+  LAST4
+  FULL
 }

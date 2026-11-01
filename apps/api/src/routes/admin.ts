@@ -2,7 +2,10 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
-  aadhaarSchema,
+  aadhaarSetSchema,
+  aadhaarSettingsSchema,
+  AADHAAR_CONSENT_VERSION,
+  type AadhaarMode,
   auditLogQuerySchema,
   can,
   reportScheduleSchema,
@@ -15,6 +18,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { decrypt, encrypt, maskAadhaar, verhoeffValid } from "../lib/crypto";
+import { requireBusinessId } from "../lib/tenant";
 import { addDays, startOfLocalDay } from "../lib/time";
 import { authenticate, requireBusiness, requireOutlet, requirePermission } from "../middleware/auth";
 import { ipAllowed, normalizeIp, superAdminIpWhitelist } from "../middleware/ip-whitelist";
@@ -228,7 +232,10 @@ adminRouter.get("/export", requirePermission("data:export"), requireBusiness, as
  * the owner). The tenant filter keeps it inside one business.
  */
 async function staffInScope(req: Request) {
-  const user = await prisma.user.findUnique({ where: { id: param(req, "id") }, select: { id: true, name: true, role: true, aadhaarEnc: true, outlets: true } });
+  const user = await prisma.user.findUnique({
+    where: { id: param(req, "id") },
+    select: { id: true, name: true, role: true, aadhaarEnc: true, aadhaarLast4: true, aadhaarConsentAt: true, aadhaarConsentById: true, aadhaarConsentVersion: true, outlets: true },
+  });
   if (!user || user.role === "SUPER_ADMIN") throw notFound("Staff member");
   const me = req.user!;
   if (me.role !== "BUSINESS_OWNER") {
@@ -238,22 +245,102 @@ async function staffInScope(req: Request) {
   return user;
 }
 
+/** Aadhaar is never shown in a support view, even read-only (Phase 2.4). */
+function noSupport(req: Request) {
+  if (req.support) throw forbidden("Staff Aadhaar isn't available in a support view");
+}
+
+async function aadhaarMode(): Promise<AadhaarMode> {
+  const b = await prisma.business.findUniqueOrThrow({ where: { id: requireBusinessId() }, select: { aadhaarMode: true } });
+  return b.aadhaarMode;
+}
+
+/** Last 4 digits on file (computed from the encrypted number for records saved before Phase 2.5). */
+const last4Of = (u: { aadhaarLast4: string | null; aadhaarEnc: string | null }) => u.aadhaarLast4 ?? (u.aadhaarEnc ? decrypt(u.aadhaarEnc).slice(-4) : null);
+
+/**
+ * Save a staff member's Aadhaar with their consent (Phase 2.5). Default (LAST4): only the last
+ * 4 digits are kept — the full number is checked (Verhoeff) and dropped. FULL (hotel opt-in):
+ * the full number is stored encrypted as well.
+ */
 adminRouter.patch("/staff/:id/aadhaar", requirePermission("staff:manage"), async (req, res) => {
-  const { aadhaar } = parse(aadhaarSchema, req.body);
+  noSupport(req);
+  const { aadhaar } = parse(aadhaarSetSchema, req.body);
   if (!verhoeffValid(aadhaar)) throw badRequest("Invalid Aadhaar number (checksum failed)");
   const user = await staffInScope(req);
-  await prisma.user.update({ where: { id: user.id }, data: { aadhaarEnc: encrypt(aadhaar) } });
-  await audit(req, "staff.aadhaar_set", "User", user.id, { last4: aadhaar.slice(-4) });
-  res.json({ userId: user.id, aadhaar: maskAadhaar(aadhaar) });
+  const mode = await aadhaarMode();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      aadhaarLast4: aadhaar.slice(-4),
+      aadhaarEnc: mode === "FULL" ? encrypt(aadhaar) : null,
+      aadhaarConsentAt: new Date(),
+      aadhaarConsentById: req.user!.id,
+      aadhaarConsentVersion: `${AADHAAR_CONSENT_VERSION}:${mode}`,
+    },
+  });
+  await audit(req, "staff.aadhaar_set", "User", user.id, { last4: aadhaar.slice(-4), mode, consentVersion: AADHAAR_CONSENT_VERSION });
+  res.json({ userId: user.id, aadhaar: maskAadhaar(aadhaar), fullStored: mode === "FULL", mode });
 });
 
 adminRouter.get("/staff/:id/aadhaar", requirePermission("staff:manage"), async (req, res) => {
+  noSupport(req);
   const user = await staffInScope(req);
-  if (!user.aadhaarEnc) return res.json({ userId: user.id, aadhaar: null });
-  const plain = decrypt(user.aadhaarEnc);
-  const reveal = req.query.reveal === "1" || req.query.reveal === "true";
+  const mode = await aadhaarMode();
+  const last4 = last4Of(user);
+  const consent = user.aadhaarConsentAt ? { at: user.aadhaarConsentAt, byId: user.aadhaarConsentById, version: user.aadhaarConsentVersion } : null;
+  if (!last4) return res.json({ userId: user.id, aadhaar: null, fullStored: false, mode, consent });
+  const reveal = (req.query.reveal === "1" || req.query.reveal === "true") && Boolean(user.aadhaarEnc);
   await audit(req, reveal ? "staff.aadhaar_reveal" : "staff.aadhaar_view", "User", user.id);
-  res.json({ userId: user.id, aadhaar: reveal ? plain : maskAadhaar(plain), revealed: reveal });
+  res.json({
+    userId: user.id,
+    aadhaar: reveal ? decrypt(user.aadhaarEnc!) : `XXXX-XXXX-${last4}`,
+    revealed: reveal,
+    fullStored: Boolean(user.aadhaarEnc),
+    mode,
+    consent,
+  });
+});
+
+/** Delete a staff member's Aadhaar record (e.g. they asked for it, or left). */
+adminRouter.delete("/staff/:id/aadhaar", requirePermission("staff:manage"), async (req, res) => {
+  noSupport(req);
+  const user = await staffInScope(req);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { aadhaarEnc: null, aadhaarLast4: null, aadhaarConsentAt: null, aadhaarConsentById: null, aadhaarConsentVersion: null },
+  });
+  await audit(req, "staff.aadhaar_deleted", "User", user.id);
+  res.status(204).end();
+});
+
+/** How this hotel stores staff Aadhaar, and how many full numbers are on file. */
+adminRouter.get("/aadhaar-settings", requirePermission("staff:manage"), requireBusiness, async (req, res) => {
+  noSupport(req);
+  const mode = await aadhaarMode();
+  const fullNumbersStored = await prisma.user.count({ where: { aadhaarEnc: { not: null } } });
+  res.json({ mode, fullNumbersStored });
+});
+
+/** Owner: choose LAST4 (default) or FULL. Switching to LAST4 doesn't touch numbers already stored. */
+adminRouter.patch("/aadhaar-settings", requirePermission("outlet:manage"), requireBusiness, async (req, res) => {
+  noSupport(req);
+  const { mode } = parse(aadhaarSettingsSchema, req.body);
+  await prisma.business.update({ where: { id: requireBusinessId() }, data: { aadhaarMode: mode } });
+  await audit(req, "business.aadhaar_mode", "Business", requireBusinessId(), { mode });
+  res.json({ mode });
+});
+
+/** Owner: keep only the last 4 digits of every stored number (irreversible). */
+adminRouter.post("/aadhaar/reduce-to-last4", requirePermission("outlet:manage"), requireBusiness, async (req, res) => {
+  noSupport(req);
+  parse(z.object({ confirm: z.literal("REDUCE") }), req.body);
+  const users = await prisma.user.findMany({ where: { aadhaarEnc: { not: null } }, select: { id: true, aadhaarEnc: true, aadhaarLast4: true } });
+  await prisma.$transaction(async (tx) => {
+    for (const u of users) await tx.user.update({ where: { id: u.id }, data: { aadhaarLast4: last4Of(u), aadhaarEnc: null } });
+  });
+  await audit(req, "business.aadhaar_reduced", "Business", requireBusinessId(), { count: users.length });
+  res.json({ reduced: users.length });
 });
 
 // =====================================================================

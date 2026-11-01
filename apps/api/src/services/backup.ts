@@ -371,8 +371,8 @@ export async function tableCounts(): Promise<Record<string, number>> {
 // ---------- Data export (redacted) ----------
 
 /** Secrets never leave the server in a data export (backups are full-fidelity). */
-const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode"]);
-const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc"]);
+const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey"]);
+const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc"]);
 
 function redact(r: Row): Row {
   const out: Row = {};

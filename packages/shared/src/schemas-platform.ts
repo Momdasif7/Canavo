@@ -102,6 +102,23 @@ export const aadhaarSchema = z.object({
     .pipe(z.string().regex(/^[2-9]\d{11}$/, "Aadhaar must be 12 digits and cannot start with 0 or 1")),
 });
 
+/** Saving an Aadhaar needs the staff member's consent (Phase 2.5, DPDP Act). */
+export const aadhaarSetSchema = aadhaarSchema.extend({
+  consent: z.literal(true, { errorMap: () => ({ message: "Record the staff member's consent first" }) }),
+});
+
+export const AADHAAR_MODES = ["LAST4", "FULL"] as const;
+export type AadhaarMode = (typeof AADHAAR_MODES)[number];
+export const aadhaarSettingsSchema = z.object({ mode: z.enum(AADHAAR_MODES) });
+
+/** Version of the consent wording below; stored with each consent record. */
+export const AADHAAR_CONSENT_VERSION = "2026-11-01";
+export function aadhaarConsentText(mode: AadhaarMode, staffName: string, hotelName: string): string {
+  return mode === "FULL"
+    ? `${staffName} agrees that ${hotelName} keeps their full Aadhaar number, encrypted, for staff records (KYC). Only the owner and their manager can see it, and every view is logged. They can ask for it to be deleted.`
+    : `${staffName} agrees that ${hotelName} keeps the last 4 digits of their Aadhaar number for staff records. The full number is not stored. They can ask for it to be deleted.`;
+}
+
 export const restoreSchema = z.object({ confirm: z.literal("RESTORE") });
 
 export const auditLogQuerySchema = z.object({
