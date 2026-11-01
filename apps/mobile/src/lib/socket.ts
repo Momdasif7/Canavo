@@ -29,6 +29,12 @@ export interface ServerEvents {
   /** A partner's GPS report (`{ agentId, lat, lng, … }`) */
   "delivery:location": (p: unknown) => void;
   "inventory:low": (p: LowStockEvent) => void;
+  /** A bill was cancelled (e.g. an online order rejected) */
+  "order:cancelled": (p: { id: string }) => void;
+  /** QR / online order request: new, accepted or rejected */
+  "channel:request": (p: { id: string; action: string }) => void;
+  /** An online / aggregator order moved on the channel board */
+  "channel:board": (p: { orderId: string; stage: string }) => void;
 }
 
 type EventName = keyof ServerEvents;
