@@ -17,7 +17,10 @@ import { once } from "node:events";
 import type { Response } from "express";
 import archiver from "archiver";
 import { Prisma } from "@prisma/client";
-import { prisma } from "../db";
+import { platformPrisma, prisma as tenantPrisma } from "../db";
+
+/** Whole-platform backup/restore crosses every hotel: it runs with RLS bypassed. */
+const prisma = platformPrisma;
 import { env } from "../env";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { storageDir } from "./storage";
@@ -329,7 +332,7 @@ function businessWhere(m: DmmfModel, businessId: string, outletIds: string[], de
 }
 
 export async function streamExport(res: Response, format: "json" | "csv-zip", businessId?: string) {
-  const outletIds = businessId ? (await prisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
+  const outletIds = businessId ? (await tenantPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
   const scoped = insertOrder()
     .filter((m) => !EXCLUDED_MODELS.has(m.name))
     .map((m) => ({ m, where: businessId ? businessWhere(m, businessId, outletIds) : undefined }))
@@ -337,7 +340,8 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
   const order = scoped.map((x) => x.m);
   const whereOf = new Map(scoped.map((x) => [x.m.name, x.where ?? undefined]));
   const ts = stamp();
-  const tx = prisma as unknown as Tx;
+  // The owner's export runs on the tenant client: RLS confines it to their hotel as a second guard.
+  const tx = (businessId ? tenantPrisma : prisma) as unknown as Tx;
   if (format === "json") {
     res.setHeader("content-disposition", `attachment; filename="canavo-export-${ts}.json"`);
     res.type("application/json");

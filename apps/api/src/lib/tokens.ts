@@ -86,8 +86,8 @@ export async function rotateRefresh(raw: string) {
 
 /** Invalidate every session for a user (role change, suspension, termination). */
 export async function forceLogout(userId: string) {
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } }),
-    prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+    await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  });
 }

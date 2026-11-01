@@ -92,10 +92,10 @@ authRouter.post("/otp/verify", async (req, res) => {
     await registerFailure(user.id, user.failedLogins);
     throw unauthorized("Invalid OTP");
   }
-  await prisma.$transaction([
-    prisma.otpCode.update({ where: { id: otp.id }, data: { consumed: true } }),
-    prisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.otpCode.update({ where: { id: otp.id }, data: { consumed: true } });
+    await tx.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
+  });
   res.json(await issueSession(user, deviceId ?? req.header("x-device-id")));
 });
 

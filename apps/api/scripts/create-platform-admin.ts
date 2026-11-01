@@ -16,11 +16,13 @@ async function main() {
   if (password.length < 12 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
     throw new Error("ADMIN_PASSWORD must be at least 12 characters with upper case, lower case and a digit");
   }
-  const clash = await prisma.user.findFirst({ where: { OR: [{ email: email.toLowerCase() }, { phone }] }, select: { id: true } });
-  if (clash) throw new Error("A user with this email or phone already exists");
-  const user = await prisma.user.create({
-    data: { role: "SUPER_ADMIN", name, email: email.toLowerCase(), phone, passwordHash: await bcrypt.hash(password, 10) },
-    select: { id: true, email: true },
+  const passwordHash = await bcrypt.hash(password, 10);
+  // Platform operation: bypass row-level security for this transaction only.
+  const user = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`;
+    const clash = await tx.user.findFirst({ where: { OR: [{ email: email.toLowerCase() }, { phone }] }, select: { id: true } });
+    if (clash) throw new Error("A user with this email or phone already exists");
+    return tx.user.create({ data: { role: "SUPER_ADMIN", name, email: email.toLowerCase(), phone, passwordHash }, select: { id: true, email: true } });
   });
   console.info(`Created platform Super Admin ${user.email} (${user.id})`);
 }

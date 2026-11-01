@@ -67,7 +67,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   }
   req.user = { id: user.id, name: user.name, role: user.role, businessId: user.businessId, outletIds };
 
-  const ctx: TenantContext = {};
+  const ctx: TenantContext = { platform: isPlatformAdmin(req.user) };
   // Platform super admins never enter a hotel's data (privacy): no business context for them.
   if (user.businessId) enterBusiness(req, ctx, await loadBusiness(user.businessId));
   // Mutations carrying an Idempotency-Key are replay-safe (Phase 1.4).
