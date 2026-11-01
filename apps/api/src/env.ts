@@ -2,6 +2,8 @@ import { z } from "zod";
 
 /** Optional number where an empty string in .env means "not set". */
 const optNum = (def: number) => z.preprocess((v) => (v === "" || v === undefined ? def : v), z.coerce.number());
+/** Optional validated string where an empty string in .env means "not set" (instead of failing validation). */
+const optStr = <T extends z.ZodTypeAny>(inner: T) => z.preprocess((v) => (v === "" ? undefined : v), inner.optional());
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -10,7 +12,7 @@ const schema = z.object({
   /** Comma-separated browser origins; one "*" per entry for subdomains, e.g. https://*.vercel.app */
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   /** Redis for Socket.io across several API instances (optional; single instance without it) */
-  REDIS_URL: z.string().url().optional(),
+  REDIS_URL: optStr(z.string().url()),
   /** Where scheduled jobs run: "embedded" = in the API process; "worker" = only in `npm run worker` */
   JOBS_MODE: z.enum(["embedded", "worker"]).default("embedded"),
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
@@ -49,7 +51,7 @@ const schema = z.object({
   BACKUP_S3_BUCKET: z.string().optional(),
   BACKUP_S3_REGION: z.string().default("ap-south-1"),
   /** Custom endpoint for R2 / Backblaze / MinIO (path-style) */
-  BACKUP_S3_ENDPOINT: z.string().url().optional(),
+  BACKUP_S3_ENDPOINT: optStr(z.string().url()),
   BACKUP_S3_PREFIX: z.string().default("canavo-backups/"),
   BACKUP_S3_ACCESS_KEY_ID: z.string().optional(),
   BACKUP_S3_SECRET_ACCESS_KEY: z.string().optional(),
@@ -59,7 +61,7 @@ const schema = z.object({
   /** "pretty" = short dev lines (morgan); "json" = structured logs (always JSON in production) */
   LOG_FORMAT: z.enum(["pretty", "json"]).default("pretty"),
   /** Bearer token for GET /metrics (required to expose metrics in production) */
-  METRICS_TOKEN: z.string().min(16).optional(),
+  METRICS_TOKEN: optStr(z.string().min(16)),
 });
 
 const parsed = schema.safeParse(process.env);

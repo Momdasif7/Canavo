@@ -217,11 +217,23 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
 
 | Command | What it does |
 |---|---|
-| `npm run build` / `typecheck` / `test` | Turbo across shared, api and web (99 unit tests) |
+| `npm run build` / `typecheck` / `lint` / `test` | Turbo across shared, api and web (156 unit tests) |
+| `npm run test:integration -w @canavo/api` | Real-Postgres integration suite (37 tests): row-level security, atomic tab split, idempotency, outbox, jobs, Redis adapter, observability, delivery guards. Needs `IT_DATABASE_URL` (owner) or the local Docker DB; Redis tests use `IT_REDIS_URL`. |
+| `npm run test:smoke -w @canavo/api` | API smoke suite against a running server (`SMOKE_API_URL`) |
+| `npm run worker -w @canavo/api` | Run the background jobs in their own process (with `JOBS_MODE=worker` on the API) |
+| `npm run backup:drill -w @canavo/api` | Backup → restore into a scratch DB → compare counts and money (staging only) |
 | `npm run seed -w @canavo/api` | Seed demo data; each module's seed is idempotent |
 | `docker build -f apps/api/Dockerfile -t canavo-api .` | Production API image (runs `prisma migrate deploy` on start) |
 
 CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+## Engineering notes
+
+- **Tenant isolation, two layers:** the Prisma filter adds `businessId`, and PostgreSQL row-level security on 48 tables refuses other hotels' rows even if a query forgets its filter. See [ADR 0001](docs/build/adr/0001-row-level-security.md).
+- **Events after a change** (KOTs, live updates, alerts) are written to an outbox in the same transaction and then delivered. A crash can't lose them. See [ADR 0003](docs/build/adr/0003-transactional-outbox.md).
+- **Retries are safe:** the web and mobile apps send an `Idempotency-Key` on every change. A repeated request returns the first result.
+- **New behaviour ships behind per-hotel feature flags,** OFF for existing hotels: [FEATURE_FLAGS.md](docs/build/FEATURE_FLAGS.md).
+- **Build programme status:** [docs/build/ROADMAP_STATUS.md](docs/build/ROADMAP_STATUS.md).
 
 ## Deployment
 
@@ -230,7 +242,8 @@ The frontend, backend and database deploy separately. The step-by-step guide is 
 - **Frontend:** Vercel with root `apps/web` ([vercel.json](apps/web/vercel.json)) and `NEXT_PUBLIC_API_URL` set to the API's URL.
 - **Backend:** Render Docker web service ([render.yaml](render.yaml), [apps/api/Dockerfile](apps/api/Dockerfile)). Migrations run on start; the health check is `/ready`.
   - Set `CORS_ORIGINS` (wildcards like `https://*.vercel.app` work), `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
-  - Background jobs run in-process, so run a **single** API instance.
+  - Background jobs run on pg-boss in the separate **canavo-worker** service (`JOBS_MODE=worker`), or inside the API with `JOBS_MODE=embedded`. Several instances never double-run a job. Set `REDIS_URL` before running more than one API instance.
+  - Connect as a normal (non-superuser) database role, so row-level security is enforced.
   - Create the first Super Admin with `npm run create-admin -w @canavo/api`. The demo seed refuses to run in production.
 - **Database:** Render Postgres 16 (or Neon / Supabase / RDS via `DATABASE_URL`).
 - **Mobile:** `eas build -p android --profile production`, then `eas submit`. Store listing steps are in [apps/mobile/STORE_RELEASE.md](apps/mobile/STORE_RELEASE.md). Publishing needs your Google Play and Apple developer accounts.
@@ -242,4 +255,3 @@ The frontend, backend and database deploy separately. The step-by-step guide is 
 - **GSTR-1** covers B2CS, HSN and the document summary. B2B, B2CL and credit notes aren't generated, because buyer GSTINs aren't captured.
 - **Face-recognition clock-in** isn't implemented; PIN and biometric are.
 - **Flat coupons and points** reduce the pre-tax value, so "₹50 off" saves the customer about ₹52.50 including 5% GST.
-- **Splitting a tab into several bills** isn't atomic across the bills. If one fails, the others stay and the tab refreshes.

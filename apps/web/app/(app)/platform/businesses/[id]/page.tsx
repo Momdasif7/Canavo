@@ -216,7 +216,7 @@ function FeaturesCard({ business, onSaved }: { business: BusinessDetail; onSaved
               <div className="min-w-0">
                 <p className="font-semibold">{f.label}</p>
                 <p className="mt-0.5 text-sm text-muted">{f.description}</p>
-                {missing.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Needs the {missing.join(", ")} module — no effect until it's enabled.</p>}
+                {missing.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Needs the {missing.join(", ")} module — no effect until it&apos;s enabled.</p>}
               </div>
               <Toggle checked={on} disabled={busy === key} onChange={(v) => void flip(key, v)} label={f.label} />
             </li>

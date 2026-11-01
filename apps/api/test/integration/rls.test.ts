@@ -91,4 +91,15 @@ describe("row-level security", () => {
   it("the platform client (explicit cross-hotel work) still sees everything", async () => {
     expect(await platformPrisma.order.count({ where: { id: { in: [orderA.id, orderB.id] } } })).toBe(2);
   });
+
+  it("every table has forced RLS except the reviewed platform/infrastructure tables (a new table without a policy fails here)", async () => {
+    const rows = await rawPrisma.$queryRaw<{ relname: string }[]>`
+      SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> '_prisma_migrations'
+        AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+      ORDER BY 1`;
+    // Business: the tenant root (looked up by id). OutboxEvent: read only by the publisher (platform client).
+    // IdempotencyKey: per user. OtpCode, Setting: no hotel data.
+    expect(rows.map((r) => r.relname)).toEqual(["Business", "IdempotencyKey", "OtpCode", "OutboxEvent", "Setting"]);
+  });
 });
