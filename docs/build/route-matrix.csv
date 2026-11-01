@@ -137,7 +137,11 @@ GET /platform/businesses,platform.ts,yes,,,(any logged-in user / in-handler),,al
 GET /platform/businesses/:id,platform.ts,yes,,,(any logged-in user / in-handler),,all
 GET /platform/summary,platform.ts,yes,,,(any logged-in user / in-handler),,all
 GET /platform/support-grants,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /public/o/:slug,storefront-public.ts,NO,,,(public),,all
+GET /public/o/:slug/orders/:token,storefront-public.ts,NO,,,(public),,all
 GET /public/receipts/:token,public.ts,NO,,,(public),,all
+GET /public/t/:token,storefront-public.ts,NO,,,(public),,all
+GET /public/t/:token/orders,storefront-public.ts,NO,,,(public),,all
 GET /reports/:reportKey,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /reports/daily,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
 GET /reports/gstr1,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
@@ -150,6 +154,9 @@ GET /settlements,settlements.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_
 GET /staff,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER AUDITOR
 GET /staff/:id/performance,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER AUDITOR
 GET /staff/roles,staff.ts,yes,yes,,any(staff:manage | outlet:manage),,BUSINESS_OWNER OUTLET_MANAGER
+GET /storefront/requests,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /storefront/settings,storefront.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /storefront/tables,storefront.ts,yes,yes,,any(channel:manage | table:manage),CHANNELS | TABLES,BUSINESS_OWNER OUTLET_MANAGER
 GET /support-access,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
 GET /support-access/:id/activity,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
 GET /tables,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
@@ -246,7 +253,6 @@ POST /channels/connection/retry-failed,channels.ts,yes,yes,,channel:manage,CHANN
 POST /channels/connection/store,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
 POST /channels/connection/test,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
 POST /channels/orders/:orderId/status,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
-POST /channels/hub/:connectionId/webhook,channels.ts,NO,,,(public; HMAC per connection),CHANNELS,all
 POST /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 POST /customers/:id/block,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
 POST /customers/:id/khata/remind,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
@@ -313,6 +319,10 @@ POST /platform/businesses,platform.ts,yes,,,(any logged-in user / in-handler),,a
 POST /platform/businesses/:id/owners/:userId/reset-2fa,platform.ts,yes,,,(any logged-in user / in-handler),,all
 POST /platform/businesses/:id/owners/:userId/reset-link,platform.ts,yes,,,(any logged-in user / in-handler),,all
 POST /platform/businesses/:id/users,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /public/o/:slug/orders,storefront-public.ts,NO,,,(public),,all
+POST /public/o/:slug/orders/:token/upi,storefront-public.ts,NO,,,(public),,all
+POST /public/t/:token/call,storefront-public.ts,NO,,,(public),,all
+POST /public/t/:token/orders,storefront-public.ts,NO,,,(public),,all
 POST /reservations,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 POST /reservations/:id/cancel,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
 POST /reservations/:id/no-show,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
@@ -322,6 +332,9 @@ POST /staff,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff/:id/reset-2fa,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff/:id/reset-link,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
 POST /staff/roles,staff.ts,yes,yes,,outlet:manage,,BUSINESS_OWNER
+POST /storefront/requests/:id/accept,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /storefront/requests/:id/reject,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /storefront/tables/:id/rotate,storefront.ts,yes,yes,,any(channel:manage | table:manage),CHANNELS | TABLES,BUSINESS_OWNER OUTLET_MANAGER
 POST /support-access,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
 POST /support-access/:id/revoke,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
 POST /tables,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
@@ -344,4 +357,5 @@ PUT /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CU
 PUT /inventory/audits/:id/counts,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 PUT /inventory/recipes/:menuItemId,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
 PUT /menu/items/:id/override,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+PUT /storefront/settings,storefront.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
 PUT /tables/layout,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
