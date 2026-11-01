@@ -83,7 +83,8 @@ Super Admin (platform operator)   — /platform console: onboard businesses, pic
      ├─ Business Owner             — every outlet, staff and setting of that business; creates managers and staff; exports its data
      └─ Outlet
          ├─ Outlet Manager         — the outlet, including GST & tax settings; creates cashier/kitchen/delivery/inventory staff
-         └─ Cashier · Kitchen · Delivery · Inventory staff
+         └─ Cashier · Waiter / Captain · Kitchen · Delivery · Inventory staff · Accountant · Auditor (read-only)
+                (owners can also define custom roles that narrow a built-in role)
 ```
 
 - **Privacy:** the Super Admin can't open any hotel, unless its owner grants read-only support access (Settings → Support access). That access is time-limited and can be ended any time, and every screen viewed is shown to the owner.

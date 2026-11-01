@@ -11,6 +11,7 @@ Per-hotel switches for new behaviour. Every flag is **OFF** unless the Super Adm
 | `REQUIRE_CASH_SHIFT` | Cash payments (and gift cards sold for cash) need an open cash-drawer shift. Offline syncs are exempt. Off: shifts are optional. | `BILLING` | Phase 3.2 | none |
 | `GIFT_CARDS` | Sell closed-loop gift cards and accept them as payment (with split payments, refunds back to the card, and blocking). | `BILLING` | Phase 3.8 | none |
 | `OFFLINE_INVOICE_SERIES` | Each billing device gets its own invoice series (e.g. `INVA1-2026-00007`), so bills raised offline print their final number (mobile app). Off: offline receipts are provisional (`OFF-…`) and numbered at sync. | `BILLING` | Phase 3.4 | none |
+| `ANOMALY_ALERTS` | Every 15 minutes, owners get a push when something looks wrong at an outlet. It fires at most once per outlet per day for each of: 3+ voids or voids above 5% of sales; a single refund or void above ₹2,000; a closed cash shift ₹200+ out; 3+ discounts above the approval limit; or sales below half of the same weekday last week (when last week had 10+ bills by then). | `BILLING` | Phase 4.3 | none |
 | `CLOCK_IN_SELFIE` | Staff take a front-camera selfie to clock in on the app. It is stored with the attendance record for the manager. No face matching. | `ATTENDANCE` | Phase 2.6 (D7) | none |
 
 Not flags (they apply to everyone, because they are security fixes without a visible rule change for hotels):

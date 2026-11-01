@@ -7,8 +7,8 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | 0 Recon and gap confirmation | — | ✅ Done | [phase-0.md](phase-0.md) |
 | 1 Foundation and data safety | 8 (0 / 3 / 5) + indexes + delivery route guards | ✅ Done | [phase-1.md](phase-1.md) |
 | 2 Security and accounts | 8 (0 / 6 / 2) | ✅ Done | [phase-2.md](phase-2.md) |
-| 3 Money integrity | 8 (2 / 2 / 4) | ✅ Done; **awaiting your review** | [phase-3.md](phase-3.md) |
-| 4 Roles and owner experience | 4 (1 / 1 / 2) | Not started (pilot set) | — |
+| 3 Money integrity | 8 (2 / 2 / 4) | ✅ Done | [phase-3.md](phase-3.md) |
+| 4 Roles and owner experience | 4 (1 / 1 / 2) | ✅ Done; **awaiting your review** — pilot set complete | [phase-4.md](phase-4.md) |
 | 5 Canteen and institutional | 5 (0 / 2 / 3) | Not started | — |
 | 6 Sales channels | 4 (0 / 0 / 4) | Not started; needs vendor decision D3 | — |
 | 7 Kitchen, tables, delivery | 4 (0 / 4 / 0) | Not started | — |
@@ -62,7 +62,16 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | 3.7 | Why this offer won, combining | ✅ comparison on the POS; per-offer "can combine" |
 | 3.8 | Card ref, settlement, tips, gift cards | ✅ `GIFT_CARDS` flag; Reports → Settlements |
 
+## Phase 4 items
+
+| # | Item | Result |
+|---|---|---|
+| 4.1 | Waiter / Captain role | ✅ tables and KOTs only, no payments |
+| 4.2 | Custom roles, Accountant / Auditor, platform Support | ✅ custom roles only narrow a base role; Auditor read-only server-side; `platform:view` vs `platform:manage` |
+| 4.3 | Owner dashboard + anomaly push | ✅ owner summary (mobile + web tiles); `ANOMALY_ALERTS` flag |
+| 4.4 | Role-specific home screens | ✅ existed; new roles land correctly |
+
 ## Open decisions carried forward
 
 - D3, D5: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)). D2, D7, D13, D16 were answered on 2026-11-01. D1 and D6 were applied as recommended in Phase 3: please confirm.
-- Please confirm the decisions in [phase-3.md §Decisions](phase-3.md#decisions-please-confirm).
+- Please confirm the decisions in [phase-4.md §Decisions](phase-4.md#decisions-please-confirm).

@@ -100,7 +100,7 @@ describe("@smoke CANAVO", () => {
     const perms = (k: string) => S[k]!.me.permissions as string[];
     expect(S.super_admin!.me.platformAdmin).toBe(true);
     expect(S.super_admin!.me.outlets).toHaveLength(0);
-    expect(perms("super_admin").sort()).toEqual(["admin:backup", "audit:view", "platform:manage"]);
+    expect(perms("super_admin").sort()).toEqual(["admin:backup", "audit:view", "platform:manage", "platform:view"]);
     expect(perms("cashier")).toContain("order:create");
     expect(perms("cashier")).not.toContain("report:view");
     expect(perms("kitchen")).toContain("kot:view");
