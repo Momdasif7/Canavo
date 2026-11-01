@@ -644,35 +644,45 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
   }
   const label = (await sessionLabel(session)).slice(0, 20);
   const byId = new Map(items.map((i) => [i.id, i]));
-  const orders = [];
-  for (const g of groups) {
-    const groupItems = g.itemIds.map((id) => byId.get(id)!);
-    const input: OrderCreateInput = {
-      orderType: "DINE_IN",
-      tableLabel: label,
-      customerName: body.customerName ?? session.customerName ?? undefined,
-      customerPhone: body.customerPhone ?? session.customerPhone ?? undefined,
-      interState: body.interState,
-      items: groupItems.map((i) => ({
-        menuItemId: i.menuItemId,
-        variantId: i.variantId ?? undefined,
-        addonIds: i.addonIds,
-        quantity: i.quantity,
-        notes: [i.seat ? `Seat ${i.seat}` : null, i.notes].filter(Boolean).join(" · ") || undefined,
-      })),
-      discount: body.discount,
-      couponCode: body.couponCode,
-      redeemPoints: body.redeemPoints,
-      notes: [body.notes, groups.length > 1 ? g.label : null].filter(Boolean).join(" · ") || undefined,
-    };
-    const { order } = await runWithSessionBill({ sessionId: session.id, itemIds: g.itemIds }, () =>
-      createOrder(req, input, { skipKot: true, tableSessionId: session.id, skipAvailability: true }),
-    );
-    // Link the already-fired KOTs to this bill (a KOT shared across split bills links to the first).
-    const kotIds = [...new Set(groupItems.map((i) => i.kotId).filter((k): k is string => Boolean(k)))];
-    if (kotIds.length) await prisma.kotTicket.updateMany({ where: { id: { in: kotIds }, orderId: null }, data: { orderId: order.id } });
-    orders.push({ group: g.label, seat: g.seat, itemIds: g.itemIds, order });
-  }
+  // All split bills, their item marks and KOT links commit together or not at all (Phase 1.6).
+  const effects: (() => void)[] = [];
+  const orders = await prisma.$transaction(
+    async (tx) => {
+      const created = [];
+      for (const g of groups) {
+        const groupItems = g.itemIds.map((id) => byId.get(id)!);
+        const input: OrderCreateInput = {
+          orderType: "DINE_IN",
+          tableLabel: label,
+          customerName: body.customerName ?? session.customerName ?? undefined,
+          customerPhone: body.customerPhone ?? session.customerPhone ?? undefined,
+          interState: body.interState,
+          items: groupItems.map((i) => ({
+            menuItemId: i.menuItemId,
+            variantId: i.variantId ?? undefined,
+            addonIds: i.addonIds,
+            quantity: i.quantity,
+            notes: [i.seat ? `Seat ${i.seat}` : null, i.notes].filter(Boolean).join(" · ") || undefined,
+          })),
+          discount: body.discount,
+          couponCode: body.couponCode,
+          redeemPoints: body.redeemPoints,
+          notes: [body.notes, groups.length > 1 ? g.label : null].filter(Boolean).join(" · ") || undefined,
+        };
+        const result = await runWithSessionBill({ sessionId: session.id, itemIds: g.itemIds }, () =>
+          createOrder(req, input, { skipKot: true, tableSessionId: session.id, skipAvailability: true, tx }),
+        );
+        effects.push(result.effects);
+        // Link the already-fired KOTs to this bill (a KOT shared across split bills links to the first).
+        const kotIds = [...new Set(groupItems.map((i) => i.kotId).filter((k): k is string => Boolean(k)))];
+        if (kotIds.length) await tx.kotTicket.updateMany({ where: { id: { in: kotIds }, orderId: null }, data: { orderId: result.order.id } });
+        created.push({ group: g.label, seat: g.seat, itemIds: g.itemIds, order: result.order });
+      }
+      return created;
+    },
+    { timeout: 30_000 },
+  );
+  effects.forEach((run) => run());
   const detail = await sessionDetail(session.id, outletId);
   emitTables(outletId, { tableIds: [session.tableId, ...session.mergedTableIds], sessionId: session.id, action: "bill" });
   res.status(201).json({

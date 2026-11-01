@@ -22,6 +22,12 @@ import { checkLowStockAfterOrder, deductStockForOrder } from "./inventory";
 import { resolveItemTax, taxConfigForOutlet, taxSnapshot } from "./tax";
 import { alertKitchenNewKots } from "./alerts";
 
+/**
+ * Failure-injection seam for integration tests only (never active outside NODE_ENV=test):
+ * runs at the end of the order transaction, before commit.
+ */
+export const billingTestHooks: { beforeCommit?: (input: OrderCreateInput) => void | Promise<void> } = {};
+
 export interface CreateOrderOptions {
   /** Items were already sent to the kitchen (dine-in running tab) — don't fire KOTs again */
   skipKot?: boolean;
@@ -29,6 +35,13 @@ export interface CreateOrderOptions {
   tableSessionId?: string;
   /** Items were already served (running tab) — don't reject for out-of-stock or serving hours */
   skipAvailability?: boolean;
+  /**
+   * Run inside the caller's transaction (e.g. a tab split billing several orders
+   * atomically). Side effects that must only happen after commit (socket events,
+   * kitchen alerts, low-stock checks) are then returned as `effects` for the
+   * caller to run after its transaction commits, instead of being run here.
+   */
+  tx?: Prisma.TransactionClient;
 }
 
 const orderInclude = {
@@ -65,7 +78,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     });
     if (existing) {
       if (existing.outletId !== outletId) throw badRequest("clientOrderId belongs to another outlet");
-      return { order: existing, duplicate: true };
+      return { order: existing, duplicate: true, effects: () => undefined };
     }
   }
 
@@ -148,7 +161,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
 
   const fy = financialYearStart(createdAt, outlet.timezone);
 
-  const order = await prisma.$transaction(async (tx) => {
+  const persist = async (tx: Prisma.TransactionClient) => {
     const counter = await tx.invoiceCounter.upsert({
       where: { outletId_fyStart: { outletId, fyStart: fy } },
       create: { outletId, fyStart: fy, lastSeq: 1 },
@@ -255,8 +268,10 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     }
 
     await audit(req, "order.create", "Order", created.id, { invoiceNumber, grandTotal: bill.grandTotal, offline }, tx);
+    if (process.env.NODE_ENV === "test") await billingTestHooks.beforeCommit?.(input);
     return tx.order.findUniqueOrThrow({ where: { id: created.id }, include: orderInclude });
-  });
+  };
+  const order = opts.tx ? await persist(opts.tx) : await prisma.$transaction(persist);
 
   const orderSummary = {
     id: order.id,
@@ -266,16 +281,21 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     notes: order.notes,
     status: order.status,
   };
-  // Same shape as GET /kot so displays can insert tickets without refetching.
-  const released = order.kots.filter((k) => !k.releaseAt || k.releaseAt <= new Date());
-  if (released.length) {
-    emitToOutlet(outletId, "kot:new", released.map((k) => ({ ...k, order: orderSummary })));
-    const where = order.tableLabel ? `Table ${order.tableLabel}` : order.orderType === "DELIVERY" ? "Delivery" : order.orderType === "PRE_ORDER" ? "Pre-order" : "Takeaway";
-    void alertKitchenNewKots(outletId, released, `${where} · ${order.invoiceNumber}`);
-  }
-  checkLowStockAfterOrder(outletId, order.id).catch((e) => console.error("[inventory] low-stock check failed", e));
-  emitToOutlet(outletId, "order:created", { id: order.id, invoiceNumber: order.invoiceNumber });
-  return { order, duplicate: false };
+  const effects = () => {
+    // Same shape as GET /kot so displays can insert tickets without refetching.
+    const released = order.kots.filter((k) => !k.releaseAt || k.releaseAt <= new Date());
+    if (released.length) {
+      emitToOutlet(outletId, "kot:new", released.map((k) => ({ ...k, order: orderSummary })));
+      const where = order.tableLabel ? `Table ${order.tableLabel}` : order.orderType === "DELIVERY" ? "Delivery" : order.orderType === "PRE_ORDER" ? "Pre-order" : "Takeaway";
+      void alertKitchenNewKots(outletId, released, `${where} · ${order.invoiceNumber}`);
+    }
+    checkLowStockAfterOrder(outletId, order.id).catch((e) => console.error("[inventory] low-stock check failed", e));
+    emitToOutlet(outletId, "order:created", { id: order.id, invoiceNumber: order.invoiceNumber });
+  };
+  // In the caller's transaction nothing is committed yet: the caller runs effects after commit.
+  if (opts.tx) return { order, duplicate: false, effects };
+  effects();
+  return { order, duplicate: false, effects: () => undefined };
 }
 
 export const amountPaid = (order: { payments: { status: string; amount: number }[] }) =>
