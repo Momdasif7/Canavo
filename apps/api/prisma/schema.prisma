@@ -429,6 +429,7 @@ model Order {
   @@unique([outletId, invoiceNumber])
   @@index([outletId, createdAt])
   @@index([customerId])
+  @@index([outletId, status, createdAt])
 }
 
 model OrderItem {
@@ -458,6 +459,8 @@ model OrderItem {
   notes         String?
   order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem      MenuItem @relation(fields: [menuItemId], references: [id])
+  @@index([orderId])
+  @@index([menuItemId])
 }
 
 enum KotStatus {
@@ -488,6 +491,9 @@ model KotTicket {
   session   TableSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([outletId, status])
+  @@index([orderId])
+  @@index([sessionId])
+  @@index([outletId, createdAt])
 }
 
 enum PaymentMode {
@@ -520,6 +526,7 @@ model Payment {
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([collectedById])
+  @@index([orderId])
 }
 
 // ---------- Audit & notifications ----------
@@ -556,6 +563,7 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
+  @@index([userId, createdAt])
 }
 
 // =====================================================================
@@ -664,6 +672,7 @@ model TableSessionItem {
   billedOrderId String?
   createdAt     DateTime     @default(now())
   session       TableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([sessionId])
 }
 
 enum ReservationStatus {
@@ -757,6 +766,7 @@ model Delivery {
 
   @@index([outletId, status])
   @@index([agentId, status])
+  @@index([outletId, createdAt])
 }
 
 // ---------- Customers, loyalty, khata ----------
@@ -996,6 +1006,7 @@ model InventoryTransaction {
 
   @@index([outletId, inventoryItemId, createdAt])
   @@index([refType, refId])
+  @@index([outletId, createdAt])
 }
 
 /// Ingredient usage per sold unit of a menu item (optionally per variant).
@@ -1011,6 +1022,7 @@ model Recipe {
   item            InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
 
   @@index([menuItemId, variantId])
+  @@index([inventoryItemId])
 }
 
 model Vendor {
