@@ -122,8 +122,8 @@ export function setBusinessId(id: string | null) {
 
 /**
  * Support view (Phase 2.4): the platform admin opens a hotel whose owner granted support
- * access. Kept per browser tab (sessionStorage), sent as X-Support-Business; requests that
- * pass businessId: null (the platform console) never carry it.
+ * access. Kept per browser tab (sessionStorage), sent as X-Support-Business; platform console
+ * requests (support: false) never carry it.
  */
 const SUPPORT_KEY = "canavo.support";
 let supportBusinessId: string | null = (() => {
@@ -285,6 +285,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Send the bearer token (default true) */
   auth?: boolean;
+  /** false = never send the support-view header (platform console requests) */
+  support?: boolean;
 }
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -304,7 +306,7 @@ async function send(path: string, opts: RequestOptions, token: string | undefine
   if (outlet) headers["x-outlet-id"] = outlet;
   const business = opts.businessId === undefined ? businessId : opts.businessId;
   if (business) headers["x-business-id"] = business;
-  if (supportBusinessId && opts.businessId !== null) headers["x-support-business"] = supportBusinessId;
+  if (supportBusinessId && opts.support !== false) headers["x-support-business"] = supportBusinessId;
   if (opts.idempotencyKey) headers["idempotency-key"] = opts.idempotencyKey;
   let body: BodyInit | undefined;
   if (opts.rawBody !== undefined) {
