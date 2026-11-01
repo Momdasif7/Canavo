@@ -8,7 +8,7 @@
  * - Normalises API errors ({ error, details }) into ApiError.
  * - Reports reachability so the UI can switch to offline mode.
  */
-import type { Session } from "./types";
+import type { MfaChallenge, Session } from "./types";
 
 /**
  * API base. Either absolute (http://localhost:4000) or a same-origin path such
@@ -325,8 +325,16 @@ export const api = {
 };
 
 // ---------- Auth helpers ----------
-export async function login(email: string, password: string): Promise<Session> {
-  const s = await json<Session>("/auth/login", { method: "POST", body: { email, password }, auth: false, outletId: null });
+/** Password sign-in. With two-step login on, returns the challenge instead (call verifyTwoFactor next). */
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
+  const s = await json<Session | MfaChallenge>("/auth/login", { method: "POST", body: { email, password }, auth: false, outletId: null });
+  if (!("mfaRequired" in s)) setSession(s);
+  return s;
+}
+
+/** Second sign-in step: a 6-digit app code or a recovery code. */
+export async function verifyTwoFactor(mfaToken: string, input: { code?: string; recoveryCode?: string }): Promise<Session> {
+  const s = await json<Session>("/auth/2fa/verify", { method: "POST", body: { mfaToken, ...input }, auth: false, outletId: null });
   setSession(s);
   return s;
 }

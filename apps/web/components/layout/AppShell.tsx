@@ -33,7 +33,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (status === "anonymous") router.replace(`/login`);
   }, [status, router]);
 
-  if (status === "loading" || status === "anonymous") return <LoadingState label="Loading your workspace…" />;
+  // The hotel requires two-step login for this role (REQUIRE_2FA): only Account → Security works until it's on.
+  const mustSetUp2fa = Boolean(me?.twoFactorSetupRequired) && pathname !== "/account/security";
+  useEffect(() => {
+    if (mustSetUp2fa) router.replace("/account/security");
+  }, [mustSetUp2fa, router]);
+
+  if (status === "loading" || status === "anonymous" || mustSetUp2fa) return <LoadingState label="Loading your workspace…" />;
   if (status === "error" || !me) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2">

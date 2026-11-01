@@ -19,6 +19,7 @@ import { createDefaultTaxRates } from "../services/tax-defaults";
 import { alertModulesChanged } from "../services/alerts";
 import { onFeaturesChanged } from "../services/features";
 import { sendPasswordLink } from "../services/password-links";
+import { disableTwoFactor } from "../services/two-factor";
 
 /**
  * Platform console (CANAVO operator / super admin): onboard client businesses,
@@ -57,7 +58,7 @@ platformRouter.get("/summary", async (_req, res) => {
 });
 
 /** Account information only — hotel data (staff, bills, sales…) stays private to the hotel. */
-const ownerFields = { id: true, name: true, phone: true, email: true, status: true, createdAt: true } as const;
+const ownerFields = { id: true, name: true, phone: true, email: true, status: true, createdAt: true, totpEnabledAt: true } as const;
 
 platformRouter.get("/businesses", async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
@@ -190,6 +191,17 @@ platformRouter.post("/businesses/:id/owners/:userId/reset-link", async (req, res
   const delivery = await sendPasswordLink(owner, "RESET", req.user!.id);
   await audit(req, "platform.owner.reset_link", "User", owner.id, { businessId, channel: delivery.channel });
   res.json(delivery);
+});
+
+/** Owner lost their phone and recovery codes: turn off two-step login and sign them out. */
+platformRouter.post("/businesses/:id/owners/:userId/reset-2fa", async (req, res) => {
+  const businessId = param(req, "id");
+  const owner = await db.user.findFirst({ where: { id: param(req, "userId"), businessId, role: "BUSINESS_OWNER" }, select: { id: true } });
+  if (!owner) throw notFound("Owner");
+  await disableTwoFactor(owner.id);
+  await forceLogout(owner.id);
+  await audit(req, "platform.owner.reset_2fa", "User", owner.id, { businessId });
+  res.json({ ok: true });
 });
 
 platformRouter.get("/admins", async (_req, res) => {

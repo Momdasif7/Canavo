@@ -97,6 +97,17 @@ export interface Me {
   outlets: OutletRef[];
   /** Effective permissions = role ∩ enabled modules. Gate UI on these. */
   permissions: Permission[];
+  /** Two-step login is on for this account */
+  twoFactorEnabled?: boolean;
+  /** The hotel requires two-step login for this role and it isn't on yet (only Account → Security works) */
+  twoFactorSetupRequired?: boolean;
+}
+
+/** First step of sign-in when two-step login is on: exchange the ticket + a code at /auth/2fa/verify. */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
 }
 
 export interface Outlet {
@@ -412,6 +423,8 @@ export interface Staff {
   salaryAmount: number;
   shiftId: string | null;
   createdAt: string;
+  /** Two-step login turned on (null = off) */
+  totpEnabledAt?: string | null;
   outlets: { outletId: string }[];
 }
 

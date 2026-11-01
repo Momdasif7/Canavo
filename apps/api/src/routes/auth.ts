@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, passwordProblems,
   otpRequestSchema,
+  type Role,
   otpVerifySchema,
   passwordLoginSchema,
   refreshSchema,
@@ -16,9 +17,20 @@ import { isProd } from "../env";
 import { badRequest, notFound, parse, unauthorized, HttpError } from "../lib/http";
 import { issueSession, listSessions, revokeOtherSessions, revokeSession, rotateRefresh, sha256, type SessionMeta } from "../lib/tokens";
 import { consumePasswordLink, sendPasswordLink } from "../services/password-links";
+import {
+  beginTwoFactorSetup,
+  checkSecondFactor,
+  disableTwoFactor,
+  enableTwoFactor,
+  MFA_TICKET_TTL_SECONDS,
+  regenerateRecoveryCodes,
+  signMfaTicket,
+  twoFactorStatus,
+  verifyMfaTicket,
+} from "../services/two-factor";
 import type { Request } from "express";
 import { sendOtpSms } from "../services/sms";
-import { authenticate } from "../middleware/auth";
+import { authenticate, TWO_FACTOR_REQUIRED_ROLES } from "../middleware/auth";
 
 export const authRouter = Router();
 
@@ -27,7 +39,7 @@ const LOCK_MS = 15 * 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 const ipLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
-authRouter.use(["/login", "/otp"], ipLimiter);
+authRouter.use(["/login", "/otp", "/2fa/verify"], ipLimiter);
 // Password links: few legitimate requests, so a tight limit (also slows enumeration and SMS/email abuse).
 const linkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
 authRouter.use("/password", linkLimiter);
@@ -68,9 +80,21 @@ authRouter.post("/login", async (req, res) => {
     await registerFailure(user.id, user.failedLogins);
     throw unauthorized("Invalid email or password");
   }
-  await prisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
-  res.json(await issueSession(user, sessionMeta(req)));
+  res.json(await completeFirstStep(req, user));
 });
+
+/**
+ * After the password / phone OTP: with two-step login on, return a short-lived ticket for
+ * POST /auth/2fa/verify. The failure counter is NOT reset yet, so wrong codes still lead to
+ * the lockout even for someone who knows the password.
+ */
+async function completeFirstStep(req: Request, user: { id: string; role: Role; tokenVersion: number; totpEnabledAt: Date | null }, deviceId?: string | null) {
+  if (user.totpEnabledAt) {
+    return { mfaRequired: true as const, mfaToken: signMfaTicket(user), expiresIn: MFA_TICKET_TTL_SECONDS, methods: ["totp", "recovery"] };
+  }
+  await platformPrisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
+  return issueSession(user, sessionMeta(req, deviceId));
+}
 
 authRouter.post("/otp/request", async (req, res) => {
   const { phone } = parse(otpRequestSchema, req.body);
@@ -109,11 +133,8 @@ authRouter.post("/otp/verify", async (req, res) => {
     await registerFailure(user.id, user.failedLogins);
     throw unauthorized("Invalid OTP");
   }
-  await prisma.$transaction(async (tx) => {
-    await tx.otpCode.update({ where: { id: otp.id }, data: { consumed: true } });
-    await tx.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
-  });
-  res.json(await issueSession(user, sessionMeta(req, deviceId)));
+  await prisma.otpCode.update({ where: { id: otp.id }, data: { consumed: true } });
+  res.json(await completeFirstStep(req, user, deviceId));
 });
 
 authRouter.post("/refresh", async (req, res) => {
@@ -131,6 +152,72 @@ authRouter.post("/logout", async (req, res) => {
     });
   }
   res.status(204).end();
+});
+
+// ---------- Two-step login (Phase 2.1) ----------
+
+const secondFactorSchema = z
+  .object({ code: z.string().trim().max(10).optional(), recoveryCode: z.string().trim().max(20).optional() })
+  .refine((v) => v.code || v.recoveryCode, "Enter the 6-digit code or a recovery code");
+
+const verifySchema = z.object({ mfaToken: z.string().min(10).max(2000), deviceId: z.string().max(200).optional() }).and(secondFactorSchema);
+
+/** Second step of sign-in: the code from the authenticator app, or a recovery code. */
+authRouter.post("/2fa/verify", async (req, res) => {
+  const { mfaToken, deviceId, code, recoveryCode } = parse(verifySchema, req.body);
+  const ticket = verifyMfaTicket(mfaToken);
+  const user = await platformPrisma.user.findUnique({ where: { id: ticket.sub } });
+  if (!user || user.status !== "ACTIVE" || user.tokenVersion !== ticket.tv) throw unauthorized("The sign-in step expired. Start again.");
+  await assertBusinessActive(user.businessId);
+  assertNotLocked(user);
+  const method = await checkSecondFactor(user.id, { code, recoveryCode });
+  if (!method) {
+    await registerFailure(user.id, user.failedLogins);
+    throw unauthorized(recoveryCode ? "That recovery code is wrong or already used" : "That code is wrong or already used");
+  }
+  if (method === "recovery") {
+    const left = await platformPrisma.recoveryCode.count({ where: { userId: user.id, usedAt: null } });
+    await securityAudit(req, user, "auth.2fa.recovery_code_used", { left });
+  }
+  await platformPrisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
+  res.json(await issueSession(user, sessionMeta(req, deviceId)));
+});
+
+authRouter.get("/2fa", authenticate, async (req, res) => {
+  res.json(await twoFactorStatus(req.user!.id));
+});
+
+authRouter.post("/2fa/setup", authenticate, async (req, res) => {
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { id: true, email: true, phone: true } });
+  res.json(await beginTwoFactorSetup(user));
+});
+
+authRouter.post("/2fa/enable", authenticate, async (req, res) => {
+  const { code } = parse(z.object({ code: z.string().trim().min(6).max(10) }), req.body);
+  const recoveryCodes = await enableTwoFactor(req.user!.id, code);
+  await securityAudit(req, { id: req.user!.id, businessId: req.user!.businessId }, "auth.2fa.enabled");
+  res.json({ recoveryCodes });
+});
+
+const disableSchema = z.object({ password: z.string().max(200).optional() }).and(secondFactorSchema);
+
+/** Turn off: needs a current code (or recovery code), plus the password when the account has one. */
+authRouter.post("/2fa/disable", authenticate, async (req, res) => {
+  const { password, code, recoveryCode } = parse(disableSchema, req.body);
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { id: true, businessId: true, passwordHash: true } });
+  if (user.passwordHash && !(password && (await bcrypt.compare(password, user.passwordHash)))) throw badRequest("Password is wrong");
+  if (!(await checkSecondFactor(user.id, { code, recoveryCode }))) throw badRequest("That code is wrong or already used");
+  await disableTwoFactor(user.id);
+  await securityAudit(req, user, "auth.2fa.disabled");
+  res.json({ ok: true });
+});
+
+authRouter.post("/2fa/recovery-codes", authenticate, async (req, res) => {
+  const { code, recoveryCode } = parse(secondFactorSchema, req.body);
+  if (!(await checkSecondFactor(req.user!.id, { code, recoveryCode }))) throw badRequest("That code is wrong or already used");
+  const recoveryCodes = await regenerateRecoveryCodes(req.user!.id);
+  await securityAudit(req, { id: req.user!.id, businessId: req.user!.businessId }, "auth.2fa.recovery_codes_regenerated");
+  res.json({ recoveryCodes });
 });
 
 // ---------- Password links (Phase 2.2) ----------
@@ -214,6 +301,7 @@ authRouter.get("/me", authenticate, async (req, res) => {
       photoUrl: true,
       shift: true,
       businessId: true,
+      totpEnabledAt: true,
       outlets: { select: { outlet: { select: { id: true, name: true, businessId: true } } } },
     },
   });
@@ -235,10 +323,13 @@ authRouter.get("/me", authenticate, async (req, res) => {
   const features = business
     ? Object.fromEntries(FEATURE_KEYS.filter((k) => featureEnabled(normalizeFeatures(business.features), k, modules)).map((k) => [k, true]))
     : {};
-  const { outlets: _assigned, ...profile } = user;
+  const { outlets: _assigned, totpEnabledAt, ...profile } = user;
   res.json({
     ...profile,
     platformAdmin,
+    twoFactorEnabled: Boolean(totpEnabledAt),
+    // The hotel requires two-step login for this role and it isn't on yet: the app sends them to Account → Security.
+    twoFactorSetupRequired: !totpEnabledAt && TWO_FACTOR_REQUIRED_ROLES.includes(user.role) && Boolean(features.REQUIRE_2FA),
     business: business ? { id: business.id, name: business.name, status: business.status, modules } : null,
     modules,
     features,

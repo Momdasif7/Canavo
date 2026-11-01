@@ -25,6 +25,13 @@ export interface Tokens {
   expiresIn: number;
 }
 
+/** First sign-in step when two-step login is on: send the ticket + a code to /auth/2fa/verify. */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
+}
+
 export interface OtpRequestResponse {
   ok: boolean;
   expiresIn: number;

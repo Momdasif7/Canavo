@@ -19,6 +19,11 @@ export const FEATURES = {
     description: "Menu items (or sizes) whose ingredient stock can't cover one portion become unavailable on the POS, and come back when restocked.",
     requires: ["INVENTORY"],
   },
+  REQUIRE_2FA: {
+    label: "Require two-step login for owners and managers",
+    description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",
+    requires: [],
+  },
 } as const satisfies Record<string, FeatureInfo>;
 
 export type FeatureKey = keyof typeof FEATURES;

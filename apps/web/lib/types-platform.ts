@@ -60,6 +60,8 @@ export interface BusinessOwner {
   email: string | null;
   status: StaffStatus;
   createdAt: string;
+  /** Two-step login turned on (null = off) */
+  totpEnabledAt?: string | null;
 }
 
 export interface BusinessOutlet {

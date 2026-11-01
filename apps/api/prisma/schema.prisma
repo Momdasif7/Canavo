@@ -97,6 +97,11 @@ model User {
   lockedUntil          DateTime?
   /// AES-256-GCM encrypted Aadhaar number (optional)
   aadhaarEnc           String?
+  /// Two-factor login (Phase 2.1): encrypted TOTP secret; enabled once confirmed with a code
+  totpSecretEnc        String?
+  totpEnabledAt        DateTime?
+  /// Last accepted 30-second step (a code can't be used twice)
+  totpLastStep         Int?
   /// Delivery partners: at the outlet (can take orders) vs out on a delivery run
   deliveryAtOutlet     Boolean     @default(true)
   deliveryRunStartedAt DateTime?
@@ -111,6 +116,7 @@ model User {
   outlets        UserOutlet[]
   refreshTokens  RefreshToken[]
   passwordTokens PasswordResetToken[]
+  recoveryCodes  RecoveryCode[]
   attendance     StaffAttendance[]
   leaves         LeaveRequest[]       @relation("leaveApplicant")
   leaveReviews   LeaveRequest[]       @relation("leaveReviewer")
@@ -1324,4 +1330,16 @@ model OutboxEvent {
   createdAt   DateTime  @default(now())
 
   @@index([deliveredAt, failedAt, availableAt])
+}
+
+/// Single-use 2FA recovery codes (Phase 2.1); only hashes are stored.
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

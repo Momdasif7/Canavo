@@ -1,9 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { withIdempotency } from "../lib/idempotency";
-import { normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
+import { featureEnabled, normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { sessionActive, verifyAccess } from "../lib/tokens";
-import { badRequest, forbidden, notFound, unauthorized } from "../lib/http";
+import { badRequest, forbidden, HttpError, notFound, unauthorized } from "../lib/http";
 import { runWithTenant, tenant, type TenantContext } from "../lib/tenant";
 
 export interface AuthUser {
@@ -32,6 +32,11 @@ declare global {
 
 const isPlatformAdmin = (u: AuthUser) => u.role === "SUPER_ADMIN" && !u.businessId;
 
+/** Roles a hotel can require two-step login for (feature REQUIRE_2FA). */
+export const TWO_FACTOR_REQUIRED_ROLES: Role[] = ["BUSINESS_OWNER", "OUTLET_MANAGER"];
+export const mustSetUpTwoFactor = (user: { role: Role; totpEnabledAt: Date | null }, ctx: TenantContext) =>
+  !user.totpEnabledAt && TWO_FACTOR_REQUIRED_ROLES.includes(user.role) && featureEnabled(ctx.features, "REQUIRE_2FA", ctx.modules);
+
 async function loadBusiness(id: string) {
   const b = await platformPrisma.business.findUnique({ where: { id }, select: { id: true, status: true, modules: true, features: true } });
   if (!b) throw notFound("Business");
@@ -57,7 +62,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const claims = verifyAccess(header.slice(7));
   const user = await platformPrisma.user.findUnique({
     where: { id: claims.sub },
-    select: { id: true, name: true, role: true, status: true, tokenVersion: true, businessId: true, outlets: true },
+    select: { id: true, name: true, role: true, status: true, tokenVersion: true, businessId: true, outlets: true, totpEnabledAt: true },
   });
   // tokenVersion mismatch → role changed or force-logged-out since token was issued
   if (!user || user.status !== "ACTIVE" || user.tokenVersion !== claims.tv) {
@@ -75,6 +80,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const ctx: TenantContext = { platform: isPlatformAdmin(req.user) };
   // Platform super admins never enter a hotel's data (privacy): no business context for them.
   if (user.businessId) enterBusiness(req, ctx, await loadBusiness(user.businessId));
+  // REQUIRE_2FA (Phase 2.1): owners/managers without two-step login may only reach /auth/* (to set it up).
+  if (mustSetUpTwoFactor(user, ctx) && !req.originalUrl.startsWith("/auth/")) {
+    throw new HttpError(403, "Your hotel requires two-step login. Turn it on under Account → Security first.", { code: "TWO_FACTOR_SETUP_REQUIRED" });
+  }
   // Mutations carrying an Idempotency-Key are replay-safe (Phase 1.4).
   await runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
 }

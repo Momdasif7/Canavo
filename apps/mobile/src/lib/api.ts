@@ -51,6 +51,7 @@ import type {
   Receipt,
   SyncResult,
   Tokens,
+  MfaChallenge,
   UpiQrResponse,
   WhatsAppShareResponse,
 } from "./types";
@@ -334,9 +335,11 @@ export const endpoints = {
   // Auth
   requestOtp: (phone: string) => api.post<OtpRequestResponse>("/auth/otp/request", { phone }, { auth: false }),
   verifyOtp: (phone: string, code: string, deviceId: string) =>
-    api.post<Tokens>("/auth/otp/verify", { phone, code, deviceId }, { auth: false }),
+    api.post<Tokens | MfaChallenge>("/auth/otp/verify", { phone, code, deviceId }, { auth: false }),
   passwordLogin: (email: string, password: string) =>
-    api.post<Tokens>("/auth/login", { email, password }, { auth: false }),
+    api.post<Tokens | MfaChallenge>("/auth/login", { email, password }, { auth: false }),
+  verifyTwoFactor: (mfaToken: string, input: { code?: string; recoveryCode?: string }, deviceId: string) =>
+    api.post<Tokens>("/auth/2fa/verify", { mfaToken, deviceId, ...input }, { auth: false }),
   logout: (refreshToken: string) => api.post<void>("/auth/logout", { refreshToken }, { auth: false }),
   me: () => api.get<Me>("/auth/me"),
 

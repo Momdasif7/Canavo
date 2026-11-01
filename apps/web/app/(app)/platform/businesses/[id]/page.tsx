@@ -33,6 +33,7 @@ export default function BusinessDetailPage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<BusinessOwner | null>(null);
+  const [resetting2fa, setResetting2fa] = useState<BusinessOwner | null>(null);
   const b = detail.data;
 
   /** Merge a PATCH response (business columns only) into the loaded detail. */
@@ -80,7 +81,7 @@ export default function BusinessDetailPage() {
         <div className="space-y-5">
           <ModulesCard business={b} onSaved={applyUpdate} />
           <FeaturesCard business={b} onSaved={applyUpdate} />
-          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} />
+          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} onReset2fa={setResetting2fa} />
         </div>
         <div className="space-y-5">
           <DetailsCard business={b} onSaved={applyUpdate} />
@@ -118,6 +119,27 @@ export default function BusinessDetailPage() {
         }}
       />
       <SendResetLinkDialog businessId={b.id} owner={resetting} onClose={() => setResetting(null)} />
+      <ConfirmDialog
+        open={resetting2fa !== null}
+        title="Reset two-step login"
+        description={
+          resetting2fa
+            ? `Only when ${resetting2fa.name} has lost both their phone and their recovery codes. Their two-step login is turned off and they're signed out everywhere; they sign in with their password and can turn it on again.`
+            : undefined
+        }
+        confirmLabel="Reset two-step login"
+        onClose={() => setResetting2fa(null)}
+        onConfirm={async () => {
+          try {
+            await platformApi.post(`/platform/businesses/${b.id}/owners/${resetting2fa!.id}/reset-2fa`, {});
+          } catch (e) {
+            throw new Error(errorMessage(e));
+          }
+          toast(`Two-step login reset for ${resetting2fa!.name}`, "success");
+          setResetting2fa(null);
+          void detail.reload();
+        }}
+      />
     </PageContainer>
   );
 }
@@ -311,7 +333,17 @@ function OutletsCard({ business }: { business: BusinessDetail }) {
   );
 }
 
-function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail; onCreate: () => void; onReset: (o: BusinessOwner) => void }) {
+function OwnersCard({
+  business,
+  onCreate,
+  onReset,
+  onReset2fa,
+}: {
+  business: BusinessDetail;
+  onCreate: () => void;
+  onReset: (o: BusinessOwner) => void;
+  onReset2fa: (o: BusinessOwner) => void;
+}) {
   return (
     <Card>
       <CardHeader
@@ -346,13 +378,23 @@ function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail;
                   </p>
                 </Td>
                 <Td>
-                  <Badge tone={u.status === "ACTIVE" ? "success" : "neutral"}>{u.status.toLowerCase()}</Badge>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge tone={u.status === "ACTIVE" ? "success" : "neutral"}>{u.status.toLowerCase()}</Badge>
+                    {u.totpEnabledAt && <Badge tone="info">2-step on</Badge>}
+                  </div>
                 </Td>
                 <Td className="whitespace-nowrap text-muted">{formatDate(u.createdAt)}</Td>
                 <Td className="text-right">
-                  <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
-                    Send reset link
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {u.totpEnabledAt && (
+                      <Button size="sm" variant="ghost" onClick={() => onReset2fa(u)}>
+                        Reset 2-step
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
+                      Send reset link
+                    </Button>
+                  </div>
                 </Td>
               </tr>
             ))}

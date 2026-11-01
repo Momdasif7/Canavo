@@ -5,6 +5,8 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { forbidden, notFound, param, parse } from "../lib/http";
 import { forceLogout } from "../lib/tokens";
+import { disableTwoFactor } from "../services/two-factor";
+import { sendPasswordLink } from "../services/password-links";
 import { authenticate, requireOutlet, requirePermission } from "../middleware/auth";
 import { startOfLocalDay, addDays } from "../lib/time";
 
@@ -23,6 +25,7 @@ const publicFields = {
   salaryAmount: true,
   shiftId: true,
   createdAt: true,
+  totpEnabledAt: true,
   outlets: { select: { outletId: true } },
 } as const;
 
@@ -133,6 +136,29 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   if (roleChanged || deactivated) await forceLogout(id);
   await audit(req, "staff.update", "User", id, { fields: Object.keys(data), forcedLogout: Boolean(roleChanged || deactivated) });
   res.json(user);
+});
+
+/** Someone below you lost their phone: turn off their two-step login and sign them out (Phase 2.1). */
+staffRouter.post("/:id/reset-2fa", requirePermission("staff:manage"), async (req, res) => {
+  const id = param(req, "id");
+  if (id === req.user!.id) throw forbidden("Turn off your own two-step login under Account → Security");
+  const existing = await loadStaff(req, id);
+  assertCanAssign(req, existing.role);
+  await disableTwoFactor(id);
+  await forceLogout(id);
+  await audit(req, "staff.reset_2fa", "User", id);
+  res.json({ ok: true });
+});
+
+/** Send someone below you a one-time link to set a new password (you never see it). */
+staffRouter.post("/:id/reset-link", requirePermission("staff:manage"), async (req, res) => {
+  const id = param(req, "id");
+  const existing = await loadStaff(req, id);
+  if (id !== req.user!.id) assertCanAssign(req, existing.role);
+  if (existing.status !== "ACTIVE") throw forbidden("This account is not active");
+  const delivery = await sendPasswordLink({ id, name: existing.name, email: existing.email, phone: existing.phone }, "RESET", req.user!.id);
+  await audit(req, "staff.reset_link", "User", id, { channel: delivery.channel });
+  res.json(delivery);
 });
 
 /** Staff performance: bills raised, sales value, items sold and attendance over the last N days. */
