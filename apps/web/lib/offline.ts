@@ -15,6 +15,11 @@ import type { Menu, Order, Outlet, PaymentMode, SyncResult } from "./types";
 export interface QueuedPayment {
   mode: PaymentMode;
   amount: number;
+  /** Phase 3.8 (online only): tip, card details, gift card code */
+  tip?: number;
+  cardLast4?: string;
+  authCode?: string;
+  giftCardCode?: string;
 }
 
 export interface QueuedOrder {

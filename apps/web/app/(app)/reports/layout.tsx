@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bank,
   Buildings,
   ChartLineUp,
   Clock,
@@ -32,6 +33,7 @@ const TABS: TabLink[] = [
   { href: "/reports/inventory", label: "Inventory", icon: Package },
   { href: "/reports/delivery", label: "Delivery", icon: Moped },
   { href: "/reports/exceptions", label: "Exceptions", icon: WarningOctagon },
+  { href: "/reports/settlements", label: "Settlements", icon: Bank },
   { href: "/reports/outlets", label: "All outlets", icon: Buildings },
 ];
 

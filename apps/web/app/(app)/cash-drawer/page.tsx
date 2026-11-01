@@ -25,6 +25,8 @@ interface Summary {
   voids: { count: number; amount: number };
   payments: Record<string, { count: number; amount: number }>;
   counterCash: number;
+  cashTips?: number;
+  giftCardCashSales?: number;
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
@@ -301,6 +303,8 @@ function SummaryTable({ summary: m }: { summary: Summary }) {
       <div className="my-2 border-t border-line" />
       <Row label="Opening float" value={formatINR(m.openingFloat)} />
       <Row label="+ Cash sales at the counter" value={formatINR(m.counterCash)} />
+      {(m.cashTips ?? 0) > 0 && <Row label="+ Cash tips" value={formatINR(m.cashTips!)} />}
+      {(m.giftCardCashSales ?? 0) > 0 && <Row label="+ Gift cards sold for cash" value={formatINR(m.giftCardCashSales!)} />}
       {m.deliveryCashHandedOver > 0 && <Row label="+ Delivery cash handed over" value={formatINR(m.deliveryCashHandedOver)} />}
       {m.payIns > 0 && <Row label="+ Pay-ins" value={formatINR(m.payIns)} />}
       {m.payOuts > 0 && <Row label="− Pay-outs" value={formatINR(m.payOuts)} />}

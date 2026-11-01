@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Bank, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Trash, WifiSlash } from "@phosphor-icons/react";
+import { Bank, Gift, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Trash, WifiSlash } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { api, errorMessage, isNetworkError } from "@/lib/api";
 import { PAYMENT_MODE_LABELS, parseRupees, rupeesInput } from "@/lib/format";
@@ -13,13 +13,14 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/States";
+import { useSession } from "@/components/providers/SessionProvider";
 import { UpiQrPanel } from "./UpiQrPanel";
 
 export type Checkout =
   | { kind: "online"; order: Order }
   | { kind: "offline"; total: number; customerPhone?: string };
 
-type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "COD";
+type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "GIFT" | "COD";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "CASH", label: "Cash", icon: <Money size={22} /> },
@@ -27,6 +28,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "CARD", label: "Card", icon: <CreditCard size={22} /> },
   { id: "SPLIT", label: "Split", icon: <SplitHorizontal size={22} /> },
   { id: "KHATA", label: "Khata", icon: <Notebook size={22} /> },
+  { id: "GIFT", label: "Gift card", icon: <Gift size={22} /> },
 ];
 
 interface SplitRow {
@@ -82,6 +84,14 @@ export function PaymentDialog({
   const [tab, setTab] = useState<Tab>("CASH");
   const [tendered, setTendered] = useState("");
   const [reference, setReference] = useState("");
+  // Phase 3.8: card details, tip, gift card
+  const [cardLast4, setCardLast4] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [tip, setTip] = useState("");
+  const [giftCode, setGiftCode] = useState("");
+  const [gift, setGift] = useState<{ balance: number; usable: boolean; message: string | null } | null>(null);
+  const [giftRestMode, setGiftRestMode] = useState<PaymentMode>("CASH");
+  const { me } = useSession();
   const [split, setSplit] = useState<SplitRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +115,11 @@ export function PaymentDialog({
     setAdvanceApplied(false);
     setTendered("");
     setReference("");
+    setCardLast4("");
+    setAuthCode("");
+    setTip("");
+    setGiftCode("");
+    setGift(null);
     setError(null);
     if (suggestedSplit && suggestedSplit.length > 1) {
       setTab("SPLIT");
@@ -149,14 +164,43 @@ export function PaymentDialog({
   const splitRemaining = amount - splitTotal;
   const suggestions = useMemo(() => cashSuggestions(amount), [amount]);
 
+  const tipPaise = !offline && (tab === "CASH" || tab === "CARD") ? (parseRupees(tip) ?? 0) : 0;
+  const giftUse = gift?.usable ? Math.min(gift.balance, amount) : 0;
+  const tabs = TABS.filter((t) => t.id !== "GIFT" || (Boolean(me?.features?.GIFT_CARDS) && !offline));
+
+  const checkGift = async () => {
+    setGift(null);
+    try {
+      const c = await api.get<{ balance: number; active: boolean; expired: boolean }>(`/gift-cards/code/${encodeURIComponent(giftCode.trim())}`);
+      const problem = !c.active ? "This card is blocked" : c.expired ? "This card has expired" : c.balance <= 0 ? "No balance left" : null;
+      setGift({ balance: c.balance, usable: !problem, message: problem });
+    } catch (e) {
+      setGift({ balance: 0, usable: false, message: errorMessage(e) });
+    }
+  };
+
   /** Payments for the active tab, or an error string. */
   const build = (): { payments: QueuedPayment[]; tendered?: number } | string => {
     switch (tab) {
       case "CASH":
-        if (tenderedPaise !== null && tenderedPaise < amount) return "Cash received is less than the amount due";
-        return { payments: [{ mode: "CASH", amount }], tendered: tenderedPaise ?? amount };
+        if (tenderedPaise !== null && tenderedPaise < amount + tipPaise) return "Cash received is less than the amount due";
+        return { payments: [{ mode: "CASH", amount, ...(tipPaise > 0 && { tip: tipPaise }) }], tendered: tenderedPaise ?? amount + tipPaise };
       case "CARD":
-        return { payments: [{ mode: "CARD", amount }] };
+        if (cardLast4 && !/^\d{4}$/.test(cardLast4)) return "Enter the card's last 4 digits";
+        return {
+          payments: [{ mode: "CARD", amount, ...(tipPaise > 0 && { tip: tipPaise }), ...(cardLast4 && { cardLast4 }), ...(authCode.trim() && { authCode: authCode.trim() }) }],
+        };
+      case "GIFT": {
+        if (!gift?.usable) return "Check the gift card first";
+        const rest = amount - giftUse;
+        return {
+          payments: [
+            { mode: "GIFT_CARD", amount: giftUse, giftCardCode: giftCode.trim() },
+            ...(rest > 0 ? [{ mode: giftRestMode, amount: rest }] : []),
+          ],
+          ...(rest > 0 && giftRestMode === "CASH" && { tendered: rest }),
+        };
+      }
       case "UPI":
         return { payments: [{ mode: "UPI", amount }] };
       case "COD":
@@ -183,7 +227,7 @@ export function PaymentDialog({
       setError(built);
       return;
     }
-    const cashPart = built.payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
+    const cashPart = built.payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount + (p.tip ?? 0), 0);
     const changeDue = built.tendered !== undefined ? built.tendered - cashPart : 0;
     if (checkout.kind === "offline") {
       onPaidOffline(built.payments, built.tendered, changeDue);
@@ -329,8 +373,8 @@ export function PaymentDialog({
         </button>
       )}
 
-      <div role="tablist" className="mb-4 grid grid-cols-5 gap-1.5">
-        {TABS.map((t) => (
+      <div role="tablist" className={clsx("mb-4 grid gap-1.5", tabs.length > 5 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-5")}>
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -412,16 +456,78 @@ export function PaymentDialog({
         ))}
 
       {tab === "CARD" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            label="Card last 4 digits (optional)"
+            inputMode="numeric"
+            maxLength={4}
+            value={cardLast4}
+            onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))}
+            prefix={<CreditCard size={18} />}
+            disabled={offline}
+          />
+          <Input
+            label="Approval code (optional)"
+            maxLength={20}
+            value={authCode}
+            onChange={(e) => setAuthCode(e.target.value.toUpperCase())}
+            prefix={<Bank size={18} />}
+            disabled={offline}
+            hint={offline ? "Card details can be added later from Bills." : "From the card machine slip; used to match the bank settlement."}
+          />
+        </div>
+      )}
+
+      {!offline && (tab === "CASH" || tab === "CARD") && (
         <Input
-          label="Card reference (optional)"
-          placeholder="Last 4 digits / approval code"
-          maxLength={100}
-          value={reference}
-          onChange={(e) => setReference(e.target.value)}
-          prefix={<Bank size={18} />}
-          disabled={offline}
-          hint={offline ? "Reference can be added later from Bills." : "Swipe on the card machine, then collect."}
+          label="Tip (optional)"
+          inputMode="decimal"
+          prefix="₹"
+          value={tip}
+          onChange={(e) => setTip(e.target.value.replace(/[^\d.]/g, ""))}
+          wrapperClassName="mt-3 max-w-[200px]"
+          hint="On top of the bill. Not part of sales; no GST."
         />
+      )}
+
+      {tab === "GIFT" && (
+        <div className="space-y-3">
+          <div className="flex items-end gap-2">
+            <Input
+              label="Gift card code"
+              wrapperClassName="flex-1"
+              value={giftCode}
+              onChange={(e) => {
+                setGiftCode(e.target.value.toUpperCase());
+                setGift(null);
+              }}
+              placeholder="GC-XXXXX-XXXXX"
+            />
+            <Button variant="outline" disabled={giftCode.trim().length < 6} onClick={() => void checkGift()}>
+              Check
+            </Button>
+          </div>
+          {gift && !gift.usable && <Alert>{gift.message}</Alert>}
+          {gift?.usable && (
+            <div className="space-y-2 text-sm">
+              <p>
+                Balance <strong className="tabular">{formatINR(gift.balance)}</strong> · uses <strong className="tabular">{formatINR(giftUse)}</strong>
+              </p>
+              {amount - giftUse > 0 && (
+                <label className="flex items-center gap-2">
+                  Pay the rest ({formatINR(amount - giftUse)}) by
+                  <select value={giftRestMode} onChange={(e) => setGiftRestMode(e.target.value as PaymentMode)} className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold">
+                    {(["CASH", "UPI", "CARD"] as PaymentMode[]).map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_MODE_LABELS[m]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {tab === "KHATA" && (
@@ -446,7 +552,7 @@ export function PaymentDialog({
                 onChange={(e) => setSplit((rows) => rows.map((r) => (r.id === row.id ? { ...r, mode: e.target.value as PaymentMode } : r)))}
                 className="min-h-tap w-32 rounded-xl border border-line bg-surface px-3 font-semibold"
               >
-                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => (
+                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).filter((m) => m !== "GIFT_CARD").map((m) => (
                   <option key={m} value={m}>
                     {PAYMENT_MODE_LABELS[m]}
                   </option>

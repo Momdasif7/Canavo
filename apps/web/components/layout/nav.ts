@@ -24,7 +24,7 @@ import {
   Storefront,
   type Icon,
 } from "@phosphor-icons/react";
-import { Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
+import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
 export interface NavItem {
@@ -99,6 +99,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/tables", label: "Tables", icon: SquaresFour, anyOf: ["table:serve", "table:manage"] },
       { href: "/bills", label: "Bills", icon: Receipt, anyOf: ["bills:view"] },
       { href: "/cash-drawer", label: "Cash drawer", icon: Vault, anyOf: ["payment:collect"] },
+      { href: "/gift-cards", label: "Gift cards", icon: Gift, anyOf: ["payment:collect"] },
       { href: "/reservations", label: "Reservations", icon: CalendarPlus, anyOf: ["reservation:manage"] },
     ],
   },
