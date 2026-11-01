@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import type { Role } from "@prisma/client";
 import { createApp } from "../../src/app";
 import { platformPrisma as db } from "../../src/db";
-import { initRealtime } from "../../src/realtime";
+import { initRealtime, socketEmitter } from "../../src/realtime";
+import { startOutboxPublisher, stopOutboxPublisher } from "../../src/lib/outbox";
 import { createDefaultTaxRates } from "../../src/services/tax-defaults";
 
 export const PASSWORD = "Integration@123";
@@ -14,10 +15,18 @@ const hash = async () => (pwHash ??= await bcrypt.hash(PASSWORD, 4));
 /** Start the real Express app + Socket.io on a random port. */
 export async function startServer() {
   const server = http.createServer(createApp());
-  initRealtime(server);
+  const io = initRealtime(server);
+  startOutboxPublisher(socketEmitter());
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { base, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return {
+    base,
+    close: async () => {
+      stopOutboxPublisher();
+      await io.close();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
 }
 
 let seq = 0;

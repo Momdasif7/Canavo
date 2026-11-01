@@ -1272,3 +1272,28 @@ model IdempotencyKey {
   @@unique([userId, key])
   @@index([expiresAt])
 }
+
+/// Transactional outbox (Phase 1.3): events written in the same transaction as the change,
+/// delivered after commit by the API's publisher (socket emits, push, follow-up tasks), with retries.
+model OutboxEvent {
+  seq         BigInt    @id @default(autoincrement())
+  /// Business the event belongs to (handlers run in its tenant context); null = platform
+  businessId  String?
+  /// socket.outlet | socket.user | task
+  kind        String
+  /// outletId / userId for socket kinds
+  target      String?
+  /// socket event name, or task name
+  name        String
+  payload     Json
+  attempts    Int       @default(0)
+  /// Not before this time (also the claim lease while a publisher works on it)
+  availableAt DateTime  @default(now())
+  deliveredAt DateTime?
+  /// Gave up after max attempts (dead letter, kept for inspection)
+  failedAt    DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([deliveredAt, failedAt, availableAt])
+}

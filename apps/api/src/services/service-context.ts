@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { DeliveryStatus, Outlet, Prisma } from "@prisma/client";
 import { can, distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
 import { prisma } from "../db";
+import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { badRequest, forbidden, HttpError } from "../lib/http";
 import { autoAssignEnabled, canTakeOrder, notifyNoPartner, pickAvailablePartner } from "./delivery-assign";
 
@@ -304,10 +305,10 @@ export async function onOrderCreatedService(tx: Tx, orderId: string, input: Orde
         notes: d.notes,
       },
     });
-    afterCommit(() => announceDelivery(delivery.id));
+    await outboxTask(tx, "delivery.announce", { deliveryId: delivery.id });
     if (!agentId) {
       const inv = (await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { invoiceNumber: true } })).invoiceNumber;
-      afterCommit(() => notifyNoPartner(order.outletId, inv));
+      await outboxTask(tx, "delivery.noPartner", { outletId: order.outletId, invoiceNumber: inv });
     }
   }
 }
@@ -317,7 +318,7 @@ export async function onOrderCancelledService(tx: Tx, orderId: string): Promise<
   const delivery = await tx.delivery.findUnique({ where: { orderId } });
   if (delivery && delivery.status !== "DELIVERED" && delivery.status !== "CANCELLED") {
     await tx.delivery.update({ where: { id: delivery.id }, data: { status: "CANCELLED" } });
-    afterCommit(() => announceDelivery(delivery.id));
+    await outboxTask(tx, "delivery.announce", { deliveryId: delivery.id });
   }
   const order = await tx.order.findUnique({ where: { id: orderId }, select: { tableSessionId: true } });
   if (order?.tableSessionId) {
@@ -326,12 +327,8 @@ export async function onOrderCancelledService(tx: Tx, orderId: string): Promise<
   }
 }
 
-/** Run once the surrounding transaction has (most likely) committed; callers re-check state. */
-function afterCommit(fn: () => Promise<void>) {
-  setTimeout(() => fn().catch((e) => console.error("[service] post-commit hook failed", e)), 300);
-}
-
-async function announceDelivery(deliveryId: string) {
+/** Outbox task "delivery.announce": tell the board / partner about a delivery after its transaction committed. */
+export async function announceDelivery(deliveryId: string) {
   const { emitToOutlet } = await import("../realtime");
   const { notify } = await import("./notify");
   const d = await prisma.delivery.findUnique({ where: { id: deliveryId }, include: { order: { select: { invoiceNumber: true, grandTotal: true } } } });
@@ -363,8 +360,5 @@ export async function onOrderPaidService(tx: Tx, orderId: string): Promise<void>
   await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });
   // The tab is paid, so its food has been served — clear its tickets from the kitchen display.
   await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED" } });
-  afterCommit(async () => {
-    const { emitToOutlet } = await import("../realtime");
-    emitToOutlet(order.outletId, "table:updated", { tableIds, sessionId: session.id, action: "close" });
-  });
+  await outboxEmitOutlet(tx, order.outletId, "table:updated", { tableIds, sessionId: session.id, action: "close" });
 }

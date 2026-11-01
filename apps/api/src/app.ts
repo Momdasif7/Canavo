@@ -1,4 +1,5 @@
 import express from "express";
+import "./outbox-tasks";
 import cors from "cors";
 import { allowedOrigin } from "./lib/cors";
 import { platformPrisma } from "./db";

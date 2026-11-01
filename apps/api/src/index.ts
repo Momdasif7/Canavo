@@ -2,35 +2,39 @@ import "./env";
 import http from "node:http";
 import { createApp } from "./app";
 import { env } from "./env";
-import { initRealtime } from "./realtime";
-import { prisma } from "./db";
-import { stopJobs } from "./jobs";
-import { registerJobs as registerServiceJobs } from "./jobs-service";
-import { registerJobs as registerCrmJobs } from "./jobs-crm";
-import { registerJobs as registerPlatformJobs } from "./jobs-platform";
-import { registerJobs as registerInventoryJobs } from "./jobs-inventory";
-import { registerJobs as registerAlertJobs } from "./jobs-notifications";
+import { initRealtime, socketEmitter } from "./realtime";
+import { platformPrisma, prisma } from "./db";
+import { startJobs, stopJobs } from "./jobs";
+import { registerAllJobs } from "./jobs-all";
+import { startOutboxPublisher, stopOutboxPublisher } from "./lib/outbox";
 
 const server = http.createServer(createApp());
 initRealtime(server);
+// This process owns the sockets, so it delivers outbox events (several API instances are safe).
+startOutboxPublisher(socketEmitter());
 
-if (env.NODE_ENV !== "test") {
-  registerServiceJobs();
-  registerCrmJobs();
-  registerPlatformJobs();
-  registerInventoryJobs();
-  registerAlertJobs();
+if (env.NODE_ENV !== "test" && env.JOBS_MODE === "embedded") {
+  registerAllJobs();
+  startJobs({ tick: true, work: true }).catch((e) => console.error("[jobs] failed to start", e));
 }
 
 server.listen(env.PORT, () => {
-  console.info(`CANAVO API listening on http://localhost:${env.PORT} (docs: /docs)`);
+  console.info(`CANAVO API listening on http://localhost:${env.PORT} (docs: /docs) · jobs: ${env.JOBS_MODE}`);
 });
 
-const shutdown = async () => {
-  stopJobs();
-  server.close();
-  await prisma.$disconnect();
+let stopping = false;
+const shutdown = async (signal: string) => {
+  if (stopping) return;
+  stopping = true;
+  console.info(`[api] ${signal}: draining…`);
+  // Stop taking new connections, let in-flight requests finish (max 10 s), then stop background work.
+  const closed = new Promise<void>((r) => server.close(() => r()));
+  const timeout = new Promise<void>((r) => setTimeout(r, 10_000).unref());
+  await Promise.race([closed, timeout]);
+  stopOutboxPublisher();
+  await stopJobs();
+  await Promise.allSettled([prisma.$disconnect(), platformPrisma.$disconnect()]);
   process.exit(0);
 };
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

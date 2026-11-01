@@ -9,6 +9,8 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   /** Comma-separated browser origins; one "*" per entry for subdomains, e.g. https://*.vercel.app */
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  /** Where scheduled jobs run: "embedded" = in the API process; "worker" = only in `npm run worker` */
+  JOBS_MODE: z.enum(["embedded", "worker"]).default("embedded"),
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
   TRUST_PROXY: z.string().default("loopback, linklocal, uniquelocal"),
   PUBLIC_API_URL: z.string().default("http://localhost:4000"),

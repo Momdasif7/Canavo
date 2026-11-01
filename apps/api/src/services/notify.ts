@@ -1,5 +1,6 @@
 import { getWaConfig, sendWhatsApp } from "./whatsapp";
-import { prisma } from "../db";
+import { platformPrisma, prisma } from "../db";
+import { outboxTask } from "../lib/outbox";
 import { currentBusinessId } from "../lib/tenant";
 import { env } from "../env";
 import { emitToUser } from "../realtime";
@@ -81,10 +82,12 @@ export async function notify(userIds: string[], title: string, body: string, kin
   for (const r of rows) emitToUser(r.userId, "notification", { id: r.id, title, body, kind, link, outletId, createdAt, read: false });
   const idByUser = Object.fromEntries(rows.map((r) => [r.userId, { id: r.id }]));
   // External channels are best-effort and never block / fail the caller.
-  void deliverExternal(ids, title, body, kind, link, outletId, idByUser).catch((e) => console.error("[notify] external delivery failed", e));
+  // External channels via the outbox: survives a crash and never blocks / fails the caller.
+  await outboxTask(platformPrisma, "notify.external", { userIds: ids, title, body, kind, link, outletId, idByUser });
 }
 
-async function deliverExternal(
+/** Outbox task "notify.external": push / SMS / email / WhatsApp for a notification. */
+export async function deliverExternal(
   userIds: string[],
   title: string,
   body: string,

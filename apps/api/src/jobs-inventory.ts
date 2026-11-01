@@ -74,7 +74,7 @@ export async function refreshAllMenuAvailability(opts: { silent?: boolean } = {}
       const c = await refreshMenuAvailability(prisma, outlet.id);
       if (opts.silent) {
         if (c.length) emitToOutlet(outlet.id, "menu:changed", { ids: c.map((x) => x.id), stock: true });
-      } else announceAvailability(outlet.id, c);
+      } else await announceAvailability(prisma, outlet.id, c);
       return c.length;
     });
   }

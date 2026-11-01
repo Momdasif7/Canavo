@@ -15,7 +15,9 @@
     "postinstall": "prisma generate",
     "test:smoke": "vitest run -c vitest.smoke.config.ts",
     "create-admin": "tsx --env-file-if-exists=.env scripts/create-platform-admin.ts",
-    "test:integration": "vitest run -c vitest.integration.config.ts"
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "worker": "tsx --env-file-if-exists=.env src/worker.ts",
+    "start:worker": "node dist/worker.js"
   },
   "dependencies": {
     "@canavo/shared": "*",
@@ -32,6 +34,7 @@
     "multer": "^2.4.0",
     "nodemailer": "^10.0.13",
     "pdfkit": "^0.17.2",
+    "pg-boss": "10.4.2",
     "socket.io": "^4.8.1",
     "swagger-ui-express": "^5.0.1",
     "zod": "^3.25.76"

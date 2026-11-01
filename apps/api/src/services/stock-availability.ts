@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "./notify";
+import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -124,27 +124,27 @@ export async function refreshMenuAvailability(
 }
 
 /**
- * Tell POS screens the menu changed and tell managers what went out / came back.
- * Called from inside stock transactions, so it is deferred a little to land after
- * the commit (POS screens also re-check when a bill is refused as out of stock).
+ * Tell POS screens the menu changed and managers what went out / came back. Written to
+ * the outbox with the caller's client: inside a stock transaction it is delivered only
+ * after commit, and never for a rolled-back change (replaces the old 1.5 s timer).
  */
-export function announceAvailability(outletId: string, changed: Awaited<ReturnType<typeof refreshMenuAvailability>>) {
+export async function announceAvailability(db: Db, outletId: string, changed: Awaited<ReturnType<typeof refreshMenuAvailability>>) {
   if (!changed.length) return;
-  const timer = setTimeout(() => {
-    emitToOutlet(outletId, "menu:changed", { ids: changed.map((c) => c.id), stock: true });
-    void (async () => {
-      const managers = await outletManagers(outletId);
-      const out = changed.filter((c) => c.stockOut || c.partial);
-      const back = changed.filter((c) => !c.stockOut && !c.partial);
-      if (out.length) {
-        const names = out.map((c) => (c.partial ? `${c.name} (some sizes)` : c.name)).join(", ");
-        const reasons = [...new Set(out.map((c) => c.reason).filter(Boolean))].join(", ");
-        await notify(managers, `Out of stock: ${names}`, `${reasons} ran out. Removed from the POS until restocked.`, "inventory.menu_stock_out", { outletId, link: "/inventory" });
-      }
-      if (back.length) {
-        await notify(managers, `Back on the menu: ${back.map((c) => c.name).join(", ")}`, "Ingredients restocked. Available on the POS again.", "inventory.menu_back", { outletId, link: "/menu" });
-      }
-    })().catch((e) => console.error("[stock] availability notification failed", e));
-  }, 1500);
-  timer.unref?.();
+  await outboxEmitOutlet(db, outletId, "menu:changed", { ids: changed.map((c) => c.id), stock: true });
+  await outboxTask(db, "menu.availabilityNotify", { outletId, changed });
+}
+
+/** Outbox task "menu.availabilityNotify": notify the outlet's managers. */
+export async function notifyAvailability({ outletId, changed }: { outletId: string; changed: Awaited<ReturnType<typeof refreshMenuAvailability>> }) {
+  const managers = await outletManagers(outletId);
+  const out = changed.filter((c) => c.stockOut || c.partial);
+  const back = changed.filter((c) => !c.stockOut && !c.partial);
+  if (out.length) {
+    const names = out.map((c) => (c.partial ? `${c.name} (some sizes)` : c.name)).join(", ");
+    const reasons = [...new Set(out.map((c) => c.reason).filter(Boolean))].join(", ");
+    await notify(managers, `Out of stock: ${names}`, `${reasons} ran out. Removed from the POS until restocked.`, "inventory.menu_stock_out", { outletId, link: "/inventory" });
+  }
+  if (back.length) {
+    await notify(managers, `Back on the menu: ${back.map((c) => c.name).join(", ")}`, "Ingredients restocked. Available on the POS again.", "inventory.menu_back", { outletId, link: "/menu" });
+  }
 }

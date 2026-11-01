@@ -11,6 +11,7 @@ import {
   type TaxDetail,
 } from "@canavo/shared";
 import { prisma } from "../db";
+import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { audit } from "../lib/audit";
 import { badRequest, notFound } from "../lib/http";
 import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
@@ -269,30 +270,26 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     }
 
     await audit(req, "order.create", "Order", created.id, { invoiceNumber, grandTotal: bill.grandTotal, offline }, tx);
+    const full = await tx.order.findUniqueOrThrow({ where: { id: created.id }, include: orderInclude });
+    // Post-commit effects go through the outbox in THIS transaction: nothing is sent for a
+    // rolled-back bill, and a crash right after commit can't lose the kitchen ticket (Phase 1.3).
+    const summary = { id: full.id, invoiceNumber: full.invoiceNumber, orderType: full.orderType, tableLabel: full.tableLabel, notes: full.notes, status: full.status };
+    const released = full.kots.filter((k) => !k.releaseAt || k.releaseAt <= new Date());
+    if (released.length) {
+      // Same shape as GET /kot so displays can insert tickets without refetching.
+      await outboxEmitOutlet(tx, outletId, "kot:new", released.map((k) => ({ ...k, order: summary })));
+      const where = full.tableLabel ? `Table ${full.tableLabel}` : full.orderType === "DELIVERY" ? "Delivery" : full.orderType === "PRE_ORDER" ? "Pre-order" : "Takeaway";
+      await outboxTask(tx, "kitchen.alert", { outletId, kotIds: released.map((k) => k.id), label: `${where} · ${full.invoiceNumber}` });
+    }
+    await outboxTask(tx, "inventory.lowStockAfterOrder", { outletId, orderId: full.id });
+    await outboxEmitOutlet(tx, outletId, "order:created", { id: full.id, invoiceNumber: full.invoiceNumber });
     if (process.env.NODE_ENV === "test") await billingTestHooks.beforeCommit?.(input);
-    return tx.order.findUniqueOrThrow({ where: { id: created.id }, include: orderInclude });
+    return full;
   };
   const order = opts.tx ? await persist(opts.tx) : await prisma.$transaction(persist);
 
-  const orderSummary = {
-    id: order.id,
-    invoiceNumber: order.invoiceNumber,
-    orderType: order.orderType,
-    tableLabel: order.tableLabel,
-    notes: order.notes,
-    status: order.status,
-  };
-  const effects = () => {
-    // Same shape as GET /kot so displays can insert tickets without refetching.
-    const released = order.kots.filter((k) => !k.releaseAt || k.releaseAt <= new Date());
-    if (released.length) {
-      emitToOutlet(outletId, "kot:new", released.map((k) => ({ ...k, order: orderSummary })));
-      const where = order.tableLabel ? `Table ${order.tableLabel}` : order.orderType === "DELIVERY" ? "Delivery" : order.orderType === "PRE_ORDER" ? "Pre-order" : "Takeaway";
-      void alertKitchenNewKots(outletId, released, `${where} · ${order.invoiceNumber}`);
-    }
-    checkLowStockAfterOrder(outletId, order.id).catch((e) => console.error("[inventory] low-stock check failed", e));
-    emitToOutlet(outletId, "order:created", { id: order.id, invoiceNumber: order.invoiceNumber });
-  };
+  // Events are already in the outbox; this only asks the publisher to deliver them now.
+  const effects = () => kickOutbox();
   // In the caller's transaction nothing is committed yet: the caller runs effects after commit.
   if (opts.tx) return { order, duplicate: false, effects };
   effects();

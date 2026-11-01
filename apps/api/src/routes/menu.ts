@@ -230,7 +230,7 @@ menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single
     if (!planned.some((r) => r.action !== "error")) throw badRequest("No valid rows to import");
     await applyImport(planned);
     // Imported ingredients may already be out of stock at this outlet
-    if (featureOn("AUTO_STOCK_OUT")) announceAvailability(req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
+    if (featureOn("AUTO_STOCK_OUT")) await announceAvailability(prisma, req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
     const result = summarize(planned, true);
     await audit(req, "menu.import", "MenuItem", undefined, result.summary);
     emitToOutlet(req.outletId!, "menu:changed", { import: true });
