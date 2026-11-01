@@ -305,7 +305,10 @@ authRouter.get("/me", authenticate, async (req, res) => {
       outlets: { select: { outlet: { select: { id: true, name: true, businessId: true } } } },
     },
   });
-  const platformAdmin = user.role === "SUPER_ADMIN" && !user.businessId;
+  const support = req.support ?? null;
+  // In a support view the platform admin acts inside the hotel as a read-only manager of every outlet.
+  const platformAdmin = user.role === "SUPER_ADMIN" && !user.businessId && !support;
+  const role = support ? req.user!.role : user.role;
   const outletSelect = { id: true, name: true, businessId: true, business: { select: { name: true } } } as const;
   const outlets = (
     platformAdmin
@@ -314,7 +317,7 @@ authRouter.get("/me", authenticate, async (req, res) => {
   ).map((o) => ({ id: o.id, name: o.name, businessId: o.businessId, businessName: o.business.name }));
 
   // Which business is this session acting in?
-  const businessId = user.businessId ?? null;
+  const businessId = support?.businessId ?? user.businessId ?? null;
   const business = businessId
     ? await platformPrisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, status: true, modules: true, features: true } })
     : null;
@@ -326,7 +329,9 @@ authRouter.get("/me", authenticate, async (req, res) => {
   const { outlets: _assigned, totpEnabledAt, ...profile } = user;
   res.json({
     ...profile,
+    role,
     platformAdmin,
+    support: support && business ? { grantId: support.grantId, businessId: business.id, businessName: business.name, expiresAt: support.expiresAt, readOnly: true } : null,
     twoFactorEnabled: Boolean(totpEnabledAt),
     // The hotel requires two-step login for this role and it isn't on yet: the app sends them to Account → Security.
     twoFactorSetupRequired: !totpEnabledAt && TWO_FACTOR_REQUIRED_ROLES.includes(user.role) && Boolean(features.REQUIRE_2FA),
@@ -334,7 +339,7 @@ authRouter.get("/me", authenticate, async (req, res) => {
     modules,
     features,
     outlets,
-    permissions: effectivePermissions(user.role, modules),
+    permissions: effectivePermissions(role, modules),
   });
 });
 

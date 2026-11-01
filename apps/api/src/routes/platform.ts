@@ -204,6 +204,18 @@ platformRouter.post("/businesses/:id/owners/:userId/reset-2fa", async (req, res)
   res.json({ ok: true });
 });
 
+/** Hotels whose owners currently allow support access (read-only, time-limited). */
+platformRouter.get("/support-grants", async (_req, res) => {
+  const grants = await db.supportGrant.findMany({
+    where: { revokedAt: null, expiresAt: { gt: new Date() } },
+    include: { business: { select: { id: true, name: true, status: true } } },
+    orderBy: { expiresAt: "asc" },
+  });
+  const owners = await db.user.findMany({ where: { id: { in: grants.map((g) => g.grantedById) } }, select: { id: true, name: true } });
+  const ownerName = new Map(owners.map((o) => [o.id, o.name]));
+  res.json(grants.map((g) => ({ id: g.id, business: g.business, reason: g.reason, expiresAt: g.expiresAt, createdAt: g.createdAt, grantedBy: ownerName.get(g.grantedById) ?? null })));
+});
+
 platformRouter.get("/admins", async (_req, res) => {
   res.json(await db.user.findMany({ where: { role: "SUPER_ADMIN", businessId: null }, select: userFields, orderBy: { name: "asc" } }));
 });

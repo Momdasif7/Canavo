@@ -24,7 +24,7 @@ import {
   Storefront,
   type Icon,
 } from "@phosphor-icons/react";
-import { Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
+import { Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
 export interface NavItem {
@@ -171,6 +171,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/settings", label: "Outlet settings", icon: GearSix, anyOf: ["settings:view"] },
       { href: "/settings/taxes", label: "GST & Taxes", icon: Percent, anyOf: ["settings:billing"], allOf: ["settings:view"] },
       { href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
+      { href: "/settings/support", label: "Support access", icon: Lifebuoy, anyOf: ["outlet:manage"] },
       { href: "/outlets", label: "Outlets", icon: Storefront, anyOf: ["outlet:manage"] },
     ],
   },

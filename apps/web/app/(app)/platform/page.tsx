@@ -10,6 +10,7 @@ import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessTable } from "@/components/platform/BusinessTable";
+import { SupportGrantsCard } from "@/components/platform/SupportGrantsCard";
 
 /** Platform console home: account totals across every business, plus the newest clients. */
 export default function PlatformHome() {
@@ -45,8 +46,10 @@ export default function PlatformHome() {
 
       <p className="mb-5 flex items-start gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm text-muted">
         <LockSimple size={18} className="mt-0.5 shrink-0 text-primary" />
-        Hotel data (sales, bills, staff, customers, reports) is private to each hotel and isn&apos;t visible here.
+        Hotel data (sales, bills, staff, customers, reports) is private to each hotel and isn&apos;t visible here, except read-only when its owner grants support access.
       </p>
+
+      <SupportGrantsCard />
 
       <Card>
         <CardHeader

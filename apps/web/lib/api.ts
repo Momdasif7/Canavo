@@ -111,6 +111,30 @@ export function setBusinessId(id: string | null) {
   businessId = id;
 }
 
+/**
+ * Support view (Phase 2.4): the platform admin opens a hotel whose owner granted support
+ * access. Kept per browser tab (sessionStorage), sent as X-Support-Business; requests that
+ * pass businessId: null (the platform console) never carry it.
+ */
+const SUPPORT_KEY = "canavo.support";
+let supportBusinessId: string | null = (() => {
+  try {
+    return isBrowser ? sessionStorage.getItem(SUPPORT_KEY) : null;
+  } catch {
+    return null;
+  }
+})();
+export const getSupportBusinessId = () => supportBusinessId;
+export function setSupportBusinessId(id: string | null) {
+  supportBusinessId = id;
+  try {
+    if (id) sessionStorage.setItem(SUPPORT_KEY, id);
+    else sessionStorage.removeItem(SUPPORT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setOutletId(id: string | null) {
   outletId = id;
   try {
@@ -237,6 +261,7 @@ async function send(path: string, opts: RequestOptions, token: string | undefine
   if (outlet) headers["x-outlet-id"] = outlet;
   const business = opts.businessId === undefined ? businessId : opts.businessId;
   if (business) headers["x-business-id"] = business;
+  if (supportBusinessId && opts.businessId !== null) headers["x-support-business"] = supportBusinessId;
   if (opts.idempotencyKey) headers["idempotency-key"] = opts.idempotencyKey;
   let body: BodyInit | undefined;
   if (opts.rawBody !== undefined) {
@@ -345,6 +370,7 @@ export const isModuleOffMessage = (m: string | null | undefined) => !!m && /not 
 export const isSuspendedMessage = (m: string | null | undefined) => !!m && /suspended/i.test(m) && /business/i.test(m);
 
 export async function logout(): Promise<void> {
+  setSupportBusinessId(null);
   const current = session;
   setSession(null);
   if (current) {

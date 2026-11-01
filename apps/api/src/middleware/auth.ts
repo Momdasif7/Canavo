@@ -23,6 +23,8 @@ declare global {
       user?: AuthUser;
       /** Session (refresh-token family) of this access token, when known */
       sessionId?: string;
+      /** Platform admin working inside a hotel under the owner's support grant (read-only) */
+      support?: { grantId: string; adminId: string; businessId: string; expiresAt: Date };
       outletId?: string;
       /** Business of the current request (from the user, the outlet, or X-Business-Id for super admins) */
       businessId?: string;
@@ -77,6 +79,13 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   }
   req.user = { id: user.id, name: user.name, role: user.role, businessId: user.businessId, outletIds };
 
+  const supportBusinessId = req.header("x-support-business");
+  if (supportBusinessId && isPlatformAdmin(req.user)) {
+    const ctx: TenantContext = { platform: false };
+    await enterSupport(req, ctx, supportBusinessId, user);
+    return runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
+  }
+
   const ctx: TenantContext = { platform: isPlatformAdmin(req.user) };
   // Platform super admins never enter a hotel's data (privacy): no business context for them.
   if (user.businessId) enterBusiness(req, ctx, await loadBusiness(user.businessId));
@@ -86,6 +95,44 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   }
   // Mutations carrying an Idempotency-Key are replay-safe (Phase 1.4).
   await runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
+}
+
+/**
+ * Support view (Phase 2.4): a platform admin opens a hotel only while its owner's grant is
+ * active, only with their own two-step login on, and only to read. They act as an outlet
+ * manager of every outlet (no owner-only screens, no data export); every request is
+ * written to the hotel's audit log so the owner sees what was viewed.
+ */
+async function enterSupport(req: Request, ctx: TenantContext, businessId: string, user: { id: string; totpEnabledAt: Date | null }) {
+  const grant = await platformPrisma.supportGrant.findFirst({
+    where: { businessId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { expiresAt: "desc" },
+    select: { id: true, expiresAt: true },
+  });
+  if (!grant) throw forbidden("This hotel's owner hasn't granted support access, or it has ended.");
+  if (!user.totpEnabledAt) throw forbidden("Turn on two-step login (Account → Security) before using support access.");
+  enterBusiness(req, ctx, await loadBusiness(businessId));
+  const outletIds = (await platformPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id);
+  req.user = { ...req.user!, role: "OUTLET_MANAGER", businessId, outletIds };
+  req.support = { grantId: grant.id, adminId: user.id, businessId, expiresAt: grant.expiresAt };
+  const path = req.originalUrl.split("?")[0]!;
+  if (req.method !== "GET" && req.method !== "HEAD" && !path.startsWith("/auth/")) throw forbidden("Support access is read-only.");
+  if (!path.startsWith("/auth/") && !path.startsWith("/notifications")) {
+    void platformPrisma.auditLog
+      .create({
+        data: {
+          userId: user.id,
+          businessId,
+          outletId: req.header("x-outlet-id") ?? null,
+          action: "support.view",
+          entity: "SupportGrant",
+          entityId: grant.id,
+          meta: { method: req.method, path },
+          ip: req.ip,
+        },
+      })
+      .catch((e) => console.error("[support] audit failed", e));
+  }
 }
 
 /**

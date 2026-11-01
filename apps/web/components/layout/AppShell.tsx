@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type { Me } from "@/lib/types";
 import clsx from "clsx";
 import { ROLE_LABELS } from "@canavo/shared";
-import { CaretDown, CaretLeft, List, LockSimple, Moon, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
+import { CaretDown, CaretLeft, Eye, List, LockSimple, Moon, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
 import { errorMessage } from "@/lib/api";
 import { mediaUrl } from "@/lib/media";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -104,7 +105,8 @@ function NotAvailableState({ home }: { home: string }) {
 
 function Shell({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   const toast = useToast();
-  const { me, outletId, outlet, setOutlet, logout, switching } = useSession();
+  const router = useRouter();
+  const { me, outletId, outlet, setOutlet, logout, switching, exitSupport } = useSession();
   const { theme, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -231,6 +233,7 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
             <UserMenu name={me.name} role={roleLabel} email={me.email} photoUrl={me.photoUrl} onLogout={() => void logout()} />
           </div>
         </header>
+        {me.support && <SupportBanner support={me.support} onExit={() => void exitSupport().then(() => router.push("/platform"))} />}
         <main className="flex min-h-0 flex-1 flex-col print:block">
           <CategoryTabs groups={groups} pathname={pathname} />
           <div className={clsx("min-h-0 flex-1 overflow-y-auto print:overflow-visible", partnerTabs.length > 0 && "pb-[76px] md:pb-0")}>{children}</div>
@@ -497,6 +500,21 @@ function OutletSwitcher({ value, disabled, onChange }: { value: string | null; d
           <span className="truncate text-sm font-semibold">{me.outlets[0]?.name ?? "No outlet yet"}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Support view (Phase 2.4): always visible, so it's obvious the platform team is looking (read-only). */
+function SupportBanner({ support, onExit }: { support: NonNullable<Me["support"]>; onExit: () => void }) {
+  const until = new Date(support.expiresAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 print:hidden">
+      <Eye size={18} weight="bold" />
+      <span className="font-semibold">Support view of {support.businessName}</span>
+      <span>· read-only · owner&apos;s permission ends {until} · every screen you open is shown to the owner</span>
+      <button type="button" onClick={onExit} className="ml-auto rounded-lg border border-amber-400 px-3 py-1 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900">
+        Exit support view
+      </button>
     </div>
   );
 }

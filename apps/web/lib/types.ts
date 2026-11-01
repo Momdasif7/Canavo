@@ -99,6 +99,8 @@ export interface Me {
   permissions: Permission[];
   /** Two-step login is on for this account */
   twoFactorEnabled?: boolean;
+  /** Platform admin inside a hotel under the owner's support grant (read-only) */
+  support?: { grantId: string; businessId: string; businessName: string; expiresAt: string; readOnly: true } | null;
   /** The hotel requires two-step login for this role and it isn't on yet (only Account → Security works) */
   twoFactorSetupRequired?: boolean;
 }

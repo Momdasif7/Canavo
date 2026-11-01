@@ -1245,6 +1245,7 @@ model Business {
   offers         Offer[]
   coupons        Coupon[]
   taxRates       TaxRate[]
+  supportGrants  SupportGrant[]
 }
 
 /// A tax rate a business defines for its menu (e.g. "GST 5%" = CGST 2.5 + SGST 2.5, or with cess / VAT).
@@ -1342,4 +1343,20 @@ model RecoveryCode {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Owner-consented, time-limited, read-only support access for the platform team (Phase 2.4).
+model SupportGrant {
+  id          String    @id @default(cuid())
+  businessId  String
+  /// The owner who granted it
+  grantedById String
+  reason      String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime  @default(now())
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, expiresAt])
 }
