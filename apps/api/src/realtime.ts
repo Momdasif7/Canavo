@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { verifyAccess } from "./lib/tokens";
 import { platformPrisma } from "./db";
 import { outboxEmitOutlet, outboxEmitUser, type SocketEmitter } from "./lib/outbox";
+import { env } from "./env";
 
 let io: Server | undefined;
 
@@ -33,6 +34,25 @@ export function initRealtime(server: HttpServer) {
     }
   });
   return io;
+}
+
+/**
+ * Share rooms across API instances through Redis (Phase 1.5). With REDIS_URL unset the
+ * server stays single-instance (in-memory adapter). Returns a closer for shutdown.
+ */
+export async function attachRedisAdapter(url = env.REDIS_URL, server: Server | undefined = io): Promise<(() => Promise<void>) | null> {
+  if (!server || !url) return null;
+  const [{ createAdapter }, { createClient }] = await Promise.all([import("@socket.io/redis-adapter"), import("redis")]);
+  const pub = createClient({ url });
+  const sub = pub.duplicate();
+  pub.on("error", (e) => console.error("[realtime] redis pub error", e));
+  sub.on("error", (e) => console.error("[realtime] redis sub error", e));
+  await Promise.all([pub.connect(), sub.connect()]);
+  server.adapter(createAdapter(pub, sub));
+  console.info("[realtime] Socket.io rooms shared through Redis");
+  return async () => {
+    await Promise.allSettled([pub.quit(), sub.quit()]);
+  };
 }
 
 /** The live emitter for the outbox publisher (null where there are no sockets, e.g. the worker). */

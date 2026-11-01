@@ -9,6 +9,8 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   /** Comma-separated browser origins; one "*" per entry for subdomains, e.g. https://*.vercel.app */
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  /** Redis for Socket.io across several API instances (optional; single instance without it) */
+  REDIS_URL: z.string().url().optional(),
   /** Where scheduled jobs run: "embedded" = in the API process; "worker" = only in `npm run worker` */
   JOBS_MODE: z.enum(["embedded", "worker"]).default("embedded"),
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */

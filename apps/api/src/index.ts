@@ -2,7 +2,7 @@ import "./env";
 import http from "node:http";
 import { createApp } from "./app";
 import { env } from "./env";
-import { initRealtime, socketEmitter } from "./realtime";
+import { attachRedisAdapter, initRealtime, socketEmitter } from "./realtime";
 import { platformPrisma, prisma } from "./db";
 import { startJobs, stopJobs } from "./jobs";
 import { registerAllJobs } from "./jobs-all";
@@ -10,6 +10,14 @@ import { startOutboxPublisher, stopOutboxPublisher } from "./lib/outbox";
 
 const server = http.createServer(createApp());
 initRealtime(server);
+let closeRedis: (() => Promise<void>) | null = null;
+attachRedisAdapter()
+  .then((c) => (closeRedis = c))
+  .catch((e) => {
+    // Without Redis, several API instances would miss each other's events: refuse to run half-broken.
+    console.error("[realtime] REDIS_URL is set but Redis is unreachable", e);
+    process.exit(1);
+  });
 // This process owns the sockets, so it delivers outbox events (several API instances are safe).
 startOutboxPublisher(socketEmitter());
 
@@ -33,6 +41,7 @@ const shutdown = async (signal: string) => {
   await Promise.race([closed, timeout]);
   stopOutboxPublisher();
   await stopJobs();
+  await closeRedis?.();
   await Promise.allSettled([prisma.$disconnect(), platformPrisma.$disconnect()]);
   process.exit(0);
 };
