@@ -98,6 +98,17 @@ input[type="number"]::-webkit-outer-spin-button {
   .print-receipt * {
     visibility: visible !important;
   }
+  /* Full-page printouts (e.g. the canteen production plan): only the sheet prints. */
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible !important;
+  }
+  .print-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
   .print-receipt {
     display: block !important;
     position: absolute;

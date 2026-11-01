@@ -7,7 +7,8 @@ import { audit } from "../lib/audit";
 import { badRequest, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireAnyModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
-import { featureOn, requireBusinessId } from "../lib/tenant";
+import { featureOn, moduleEnabled, requireBusinessId } from "../lib/tenant";
+import { slotAt } from "../services/meal-slots";
 import { defaultTaxRate, resolveItemTax, taxRateBrief } from "../services/tax";
 import multer from "multer";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
@@ -68,8 +69,13 @@ menuRouter.get("/tax-check", requirePermission("menu:view"), async (req, res) =>
   res.json({ applies: true, zeroRated });
 });
 
+/**
+ * Full menu. `?slot=current` (the POS, CANTEEN module, outlet has meal slots): only what sells in
+ * the slot open now: items on that slot (at the slot price) plus items on no slot, which sell all day.
+ */
 menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
-  const [categories, items] = await Promise.all([
+  const slotView = req.query.slot === "current" && moduleEnabled("CANTEEN") ? await currentSlotMenu(req.outletId!) : null;
+  const [categories, allItems] = await Promise.all([
     prisma.menuCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.menuItem.findMany({
       include: { ...itemInclude, overrides: { where: { outletId: req.outletId } } },
@@ -78,14 +84,16 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
   ]);
   const def = taxRateBrief(await defaultTaxRate());
   const autoStock = featureOn("AUTO_STOCK_OUT");
+  const items = slotView ? allItems.filter((i) => !slotView.onSomeSlot.has(i.id) || slotView.prices.has(i.id)) : allItems;
   res.json({
     categories,
+    ...(slotView && { mealSlot: slotView.slot }),
     items: items.map(({ overrides, ...item }) => ({
       ...itemJson(item),
       /** Rate the item is billed at: its own, else the business default (null = legacy gstRate split equally) */
       effectiveTaxRate: taxRateBrief(item.taxRate) ?? def,
       basePrice: item.price,
-      price: overrides[0]?.price ?? item.price,
+      price: slotView?.prices.get(item.id) ?? overrides[0]?.price ?? item.price,
       /** Effective status at this outlet: an ingredient that ran out makes an available item OUT_OF_STOCK */
       status: autoStock && overrides[0]?.stockOut && (overrides[0]?.status ?? item.status) === "AVAILABLE" ? "OUT_OF_STOCK" : (overrides[0]?.status ?? item.status),
       /** The status a manager set (outlet override or the item's own) */
@@ -99,6 +107,22 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
     })),
   });
 });
+
+/** Phase 5.3: the slot open now and its menu; null when the outlet has no active slots (normal menu). */
+async function currentSlotMenu(outletId: string) {
+  const rows = await prisma.mealSlotItem.findMany({ where: { slot: { outletId, active: true } }, select: { slotId: true, menuItemId: true, price: true } });
+  if (!(await prisma.mealSlot.count({ where: { outletId, active: true } }))) return null;
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { timezone: true } });
+  const slot = await slotAt(outletId, new Date(), outlet.timezone);
+  const prices = new Map<string, number | null>();
+  for (const r of rows) if (r.slotId === slot?.id) prices.set(r.menuItemId, r.price);
+  return {
+    slot: slot && { id: slot.id, name: slot.name, startTime: slot.startTime, endTime: slot.endTime },
+    onSomeSlot: new Set(rows.map((r) => r.menuItemId)),
+    /** Items on the current slot → slot price (null = normal price) */
+    prices,
+  };
+}
 
 // ---------- Categories ----------
 menuRouter.post("/categories", requirePermission("menu:manage"), async (req, res) => {

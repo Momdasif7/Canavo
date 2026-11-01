@@ -167,4 +167,5 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "settings:view": "See settings",
   "data:export": "Download all business data",
   "approval:grant": "Approve voids, refunds and discounts with a PIN",
+  "canteen:manage": "Canteen: accounts, meal slots and subscriptions",
 };

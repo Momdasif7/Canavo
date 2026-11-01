@@ -336,34 +336,36 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id             String               @id @default(cuid())
-  businessId     String
-  name           String
-  description    String               @default("")
-  categoryId     String
+  id                String               @id @default(cuid())
+  businessId        String
+  name              String
+  description       String               @default("")
+  categoryId        String
   /// Base price in paise
-  price          Int
-  foodType       FoodType             @default(VEG)
-  gstRate        Float                @default(0)
+  price             Int
+  foodType          FoodType             @default(VEG)
+  gstRate           Float                @default(0)
   /// Custom tax rate (CGST/SGST/IGST/cess); falls back to gstRate split equally
-  taxRateId      String?
-  hsnCode        String               @default("996331")
-  imageUrl       String?
-  status         ItemStatus           @default(AVAILABLE)
-  allergens      String[]
-  availableFrom  String?
-  availableTo    String?
-  kitchenStation String               @default("MAIN")
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  category       MenuCategory         @relation(fields: [categoryId], references: [id])
-  variants       ItemVariant[]
-  addons         ItemAddon[]
-  overrides      OutletItemOverride[]
-  orderItems     OrderItem[]
-  recipes        Recipe[]
-  taxRate        TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
-  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  taxRateId         String?
+  hsnCode           String               @default("996331")
+  imageUrl          String?
+  status            ItemStatus           @default(AVAILABLE)
+  allergens         String[]
+  availableFrom     String?
+  availableTo       String?
+  kitchenStation    String               @default("MAIN")
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  category          MenuCategory         @relation(fields: [categoryId], references: [id])
+  variants          ItemVariant[]
+  addons            ItemAddon[]
+  overrides         OutletItemOverride[]
+  orderItems        OrderItem[]
+  recipes           Recipe[]
+  mealSlotItems     MealSlotItem[]
+  mealSubscriptions MealSubscription[]
+  taxRate           TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
 }
@@ -494,6 +496,8 @@ model Order {
   creditNotes    CreditNote[]
   /// Phase 5 (CANTEEN): meal slot the bill belongs to (counter bills: the slot open at billing time; pre-orders: the chosen slot)
   mealSlotId     String?
+  /// Phase 5.3 (CANTEEN): pre-order handed over at the counter (redeemed)
+  servedAt       DateTime?
 
   @@unique([outletId, invoiceNumber])
   @@index([outletId, createdAt])
@@ -1632,7 +1636,7 @@ model CustomRole {
 /// Phase 5 (CANTEEN): a meal service window at an outlet, e.g. Breakfast 07:30–10:00.
 /// Used by slot menus and prices, next-day pre-orders, subscriptions, subsidies and quotas.
 model MealSlot {
-  id             String   @id @default(cuid())
+  id             String             @id @default(cuid())
   outletId       String
   name           String
   /// "HH:MM" in outlet time
@@ -1640,11 +1644,96 @@ model MealSlot {
   endTime        String
   /// Pre-orders for a day close at this time on the previous day ("HH:MM"); null = no pre-orders
   preorderCutoff String?
-  active         Boolean  @default(true)
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  outlet         Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  active         Boolean            @default(true)
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  outlet         Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  items          MealSlotItem[]
+  subscriptions  MealSubscription[]
 
   @@index([outletId])
+}
+
+/// Phase 5.3 (CANTEEN): the slot's menu. Items on no slot stay available all day; items on
+/// some slots sell only during those slots. `price` overrides the item's price in this slot.
+model MealSlotItem {
+  id         String   @id @default(cuid())
+  slotId     String
+  menuItemId String
+  /// Paise; null = the item's normal price
+  price      Int?
+  createdAt  DateTime @default(now())
+  slot       MealSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([slotId, menuItemId])
+  @@index([menuItemId])
+}
+
+enum MealSubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+/// Phase 5.4 (CANTEEN): a customer's prepaid meal plan (one meal, one slot, chosen weekdays).
+/// Paid upfront by a normal bill (`orderId`); each day's meal becomes a zero-value pre-order.
+model MealSubscription {
+  id            String                 @id @default(cuid())
+  outletId      String
+  customerId    String
+  slotId        String
+  menuItemId    String
+  /// 0 = Monday … 6 = Sunday
+  daysOfWeek    Int[]
+  /// Outlet-local dates, YYYY-MM-DD (inclusive)
+  startDate     String
+  endDate       String
+  /// Paise per meal (menu-style price: tax-inclusive or not as the outlet bills)
+  pricePerMeal  Int
+  /// Meals paid for on the upfront bill
+  mealCount     Int
+  status        MealSubscriptionStatus @default(ACTIVE)
+  /// The upfront (paid) bill
+  orderId       String?                @unique
+  /// Credit note issued on cancellation
+  creditNoteId  String?
+  refundedMeals Int                    @default(0)
+  notes         String?
+  createdById   String
+  cancelledAt   DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  slot          MealSlot               @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  menuItem      MenuItem               @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  skips         MealSubscriptionSkip[]
+  meals         MealSubscriptionMeal[]
+
+  @@index([outletId, status])
+  @@index([customerId])
+}
+
+model MealSubscriptionSkip {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  /// YYYY-MM-DD
+  date           String
+  createdAt      DateTime         @default(now())
+  subscription   MealSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, date])
+}
+
+/// One materialised subscription meal: the zero-value pre-order the kitchen cooks for `date`.
+model MealSubscriptionMeal {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  /// YYYY-MM-DD
+  date           String
+  orderId        String           @unique
+  createdAt      DateTime         @default(now())
+  subscription   MealSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, date])
 }

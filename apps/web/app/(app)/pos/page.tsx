@@ -84,6 +84,13 @@ export default function PosPage() {
   }, [online, fromCache, fetchMenu]);
 
   useSocketEvent("menu:changed", () => void fetchMenu());
+  // Canteen meal slots: the menu changes when the next slot opens, so refresh it every minute.
+  const hasSlots = menu?.mealSlot !== undefined;
+  useEffect(() => {
+    if (!hasSlots || !online) return;
+    const t = window.setInterval(() => void fetchMenu(), 60_000);
+    return () => window.clearInterval(t);
+  }, [hasSlots, online, fetchMenu]);
 
   // ----- Offline invoice series (Phase 3.4): fetched while online so offline bills get final numbers -----
   const seriesOn = Boolean(me?.features?.OFFLINE_INVOICE_SERIES);
@@ -613,6 +620,11 @@ export default function PosPage() {
           <div className="flex items-center gap-2 bg-red-600 px-4 py-2 text-sm font-semibold text-white">
             <WifiSlash size={18} />
             {online ? "Showing saved menu — reconnecting…" : "Offline — bills are saved on this device and sync automatically"}
+          </div>
+        )}
+        {menu.mealSlot !== undefined && (
+          <div className="border-b border-line bg-surface-2 px-4 py-1.5 text-sm text-muted">
+            {menu.mealSlot ? `${menu.mealSlot.name} menu (${menu.mealSlot.startTime}–${menu.mealSlot.endTime})` : "Between meal slots: only all-day items"}
           </div>
         )}
         <MenuBrowser menu={menu} qtyByItem={qtyByItem} onSelect={selectItem} timezone={outlet?.timezone} searchRef={searchRef} header={<OffersBanner offers={offers} />} />

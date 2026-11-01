@@ -91,7 +91,8 @@ export async function fetchWithCache<T>(key: string, fetcher: () => Promise<T>):
   }
 }
 
-export const loadMenu = (outletId: string) => fetchWithCache<Menu>(menuKey(outletId), () => api.get<Menu>("/menu"));
+/** The POS menu: with meal slots (CANTEEN), only what sells in the slot open now, at slot prices. */
+export const loadMenu = (outletId: string) => fetchWithCache<Menu>(menuKey(outletId), () => api.get<Menu>("/menu", { query: { slot: "current" } }));
 export const loadOutlet = (outletId: string) =>
   fetchWithCache<Outlet>(outletKey(outletId), () => api.get<Outlet>("/outlets/current"));
 
