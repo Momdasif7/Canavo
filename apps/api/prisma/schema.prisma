@@ -83,6 +83,7 @@ model Outlet {
   approvals               ApprovalLog[]
   creditNotes             CreditNote[]
   cashShifts              CashShift[]
+  mealSlots               MealSlot[]
 
   @@index([businessId])
 }
@@ -1624,4 +1625,24 @@ model CustomRole {
   users    User[]
 
   @@unique([businessId, name])
+}
+
+/// Phase 5 (CANTEEN): a meal service window at an outlet, e.g. Breakfast 07:30–10:00.
+/// Used by slot menus and prices, next-day pre-orders, subscriptions, subsidies and quotas.
+model MealSlot {
+  id             String   @id @default(cuid())
+  outletId       String
+  name           String
+  /// "HH:MM" in outlet time
+  startTime      String
+  endTime        String
+  /// Pre-orders for a day close at this time on the previous day ("HH:MM"); null = no pre-orders
+  preorderCutoff String?
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  outlet         Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId])
 }

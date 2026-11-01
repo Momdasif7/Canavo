@@ -12,6 +12,7 @@ export const MODULES = [
   "OFFERS",
   "ATTENDANCE",
   "REPORTS",
+  "CANTEEN",
 ] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
@@ -26,6 +27,11 @@ export const MODULE_INFO: Record<ModuleKey, { label: string; description: string
   OFFERS: { label: "Offers & coupons", description: "Combos, happy hours, coupons", requires: ["BILLING"] },
   ATTENDANCE: { label: "Attendance & leave", description: "Clock-in/out, shifts, leave, salary sheet", requires: [] },
   REPORTS: { label: "Reports", description: "Sales, GST, profit, staff and other reports", requires: [] },
+  CANTEEN: {
+    label: "Canteen & institutional",
+    description: "Corporate accounts, subsidies, wallets and cards, meal slots, pre-orders, subscriptions",
+    requires: ["BILLING", "CUSTOMERS"],
+  },
 };
 
 /** Which module a permission belongs to; permissions not listed are always available. */
@@ -35,6 +41,7 @@ export const PERMISSION_MODULE: Partial<Record<Permission, ModuleKey>> = {
   "bills:view": "BILLING",
   "order:cancel": "BILLING",
   "approval:grant": "BILLING",
+  "canteen:manage": "CANTEEN",
   "payment:collect": "BILLING",
   "kot:view": "KOT",
   "kot:update": "KOT",

@@ -77,6 +77,8 @@ export const PERMISSIONS = [
   "data:export",
   /** Approve voids, refunds and large discounts with a PIN at the counter (owner, manager) — Phase 3.3 */
   "approval:grant",
+  /** Phase 5: corporate accounts, members, wallets, meal slots, subscriptions (owner, manager) */
+  "canteen:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
