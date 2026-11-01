@@ -31,6 +31,7 @@ import { uploadsRouter } from "./routes/uploads";
 import { platformRouter } from "./routes/platform";
 import { taxRatesRouter } from "./routes/tax-rates";
 import { supportRouter } from "./routes/support";
+import { cashShiftsRouter } from "./routes/cash-shifts";
 
 gauge("canavo_outbox_pending", "Outbox events waiting for delivery", () => platformPrisma.outboxEvent.count({ where: { deliveredAt: null, failedAt: null } }));
 gauge("canavo_outbox_dead", "Outbox events that gave up (dead-lettered)", () => platformPrisma.outboxEvent.count({ where: { failedAt: { not: null } } }));
@@ -85,6 +86,7 @@ export function createApp() {
   app.use("/platform", platformRouter);
   app.use("/tax-rates", taxRatesRouter);
   app.use("/support-access", supportRouter);
+  app.use("/cash-shifts", cashShiftsRouter);
 
   app.use(() => {
     throw notFound("Route");

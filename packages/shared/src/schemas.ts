@@ -328,3 +328,18 @@ export const refundSchema = z
   .refine((v) => Boolean(v.items?.length) !== Boolean(v.amount), "Refund either items or an amount")
   .refine((v) => v.reason !== "OTHER" || (v.note?.length ?? 0) >= 3, "Describe the reason");
 export type RefundInput = z.infer<typeof refundSchema>;
+
+// ---------- Cash shifts (Phase 3.2) ----------
+export const shiftOpenSchema = z.object({ openingFloat: paise });
+export const cashMovementSchema = z.object({
+  type: z.enum(["PAY_IN", "PAY_OUT"]),
+  amount: z.number().int().positive(),
+  reason: z.string().trim().min(3).max(200),
+  approval: approvalSchema.optional(),
+});
+export const shiftCloseSchema = z.object({
+  countedCash: paise,
+  /** Optional count by note/coin value in rupees, e.g. { "500": 3, "10": 12 } */
+  denominations: z.record(z.string().regex(/^\d+$/), z.number().int().nonnegative()).optional(),
+  note: z.string().trim().max(300).optional(),
+});

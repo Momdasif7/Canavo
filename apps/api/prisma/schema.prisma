@@ -76,6 +76,7 @@ model Outlet {
   approvalDiscountPercent Int                  @default(10)
   approvals               ApprovalLog[]
   creditNotes             CreditNote[]
+  cashShifts              CashShift[]
 
   @@index([businessId])
 }
@@ -1468,4 +1469,58 @@ model CreditNoteCounter {
   lastSeq  Int    @default(0)
 
   @@id([outletId, fyStart])
+}
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+}
+
+/// Cash drawer shift (Phase 3.2): opening float → sales, pay-ins/outs, refunds → counted cash; Z-report on close.
+model CashShift {
+  id            String          @id @default(cuid())
+  outletId      String
+  status        CashShiftStatus @default(OPEN)
+  openedById    String
+  openedAt      DateTime        @default(now())
+  openingFloat  Int
+  closedById    String?
+  closedAt      DateTime?
+  /// What the cashier counted at close, paise
+  countedCash   Int?
+  /// What should be in the drawer at close, paise
+  expectedCash  Int?
+  /// counted − expected (negative = short), paise
+  variance      Int?
+  /// { "500": 3, "100": 7, ... } notes and coins counted (optional)
+  denominations Json?
+  note          String?
+  /// Z-report figures frozen at close
+  summary       Json?
+  outlet        Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  movements     CashMovement[]
+
+  @@index([outletId, openedAt])
+  @@index([outletId, status])
+}
+
+enum CashMovementType {
+  PAY_IN
+  PAY_OUT
+}
+
+/// Cash put into or taken out of the drawer without a sale (change, supplier paid in cash, etc.)
+model CashMovement {
+  id           String           @id @default(cuid())
+  shiftId      String
+  outletId     String
+  type         CashMovementType
+  amount       Int
+  reason       String
+  createdById  String
+  approvedById String?
+  createdAt    DateTime         @default(now())
+  shift        CashShift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId])
 }

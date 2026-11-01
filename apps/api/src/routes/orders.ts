@@ -18,6 +18,7 @@ import { startOfLocalDay } from "../lib/time";
 import { authenticate, requireAnyPermission, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
 import { createCreditNote } from "../services/credit-notes";
+import { assertCashShiftOpen } from "../services/cash-shifts";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
@@ -261,6 +262,8 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
   }
   const cashPart = payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
   if (tendered !== undefined && tendered < cashPart) throw badRequest("Cash tendered is less than cash amount");
+  // Offline bills already happened: their payments sync even if no shift is open now.
+  if (!order.syncedOffline) await assertCashShiftOpen(req.outletId!, payments.map((p) => p.mode));
 
   const paid = await prisma.$transaction(async (tx) => {
     await tx.payment.createMany({

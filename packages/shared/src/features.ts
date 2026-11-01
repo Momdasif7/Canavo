@@ -34,6 +34,11 @@ export const FEATURES = {
     description: "Voids, refunds and discounts above the outlet's limit need a manager's or owner's PIN at the counter. Cashiers can then void or refund with that approval. Every approval appears in the exceptions report.",
     requires: ["BILLING"],
   },
+  REQUIRE_CASH_SHIFT: {
+    label: "Cash shift required",
+    description: "Cash payments can only be taken while a cash shift is open at the outlet (opening float counted). Closing the shift prints the Z-report with the cash difference.",
+    requires: ["BILLING"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",
