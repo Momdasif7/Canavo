@@ -49,6 +49,12 @@ services:
       # Public URL of this API, e.g. https://canavo-api.onrender.com (used in receipt links)
       - key: PUBLIC_API_URL
         sync: false
+      # Web app URL, e.g. https://app.canavo.in (password setup / reset links)
+      - key: WEB_APP_URL
+        sync: false
+      # Optional: ".canavo.in" when the web app and API share a domain (app. + api.) → web sessions in httpOnly cookies
+      - key: AUTH_COOKIE_DOMAIN
+        sync: false
       # Render's load balancer is on a private network
       - key: TRUST_PROXY
         value: loopback, linklocal, uniquelocal
@@ -85,17 +91,25 @@ services:
         sync: false
       - key: MSG91_TEMPLATE_ID
         sync: false
+      # DLT template with a ##message## variable: alerts and password links by SMS
+      - key: MSG91_ALERT_TEMPLATE_ID
+        sync: false
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
+      # Email (or MSG91 SMS above) is required in production: password setup / reset links go through it
       - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
         sync: false
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
         sync: false
       - key: EXPO_ACCESS_TOKEN
         sync: false
@@ -133,6 +147,25 @@ services:
         fromService: { type: web, name: canavo-api, envVarKey: DATA_ENCRYPTION_KEY }
       - key: PUBLIC_API_URL
         fromService: { type: web, name: canavo-api, envVarKey: PUBLIC_API_URL }
+      - key: WEB_APP_URL
+        fromService: { type: web, name: canavo-api, envVarKey: WEB_APP_URL }
+      # The worker sends scheduled report emails, SMS alerts and push notifications
+      - key: SMTP_HOST
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_HOST }
+      - key: SMTP_PORT
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_PORT }
+      - key: SMTP_USER
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_USER }
+      - key: SMTP_PASS
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_PASS }
+      - key: SMTP_FROM
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_FROM }
+      - key: MSG91_AUTH_KEY
+        fromService: { type: web, name: canavo-api, envVarKey: MSG91_AUTH_KEY }
+      - key: MSG91_ALERT_TEMPLATE_ID
+        fromService: { type: web, name: canavo-api, envVarKey: MSG91_ALERT_TEMPLATE_ID }
+      - key: EXPO_ACCESS_TOKEN
+        fromService: { type: web, name: canavo-api, envVarKey: EXPO_ACCESS_TOKEN }
       - key: LOG_FORMAT
         value: json
       - key: BACKUP_S3_BUCKET

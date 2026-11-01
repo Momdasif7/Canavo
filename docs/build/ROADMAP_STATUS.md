@@ -5,8 +5,8 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | Phase | Items (exists / partial / missing at Phase 0) | Status | Report |
 |---|---|---|---|
 | 0 Recon and gap confirmation | — | ✅ Done | [phase-0.md](phase-0.md) |
-| 1 Foundation and data safety | 8 (0 / 3 / 5) + indexes + delivery route guards | ✅ Done; **awaiting your review** | [phase-1.md](phase-1.md) |
-| 2 Security and accounts | 8 (0 / 6 / 2) | Not started (pilot set) | — |
+| 1 Foundation and data safety | 8 (0 / 3 / 5) + indexes + delivery route guards | ✅ Done | [phase-1.md](phase-1.md) |
+| 2 Security and accounts | 8 (0 / 6 / 2) | ✅ Done; **awaiting your review** | [phase-2.md](phase-2.md) |
 | 3 Money integrity | 8 (2 / 2 / 4) | Not started (pilot set) | — |
 | 4 Roles and owner experience | 4 (1 / 1 / 2) | Not started (pilot set) | — |
 | 5 Canteen and institutional | 5 (0 / 2 / 3) | Not started | — |
@@ -36,7 +36,20 @@ Updated 2026-11-01. Each phase ends with `docs/build/phase-N.md`, a commit and a
 | + | Delivery guards at route level | ✅ |
 | + | Feature flags (D11/D14) | ✅ [FEATURE_FLAGS.md](FEATURE_FLAGS.md) |
 
+## Phase 2 items
+
+| # | Item | Result |
+|---|---|---|
+| 2.1 | 2FA TOTP + recovery codes | ✅ opt-in; `REQUIRE_2FA` flag for owners/managers |
+| 2.2 | Reset links | ✅ the platform never sets or sees a password |
+| 2.3 | Sessions, lockout, policy | ✅ device list and sign-out, policy for new passwords |
+| 2.4 | Consented support access | ✅ [ADR 0005](adr/0005-consented-support-access.md) |
+| 2.5 | Aadhaar minimisation | ✅ last 4 + consent by default (D2) |
+| 2.6 | Clock-in anti-spoofing | ✅ PIN lockout; `STRICT_CLOCK_IN`, `CLOCK_IN_SELFIE` flags (D7) |
+| 2.7 | Tokens / deep links | ✅ cookie sessions with fallback, [ADR 0006](adr/0006-web-session-cookies.md) |
+| 2.8 | Production seed guard | ✅ |
+
 ## Open decisions carried forward
 
-- D1, D2, D3, D5, D6, D7, D13, D16: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)).
-- New in Phase 1: please confirm the **RLS deviations** in [phase-1.md §Decisions](phase-1.md#decisions-and-deviations).
+- D1 (needed for Phase 3), D3, D5, D6: needed before their phases (see [phase-0.md §7](phase-0.md#7-decisions-needed-batched)). D2, D7, D13 and D16 were answered on 2026-11-01.
+- Please confirm the deviations in [phase-2.md §Decisions](phase-2.md#decisions-and-deviations-please-confirm).

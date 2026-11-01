@@ -86,18 +86,19 @@ Super Admin (platform operator)   — /platform console: onboard businesses, pic
          └─ Cashier · Kitchen · Delivery · Inventory staff
 ```
 
-- **Privacy:** the Super Admin can't open any hotel.
+- **Privacy:** the Super Admin can't open any hotel, unless its owner grants read-only support access (Settings → Support access). That access is time-limited and can be ended any time, and every screen viewed is shown to the owner.
   - It has only `platform:manage`, `admin:backup` and `audit:view`, no outlets, and no business context. `X-Outlet-Id` and `X-Business-Id` are refused or ignored for it.
   - In the platform console it sees account information only: hotel name and contact, status, modules, outlet names and owner accounts. It never sees sales, bills, staff, customers, Aadhaar or reports.
   - Its audit log shows platform actions only.
 - **Who creates whom:**
-  - The Super Admin creates owners and resets their passwords; a reset signs the owner out.
+  - The Super Admin creates owners. Each owner gets a link to set their own password, and the Super Admin can send a reset link. The platform never sets or sees a password.
   - The Owner creates managers and staff, but not another owner.
   - A Manager creates cashier, kitchen, delivery and inventory staff, but not managers or owners.
 - **Staff Aadhaar:**
+  - By default, only the last 4 digits are kept, with the staff member's recorded consent. A hotel can opt in to keeping full numbers, encrypted.
   - The Owner can view and reveal Aadhaar for anyone in the business.
   - A Manager can do so only for staff below them in their own outlets.
-  - Every reveal is audited, and the Super Admin can't see it.
+  - Every reveal is audited, and the Super Admin can't see Aadhaar, not even in a support view.
 - **Backups and export:**
   - The Super Admin creates and restores whole-platform backups for disaster recovery. Backups can't be downloaded from the app.
   - Each Owner downloads its own business's data under Admin → Export data, as JSON or CSV. Passwords and Aadhaar are left out.
@@ -217,8 +218,8 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
 
 | Command | What it does |
 |---|---|
-| `npm run build` / `typecheck` / `lint` / `test` | Turbo across shared, api and web (156 unit tests) |
-| `npm run test:integration -w @canavo/api` | Real-Postgres integration suite (37 tests): row-level security, atomic tab split, idempotency, outbox, jobs, Redis adapter, observability, delivery guards. Needs `IT_DATABASE_URL` (owner) or the local Docker DB; Redis tests use `IT_REDIS_URL`. |
+| `npm run build` / `typecheck` / `lint` / `test` | Turbo across shared, api and web (168 unit tests) |
+| `npm run test:integration -w @canavo/api` | Real-Postgres integration suite (77 tests). Covers row-level security, atomic tab split, idempotency, outbox, jobs, Redis adapter, observability, delivery guards, password links, two-step login, support access, Aadhaar, clock-in and cookie sessions. Needs `IT_DATABASE_URL` (owner) or the local Docker DB; Redis tests use `IT_REDIS_URL`. |
 | `npm run test:smoke -w @canavo/api` | API smoke suite against a running server (`SMOKE_API_URL`) |
 | `npm run worker -w @canavo/api` | Run the background jobs in their own process (with `JOBS_MODE=worker` on the API) |
 | `npm run backup:drill -w @canavo/api` | Backup → restore into a scratch DB → compare counts and money (staging only) |
@@ -232,6 +233,8 @@ CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - **Tenant isolation, two layers:** the Prisma filter adds `businessId`, and PostgreSQL row-level security on 48 tables refuses other hotels' rows even if a query forgets its filter. See [ADR 0001](docs/build/adr/0001-row-level-security.md).
 - **Events after a change** (KOTs, live updates, alerts) are written to an outbox in the same transaction and then delivered. A crash can't lose them. See [ADR 0003](docs/build/adr/0003-transactional-outbox.md).
 - **Retries are safe:** the web and mobile apps send an `Idempotency-Key` on every change. A repeated request returns the first result.
+- **Accounts:** two-step login (authenticator app and recovery codes), signed-in devices with per-device sign-out, and one-time password links. Nobody sets or sees another person's password. Account → Security.
+- **Support access:** the CANAVO team sees no hotel data unless the owner allows it. Then it's read-only, time-limited and every screen is logged ([ADR 0005](docs/build/adr/0005-consented-support-access.md)).
 - **New behaviour ships behind per-hotel feature flags,** OFF for existing hotels: [FEATURE_FLAGS.md](docs/build/FEATURE_FLAGS.md).
 - **Build programme status:** [docs/build/ROADMAP_STATUS.md](docs/build/ROADMAP_STATUS.md).
 

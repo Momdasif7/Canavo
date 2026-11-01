@@ -55,6 +55,9 @@ The blueprint creates it. Otherwise: **New → Web Service** → this repo → *
    | `DATA_ENCRYPTION_KEY` | `openssl rand -base64 32`. **Required.** The API refuses to start without it. **Store a copy in a password manager**: without it, encrypted Aadhaar numbers and WhatsApp tokens can't be read. |
    | `CORS_ORIGINS` | your web domain(s), e.g. `https://app.example.in,https://*.vercel.app` (the wildcard allows Vercel preview links) |
    | `PUBLIC_API_URL` | this service's URL, e.g. `https://canavo-api.onrender.com` (or your API domain) |
+   | `WEB_APP_URL` | the web app's URL, e.g. `https://app.example.in`. **Required.** Password setup and reset links point here. |
+   | `SMTP_*` **or** `MSG91_AUTH_KEY` + `MSG91_ALERT_TEMPLATE_ID` | **At least one is required.** New owners get a "set your password" link and locked-out users a reset link. The platform never types or sees anyone's password. |
+   | `AUTH_COOKIE_DOMAIN` | optional, e.g. `.example.in`, when the web app and API run on `app.` and `api.` of your domain. Web sessions then move to httpOnly cookies, which a malicious script can't steal ([ADR 0006](../build/adr/0006-web-session-cookies.md)). |
    | `CLOUDINARY_*` | recommended, so uploaded photos don't depend on one server's disk |
    | `MSG91_*`, `RAZORPAY_*`, `SMTP_*`, `EXPO_ACCESS_TOKEN` | optional; each feature falls back safely when empty |
    | `JOBS_MODE` | `worker` when canavo-worker runs the jobs (the blueprint sets it). `embedded` runs them inside the API instead, for a single small server without a worker. |
@@ -63,7 +66,15 @@ The blueprint creates it. Otherwise: **New → Web Service** → this repo → *
    | `REDIS_URL` | only if you run more than one API instance |
    | `BACKUP_S3_*` | off-site backup copies (§6). Strongly recommended. |
 
-   The API **refuses to start in production** with placeholder or identical JWT secrets, no `DATA_ENCRYPTION_KEY`, a localhost `PUBLIC_API_URL` or `CORS_ORIGINS=*`. The log names each problem. `SKIP_PROD_CONFIG_CHECK=1` overrides this; use it for emergencies only.
+   The API (and the worker) **refuse to start in production** with any of these:
+   - placeholder or identical JWT secrets;
+   - no `DATA_ENCRYPTION_KEY`;
+   - a localhost `PUBLIC_API_URL` or `WEB_APP_URL`;
+   - `CORS_ORIGINS=*`;
+   - neither email nor SMS configured;
+   - **any active demo login** (`@canavo.local`).
+
+   The log names each problem. `SKIP_PROD_CONFIG_CHECK=1` overrides the configuration checks, for emergencies only. `ALLOW_DEMO_SEED=1` allows demo logins, for a throwaway demo server only.
 
 2. **Health check path:** `/ready`. It returns 200 only when the database answers, so Render won't route traffic to an instance that can't reach the DB. `/health` is a liveness ping.
 3. **Disk:** 5 GB mounted at `/repo/apps/api/storage`. It holds uploaded images (if Cloudinary isn't set), manual platform backups and the email outbox.
@@ -72,7 +83,10 @@ The blueprint creates it. Otherwise: **New → Web Service** → this repo → *
 5. **Do not run the demo seed in production.** `npm run seed` refuses when `NODE_ENV=production` (it would create demo logins with a published password).
 6. **First Super Admin:** open the Render shell for canavo-api and run
    `ADMIN_NAME='…' ADMIN_EMAIL='…' ADMIN_PHONE='98xxxxxxxx' ADMIN_PASSWORD='…' npm run create-admin -w @canavo/api`.
-   The password must be at least 12 characters with upper case, lower case and a digit. Then log in and onboard hotels from the platform console.
+   The password must be at least 12 characters with upper case, lower case and a digit. Then:
+   - log in;
+   - **turn on two-step login** (Account → Security). Opening a hotel's support view requires it;
+   - onboard hotels from the platform console. Each new owner gets a link to set their own password.
 
 ### 2b. Worker (Render: canavo-worker)
 
@@ -100,9 +114,14 @@ The blueprint creates it from the same Docker image, with the start command `nod
    - install: `npm ci` at the repo root (npm workspaces);
    - build: build `@canavo/shared`, then the web app.
 4. **Environment Variables** (Production and Preview): `NEXT_PUBLIC_API_URL=https://canavo-api.onrender.com`, or your API domain, with no trailing slash. It is baked in at build time, so **redeploy** after changing it.
+   - Optional: `NEXT_PUBLIC_SESSION_MODE`.
+     - `auto` (default) uses httpOnly cookie sessions when the browser shares cookies with the API, otherwise localStorage.
+     - `storage` keeps the old behaviour.
 5. Deploy. Then add the Vercel domain (and any custom domain) to the API's `CORS_ORIGINS` and restart the API.
 
 **Custom domain:** Vercel → Project → Settings → Domains → add `app.example.in`, then create the DNS record it shows. HTTPS certificates are automatic.
+
+**Recommended for security:** put the web app on `app.example.in` and the API on `api.example.in`, then set `AUTH_COOKIE_DOMAIN=.example.in` on the API. Web sessions then use httpOnly cookies. On the default `*.vercel.app` + `*.onrender.com` domains, sessions stay in localStorage as before.
 
 ## 4. Mobile app
 
