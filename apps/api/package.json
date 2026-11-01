@@ -14,7 +14,8 @@
     "seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
     "postinstall": "prisma generate",
     "test:smoke": "vitest run -c vitest.smoke.config.ts",
-    "create-admin": "tsx --env-file-if-exists=.env scripts/create-platform-admin.ts"
+    "create-admin": "tsx --env-file-if-exists=.env scripts/create-platform-admin.ts",
+    "test:integration": "vitest run -c vitest.integration.config.ts"
   },
   "dependencies": {
     "@canavo/shared": "*",
