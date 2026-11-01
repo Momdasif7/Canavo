@@ -8,8 +8,8 @@ import { approvalsOn, requireApproval } from "./approvals";
 
 /**
  * Cash drawer shifts and the X/Z report (Phase 3.2). One open shift per outlet (one drawer).
- * Expected cash = opening float + counter cash payments + delivery cash handed over
- *   + pay-ins − pay-outs − cash refunds.
+ * Expected cash = opening float + counter cash payments (+ cash tips) + gift cards sold for cash
+ *   + delivery cash handed over + pay-ins − pay-outs − cash refunds.
  */
 type Tx = Prisma.TransactionClient;
 
@@ -21,6 +21,10 @@ export interface ShiftSummary {
   voids: { count: number; amount: number };
   payments: Record<string, { count: number; amount: number }>;
   counterCash: number;
+  /** Cash tips taken at the counter (Phase 3.8) — in the drawer, not sales */
+  cashTips: number;
+  /** Gift cards sold for cash (Phase 3.8) — in the drawer, not sales */
+  giftCardCashSales: number;
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
@@ -32,20 +36,23 @@ export interface ShiftSummary {
 export async function shiftSummary(shift: { outletId: string; openedAt: Date; closedAt: Date | null; openingFloat: number; id: string }, db: Tx | typeof prisma = prisma): Promise<ShiftSummary> {
   const to = shift.closedAt ?? new Date();
   const win = { gte: shift.openedAt, lt: to };
-  const [orders, voids, payments, counterCash, handovers, refunds, moves] = await Promise.all([
+  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash] = await Promise.all([
     db.order.aggregate({ where: { outletId: shift.outletId, status: "PAID", paidAt: win }, _count: true, _sum: { grandTotal: true, discount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } }),
     db.order.aggregate({ where: { outletId: shift.outletId, cancelledAt: win }, _count: true, _sum: { grandTotal: true } }),
     db.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", createdAt: win, order: { outletId: shift.outletId } }, _count: true, _sum: { amount: true } }),
-    db.payment.aggregate({ where: { status: "SUCCESS", mode: "CASH", collectedById: null, createdAt: win, order: { outletId: shift.outletId } }, _sum: { amount: true } }),
+    db.payment.aggregate({ where: { status: "SUCCESS", mode: "CASH", collectedById: null, createdAt: win, order: { outletId: shift.outletId } }, _sum: { amount: true, tip: true } }),
     db.deliveryCashHandover.aggregate({ where: { outletId: shift.outletId, receivedAt: win }, _sum: { amount: true } }),
     db.creditNote.groupBy({ by: ["refundMode"], where: { outletId: shift.outletId, createdAt: win }, _count: true, _sum: { amount: true } }),
     db.cashMovement.groupBy({ by: ["type"], where: { shiftId: shift.id }, _sum: { amount: true } }),
+    db.giftCard.aggregate({ where: { soldOutletId: shift.outletId, soldMode: "CASH", createdAt: win }, _sum: { initialValue: true } }),
   ]);
   const s = orders._sum;
   const cashRefunds = refunds.find((r) => r.refundMode === "CASH")?._sum.amount ?? 0;
   const payIns = moves.find((m) => m.type === "PAY_IN")?._sum.amount ?? 0;
   const payOuts = moves.find((m) => m.type === "PAY_OUT")?._sum.amount ?? 0;
   const counter = counterCash._sum.amount ?? 0;
+  const cashTips = counterCash._sum.tip ?? 0;
+  const giftCardCashSales = giftCash._sum.initialValue ?? 0;
   const handed = handovers._sum.amount ?? 0;
   return {
     from: shift.openedAt.toISOString(),
@@ -60,12 +67,14 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
     voids: { count: voids._count, amount: voids._sum.grandTotal ?? 0 },
     payments: Object.fromEntries(payments.map((p) => [p.mode, { count: p._count, amount: p._sum.amount ?? 0 }])),
     counterCash: counter,
+    cashTips,
+    giftCardCashSales,
     deliveryCashHandedOver: handed,
     refunds: Object.fromEntries(refunds.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
     cashRefunds,
     payIns,
     payOuts,
-    expectedCash: shift.openingFloat + counter + handed + payIns - payOuts - cashRefunds,
+    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + handed + payIns - payOuts - cashRefunds,
   };
 }
 

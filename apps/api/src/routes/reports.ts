@@ -1428,7 +1428,7 @@ reportsRouter.get("/daily", async (req, res) => {
     prisma.payment.groupBy({
       by: ["mode"],
       where: { status: "SUCCESS", order: { ...window, status: "PAID" } },
-      _sum: { amount: true },
+      _sum: { amount: true, tip: true },
       _count: true,
     }),
     prisma.orderItem.groupBy({
@@ -1482,6 +1482,8 @@ reportsRouter.get("/daily", async (req, res) => {
     },
     /** Gross sales minus refunds issued today */
     salesAfterRefunds: gross - refundTotal,
+    /** Tips received on top of bills (not sales, not taxed) — Phase 3.8 */
+    tips: payments.reduce((s, p) => s + (p._sum.tip ?? 0), 0),
     averageOrderValue: orders.length ? Math.round(gross / orders.length) : 0,
     byOrderType: byType,
     byPaymentMode: Object.fromEntries(payments.map((p) => [p.mode, { count: p._count, amount: p._sum.amount ?? 0 }])),
@@ -1513,6 +1515,7 @@ reportsRouter.get("/daily", async (req, res) => {
         { metric: "Cancelled orders", count: data.cancelledOrders },
         { metric: "Refunds (credit notes)", value: data.refunds.amount, count: data.refunds.count },
         { metric: "Sales after refunds", value: data.salesAfterRefunds },
+        { metric: "Tips (not sales)", value: data.tips },
         { metric: `Yesterday (${data.comparison.yesterday.changePercent ?? "-"}%)`, value: yesterday.gross, count: yesterday.orders },
         { metric: `Same day last week (${data.comparison.lastWeek.changePercent ?? "-"}%)`, value: lastWeek.gross, count: lastWeek.orders },
       ],

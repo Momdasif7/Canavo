@@ -39,6 +39,11 @@ export const FEATURES = {
     description: "Cash payments can only be taken while a cash shift is open at the outlet (opening float counted). Closing the shift prints the Z-report with the cash difference.",
     requires: ["BILLING"],
   },
+  GIFT_CARDS: {
+    label: "Gift cards",
+    description: "Sell closed-loop gift cards (usable only at this hotel, no cash-out) and accept them as payment. GST applies when the card is spent, not when it's sold.",
+    requires: ["BILLING"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",

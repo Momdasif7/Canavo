@@ -7,6 +7,7 @@ import { badRequest, conflict, notFound } from "../lib/http";
 import { moduleEnabled } from "../lib/tenant";
 import { approvalsOn, requireApproval } from "./approvals";
 import { applyStockMovement, computeConsumption } from "./inventory";
+import { creditGiftCard } from "./gift-cards";
 
 /**
  * Refunds as GST credit notes (Phase 3.1). A credit note is issued against a PAID bill, for
@@ -108,6 +109,15 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
     }
 
     if (input.refundMode === "KHATA") await creditKhata(tx, req, order, amount);
+    if (input.refundMode === "GIFT_CARD") {
+      // Back onto the gift card the bill was paid with, at most what was paid by gift card.
+      const gc = order.payments.filter((p) => p.mode === "GIFT_CARD" && p.giftCardId);
+      const already = await tx.creditNote.aggregate({ where: { orderId: order.id, refundMode: "GIFT_CARD" }, _sum: { amount: true } });
+      if (!gc.length || amount > gc.reduce((s, p) => s + p.amount, 0) - (already._sum.amount ?? 0)) {
+        throw badRequest("Only the part of the bill paid by gift card can be refunded to the gift card");
+      }
+      await creditGiftCard(tx, gc[0]!.giftCardId!, amount, { outletId, orderId: order.id, note: `Refund on bill ${order.invoiceNumber}`, userId: req.user!.id });
+    }
 
     const approvedById = approvalsOn()
       ? await requireApproval(req, { action: "REFUND", outletId, orderId: order.id, amount, reason: input.note ?? input.reason, approval: input.approval }, tx)

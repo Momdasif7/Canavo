@@ -219,7 +219,7 @@ export type TaxRateInput = z.infer<typeof taxRateSchema>;
 
 // ---------- Orders & payments ----------
 export const ORDER_TYPES = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"] as const;
-export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA"] as const;
+export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD"] as const;
 
 export const orderItemInputSchema = z.object({
   menuItemId: z.string(),
@@ -286,6 +286,13 @@ export const paymentSchema = z.object({
         mode: z.enum(PAYMENT_MODES),
         amount: paise.refine((v) => v > 0, "Amount must be positive"),
         reference: z.string().max(100).optional(),
+        /** Phase 3.8: tip on top (not part of the bill), paise */
+        tip: paise.optional(),
+        /** CARD: last 4 digits and the terminal's approval code */
+        cardLast4: z.string().regex(/^\d{4}$/, "Last 4 digits of the card").optional(),
+        authCode: z.string().trim().max(20).optional(),
+        /** GIFT_CARD: the card's code */
+        giftCardCode: z.string().trim().toUpperCase().max(30).optional(),
       }),
     )
     .min(1),
@@ -312,7 +319,7 @@ export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
   CUSTOMER_CHANGED_MIND: "Customer changed mind",
   OTHER: "Other",
 };
-export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA"] as const;
+export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD"] as const;
 
 /** Refund some items (and quantities) of a paid bill, or a value only (e.g. overcharge). */
 export const refundSchema = z
@@ -344,4 +351,27 @@ export const shiftCloseSchema = z.object({
   /** Optional count by note/coin value in rupees, e.g. { "500": 3, "10": 12 } */
   denominations: z.record(z.string().regex(/^\d+$/), z.number().int().nonnegative()).optional(),
   note: z.string().trim().max(300).optional(),
+});
+
+// ---------- Gift cards (Phase 3.8, closed-loop) ----------
+export const giftCardIssueSchema = z.object({
+  /** Value loaded on the card, paise (₹50 – ₹50,000) */
+  value: z.number().int().min(5000).max(5_000_000),
+  /** How the customer paid for it */
+  soldMode: z.enum(["CASH", "UPI", "CARD"]),
+  /** Leave empty to generate one */
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{6,30}$/, "6–30 letters, digits or -").optional(),
+  customerName: z.string().trim().max(100).optional(),
+  customerPhone: indianPhone.optional(),
+  expiresAt: z.string().datetime().optional(),
+});
+export type GiftCardIssueInput = z.infer<typeof giftCardIssueSchema>;
+
+/** Settlement file rows from the bank / card acquirer (Phase 3.8): date, amount (₹), reference. */
+export const settlementUploadSchema = z.object({
+  mode: z.enum(["CARD", "UPI"]),
+  rows: z
+    .array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: paise, reference: z.string().trim().max(100).optional() }))
+    .min(1)
+    .max(5000),
 });

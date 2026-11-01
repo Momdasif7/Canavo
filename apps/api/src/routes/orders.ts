@@ -19,6 +19,8 @@ import { authenticate, requireAnyPermission, requireOutlet, requirePermission, r
 import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
 import { createCreditNote } from "../services/credit-notes";
 import { assertCashShiftOpen } from "../services/cash-shifts";
+import { creditGiftCard, redeemGiftCard } from "../services/gift-cards";
+import { featureOn } from "../lib/tenant";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
@@ -223,6 +225,9 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
       data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
     });
     await onOrderCancelled(tx, order.id);
+    for (const p of order.payments.filter((x) => x.mode === "GIFT_CARD" && x.giftCardId && x.status === "SUCCESS")) {
+      await creditGiftCard(tx, p.giftCardId!, p.amount, { outletId: req.outletId!, orderId: order.id, note: `Bill ${order.invoiceNumber} cancelled`, userId: req.user!.id });
+    }
     await onOrderCancelledService(tx, order.id);
     await restoreStockForOrder(tx, order.id);
     await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
@@ -260,22 +265,34 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
   if (payments.some((p) => p.mode === "KHATA") && !order.customerPhone) {
     throw badRequest("Khata (credit) needs a customer phone number on the bill");
   }
-  const cashPart = payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
+  // Cash tips go into the drawer too, so the customer's cash covers amount + tip.
+  const cashPart = payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount + (p.tip ?? 0), 0);
   if (tendered !== undefined && tendered < cashPart) throw badRequest("Cash tendered is less than cash amount");
   // Offline bills already happened: their payments sync even if no shift is open now.
   if (!order.syncedOffline) await assertCashShiftOpen(req.outletId!, payments.map((p) => p.mode));
 
+  if (payments.some((p) => p.mode === "GIFT_CARD") && !featureOn("GIFT_CARDS")) throw badRequest("Gift cards are not enabled for this hotel");
+  if (payments.some((p) => p.mode === "GIFT_CARD" && !p.giftCardCode)) throw badRequest("Enter the gift card code");
+
   const paid = await prisma.$transaction(async (tx) => {
-    await tx.payment.createMany({
-      data: payments.map((p) => ({
-        orderId: order.id,
-        mode: p.mode,
-        amount: p.amount,
-        reference: p.reference,
-        status: "SUCCESS" as const,
-        confirmedAt: new Date(),
-      })),
-    });
+    for (const p of payments) {
+      // Gift cards are spent with a compare-and-set inside this transaction (Phase 3.8).
+      const card = p.mode === "GIFT_CARD" ? await redeemGiftCard(tx, p.giftCardCode!, p.amount, { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id }) : null;
+      await tx.payment.create({
+        data: {
+          orderId: order.id,
+          mode: p.mode,
+          amount: p.amount,
+          reference: p.reference,
+          tip: p.tip ?? 0,
+          cardLast4: p.mode === "CARD" ? p.cardLast4 : undefined,
+          authCode: p.mode === "CARD" ? p.authCode : undefined,
+          giftCardId: card?.id,
+          status: "SUCCESS" as const,
+          confirmedAt: new Date(),
+        },
+      });
+    }
     await onPaymentsRecorded(tx, order.id, payments, req.user!.id);
     await audit(req, "payment.collect", "Order", order.id, { payments, tendered }, tx);
     return settleIfPaid(order.id, tx);

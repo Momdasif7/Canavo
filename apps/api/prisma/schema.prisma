@@ -561,6 +561,8 @@ enum PaymentMode {
   UPI
   CARD
   KHATA
+  /// Phase 3.8: closed-loop gift card (feature GIFT_CARDS)
+  GIFT_CARD
 }
 
 enum PaymentStatus {
@@ -583,6 +585,16 @@ model Payment {
   confirmedAt   DateTime?
   /// Who received the money (e.g. the delivery partner at the door); null = outlet counter
   collectedById String?
+  /// Phase 3.8: tip on top of this payment (not part of the bill, not taxed), paise
+  tip           Int           @default(0)
+  /// Card payments: last 4 digits and the terminal's approval code
+  cardLast4     String?
+  authCode      String?
+  /// Gift card used (mode GIFT_CARD)
+  giftCardId    String?
+  /// Card / UPI: matched to the acquirer's or bank's settlement
+  settledAt     DateTime?
+  settlementRef String?
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([collectedById])
@@ -1527,4 +1539,49 @@ model CashMovement {
   shift        CashShift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
   @@index([shiftId])
+}
+
+/// Closed-loop gift card (Phase 3.8, D6): usable only at this business, no cash-out.
+model GiftCard {
+  id            String        @id @default(cuid())
+  businessId    String
+  /// Printed / shared code, unique per business
+  code          String
+  initialValue  Int
+  balance       Int
+  /// How it was paid for when sold (CASH / UPI / CARD) — no GST at sale; GST applies when it's spent
+  soldMode      String?
+  soldOutletId  String?
+  customerName  String?
+  customerPhone String?
+  expiresAt     DateTime?
+  active        Boolean       @default(true)
+  createdById   String
+  createdAt     DateTime      @default(now())
+  transactions  GiftCardTxn[]
+
+  @@unique([businessId, code])
+}
+
+enum GiftCardTxnType {
+  ISSUE
+  REDEEM
+  REFUND
+  ADJUST
+}
+
+model GiftCardTxn {
+  id          String          @id @default(cuid())
+  giftCardId  String
+  outletId    String?
+  type        GiftCardTxnType
+  /// Signed: + adds to the balance, − spends
+  amount      Int
+  orderId     String?
+  note        String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  giftCard    GiftCard        @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+
+  @@index([giftCardId])
 }
