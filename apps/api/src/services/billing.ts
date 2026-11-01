@@ -354,7 +354,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     const full = await tx.order.findUniqueOrThrow({ where: { id: created.id }, include: orderInclude });
     // Post-commit effects go through the outbox in THIS transaction: nothing is sent for a
     // rolled-back bill, and a crash right after commit can't lose the kitchen ticket (Phase 1.3).
-    const summary = { id: full.id, invoiceNumber: full.invoiceNumber, orderType: full.orderType, tableLabel: full.tableLabel, notes: full.notes, status: full.status };
+    const summary = { id: full.id, invoiceNumber: full.invoiceNumber, orderType: full.orderType, tableLabel: full.tableLabel, notes: full.notes, status: full.status, channel: full.channel };
     const released = full.kots.filter((k) => !k.releaseAt || k.releaseAt <= new Date());
     if (released.length) {
       // Same shape as GET /kot so displays can insert tickets without refetching.

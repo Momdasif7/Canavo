@@ -6,6 +6,8 @@ import {
   formatReceiptText,
   approvalSchema,
   orderCreateSchema,
+  ORDER_CHANNELS,
+  ORDER_CHANNEL_LABELS,
   refundSchema,
   paymentSchema,
   receiptShareSchema,
@@ -19,10 +21,10 @@ import { authenticate, requireAnyPermission, requireOutlet, requirePermission, r
 import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
 import { createCreditNote } from "../services/credit-notes";
 import { assertCashShiftOpen } from "../services/cash-shifts";
-import { creditGiftCard, redeemGiftCard } from "../services/gift-cards";
+import { redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
-import { redeemTokens, restoreCanteenForOrder, spendWallet } from "../services/canteen";
+import { redeemTokens, spendWallet } from "../services/canteen";
 import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
@@ -30,10 +32,10 @@ import { renderReceiptPdf } from "../services/pdf";
 import { shareReceipt } from "../services/whatsapp";
 import { emitToOutlet } from "../realtime";
 import { notify } from "../services/notify";
-import { onOrderCancelled, onPaymentsRecorded } from "../services/promotions";
-import { onOrderCancelledService } from "../services/service-context";
-import { restoreStockForOrder } from "../services/inventory";
+import { onPaymentsRecorded } from "../services/promotions";
 import { alertOrderCancelled } from "../services/alerts";
+import { cancelOrderInTx } from "../services/order-cancel";
+import { queueChannelStatus } from "../services/channels/service";
 
 export const ordersRouter = Router();
 ordersRouter.use(authenticate, requireOutlet, requireModule("BILLING"));
@@ -89,8 +91,10 @@ const billFilterSchema = z.object({
   to: ymdDate.optional(),
   status: z.enum(["OPEN", "PAID", "CANCELLED"]).optional(),
   /** COD = delivery orders paid cash on delivery */
-  paymentMode: z.enum(["CASH", "UPI", "CARD", "KHATA", "COD"]).optional(),
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "KHATA", "ONLINE", "COD"]).optional(),
   orderType: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"]).optional(),
+  /** Phase 6: where the order came from (POS, QR, ONLINE, ZOMATO, SWIGGY, …) */
+  channel: z.enum(ORDER_CHANNELS).optional(),
   search: z.string().trim().max(100).optional(),
 });
 const MAX_RANGE_DAYS = 366;
@@ -111,6 +115,7 @@ async function billWhere(req: Express.Request, q: z.infer<typeof billFilterSchem
     outletId: req.outletId,
     ...(q.status && { status: q.status }),
     ...(q.orderType && { orderType: q.orderType }),
+    ...(q.channel && { channel: q.channel }),
     ...(q.paymentMode === "COD"
       ? { delivery: { is: { cod: true } } }
       : q.paymentMode && { payments: { some: { mode: q.paymentMode, status: "SUCCESS" as const } } }),
@@ -190,6 +195,7 @@ ordersRouter.get("/export", requirePermission("bills:view"), async (req, res) =>
         { key: "invoice", header: "Invoice", width: 18 },
         { key: "date", header: "Date & time", width: 20 },
         { key: "type", header: "Type", width: 11 },
+        { key: "channel", header: "Channel", width: 11 },
         { key: "customer", header: "Customer", width: 18 },
         { key: "phone", header: "Phone", width: 13 },
         { key: "mode", header: "Payment", width: 14 },
@@ -201,6 +207,7 @@ ordersRouter.get("/export", requirePermission("bills:view"), async (req, res) =>
         invoice: o.invoiceNumber,
         date: when(o.createdAt),
         type: o.orderType.replace("_", "-"),
+        channel: ORDER_CHANNEL_LABELS[o.channel as keyof typeof ORDER_CHANNEL_LABELS] ?? o.channel,
         customer: o.customerName ?? "",
         phone: o.customerPhone ?? "",
         mode: modes(o),
@@ -230,18 +237,9 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
   if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
   const updated = await prisma.$transaction(async (tx) => {
     if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: order.grandTotal, reason, approval }, tx);
-    const u = await tx.order.update({
-      where: { id: order.id },
-      data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
-    });
-    await onOrderCancelled(tx, order.id);
-    for (const p of order.payments.filter((x) => x.mode === "GIFT_CARD" && x.giftCardId && x.status === "SUCCESS")) {
-      await creditGiftCard(tx, p.giftCardId!, p.amount, { outletId: req.outletId!, orderId: order.id, note: `Bill ${order.invoiceNumber} cancelled`, userId: req.user!.id });
-    }
-    await restoreCanteenForOrder(tx, order.id, { outletId: req.outletId!, invoiceNumber: order.invoiceNumber, userId: req.user!.id });
-    await onOrderCancelledService(tx, order.id);
-    await restoreStockForOrder(tx, order.id);
-    await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
+    const u = await cancelOrderInTx(tx, req, order, reason);
+    // Phase 6.1: an aggregator order is cancelled on the channel too (outbox: retried until the hub answers).
+    await queueChannelStatus(tx, order.id, "CANCELLED", reason);
     return u;
   });
   emitToOutlet(req.outletId!, "order:cancelled", { id: order.id });
@@ -285,6 +283,8 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
   if (payments.some((p) => p.mode === "GIFT_CARD") && !featureOn("GIFT_CARDS")) throw badRequest("Gift cards are not enabled for this hotel");
   if (payments.some((p) => p.mode === "GIFT_CARD" && !p.giftCardCode)) throw badRequest("Enter the gift card code");
   // Phase 5 (CANTEEN): the company's share is added when the bill is made, never typed at the counter.
+  // Phase 6: "Paid online" is money a channel took (aggregator / online page), not something typed at the counter.
+  if (payments.some((p) => p.mode === "ONLINE") && order.channel === "POS") throw badRequest("Paid online is only for orders from an online channel");
   if (payments.some((p) => p.mode === "CORPORATE")) throw badRequest("The company's share is added automatically when the member's card is on the bill");
   if (payments.some((p) => p.mode === "WALLET" || p.mode === "MEAL_TOKEN")) {
     if (!moduleEnabled("CANTEEN")) throw badRequest("Canteen is not enabled for this business");

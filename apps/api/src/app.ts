@@ -36,6 +36,7 @@ import { giftCardsRouter } from "./routes/gift-cards";
 import { settlementsRouter } from "./routes/settlements";
 import { canteenRouter } from "./routes/canteen";
 import { canteenMealsRouter } from "./routes/canteen-meals";
+import { channelsRouter, channelWebhooksRouter } from "./routes/channels";
 
 gauge("canavo_outbox_pending", "Outbox events waiting for delivery", () => platformPrisma.outboxEvent.count({ where: { deliveredAt: null, failedAt: null } }));
 gauge("canavo_outbox_dead", "Outbox events that gave up (dead-lettered)", () => platformPrisma.outboxEvent.count({ where: { failedAt: { not: null } } }));
@@ -54,6 +55,8 @@ export function createApp() {
 
   // Public routes first: the Razorpay webhook needs the raw body.
   app.use(publicRouter);
+  // Phase 6.1: channel hub webhooks (raw body for the signature)
+  app.use(channelWebhooksRouter);
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "canavo-api" }));
@@ -93,6 +96,7 @@ export function createApp() {
   app.use("/cash-shifts", cashShiftsRouter);
   app.use("/gift-cards", giftCardsRouter);
   app.use("/settlements", settlementsRouter);
+  app.use("/channels", channelsRouter);
   // Meal slots / pre-orders / production / subscriptions handle only their own sub-paths and pass the rest on.
   app.use("/canteen", canteenMealsRouter);
   app.use("/canteen", canteenRouter);

@@ -8,13 +8,14 @@ import { notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { alertOrderReady } from "../services/alerts";
+import { onKotReady } from "../services/channels/service";
 
 export const kotRouter = Router();
 kotRouter.use(authenticate, requireOutlet, requireModule("KOT"));
 
 const kotInclude = {
   order: {
-    select: { id: true, invoiceNumber: true, orderType: true, tableLabel: true, notes: true, status: true, scheduledFor: true, customerName: true },
+    select: { id: true, invoiceNumber: true, orderType: true, tableLabel: true, notes: true, status: true, scheduledFor: true, customerName: true, channel: true },
   },
   session: { select: { id: true, tableId: true, mergedTableIds: true, table: { select: { label: true } } } },
 } satisfies Prisma.KotTicketInclude;
@@ -70,7 +71,12 @@ kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
   const { status } = parse(kotStatusSchema, req.body);
   const found = await prisma.kotTicket.findFirst({ where: { id: param(req, "id"), outletId: req.outletId } });
   if (!found) throw notFound("KOT");
-  const kot = await prisma.kotTicket.update({ where: { id: found.id }, data: { status }, include: kotInclude });
+  const kot = await prisma.$transaction(async (tx) => {
+    const k = await tx.kotTicket.update({ where: { id: found.id }, data: { status }, include: kotInclude });
+    // Phase 6.1: an aggregator order whose food is all ready → tell the channel (outbox, retried).
+    if (status === "READY" && found.status !== "READY" && k.orderId) await onKotReady(tx, k.orderId);
+    return k;
+  });
   const [shaped] = await present([kot]);
   emitToOutlet(req.outletId!, "kot:updated", shaped);
   if (status === "READY" && found.status !== "READY") void alertOrderReady(req.outletId!, kot.id);

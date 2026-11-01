@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { ArrowCounterClockwise, ArrowUUpLeft, CaretLeft, CaretRight, CloudArrowUp, FileXls, HandCoins, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
-import { REFUND_REASON_LABELS, formatINR } from "@canavo/shared";
+import { ORDER_CHANNELS, ORDER_CHANNEL_LABELS, REFUND_REASON_LABELS, formatINR, type OrderChannel } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { addDaysISO, todayISO } from "@/lib/dates";
 import { ORDER_TYPE_LABELS, PAYMENT_MODE_LABELS, formatDateTime, formatTime } from "@/lib/format";
@@ -27,6 +27,7 @@ import { ReceiptActions } from "@/components/bills/ReceiptActions";
 import { RefundDialog } from "@/components/bills/RefundDialog";
 import { useApproval } from "@/components/providers/ApprovalProvider";
 import { CodBadge, codPartnerName, isCodPending } from "@/components/bills/CodBadge";
+import { ChannelBadge } from "@/components/bills/ChannelBadge";
 import { DownloadButton } from "@/components/reports/ExportButtons";
 import {
   BILLS_PAGE_SIZE,
@@ -50,7 +51,9 @@ import { extraTaxRows } from "@/components/pos/CartPanel";
 const statusTone = { OPEN: "warning", PAID: "success", CANCELLED: "danger" } as const;
 
 export default function BillsPage() {
-  const { outletId, outlet } = useSession();
+  const { outletId, outlet, me } = useSession();
+  // Phase 6: the channel filter only matters to hotels taking online / aggregator orders.
+  const channelsOn = Boolean(me?.modules?.includes("CHANNELS"));
   const tz = outlet?.timezone;
   const today = todayISO(tz);
   const [filters, setFilters] = useState<BillFilterState>(() => ({ ...presetDates("today", today), status: "", paymentMode: "", orderType: "", search: "", cod: false }));
@@ -153,11 +156,11 @@ export default function BillsPage() {
   };
 
   const anyFilter =
-    filters.status || filters.paymentMode || filters.orderType || filters.search || filters.cod || filters.from !== today || filters.to !== today;
+    filters.status || filters.paymentMode || filters.orderType || filters.channel || filters.search || filters.cod || filters.from !== today || filters.to !== today;
   const clearFilters = () => {
     setSearch("");
     setCustomOpen(false);
-    setFilters({ ...presetDates("today", today), status: "", paymentMode: "", orderType: "", search: "", cod: false });
+    setFilters({ ...presetDates("today", today), status: "", paymentMode: "", orderType: "", channel: "", search: "", cod: false });
   };
 
   const exportName = `bills_${searching ? "search" : filters.from}${!searching && filters.to !== filters.from ? `_${filters.to}` : ""}.xlsx`;
@@ -221,8 +224,24 @@ export default function BillsPage() {
             <option value="UPI">UPI</option>
             <option value="CARD">Card</option>
             <option value="KHATA">Khata</option>
+            {channelsOn && <option value="ONLINE">Paid online</option>}
             <option value="COD">Cash on Delivery</option>
           </Select>
+          {channelsOn && (
+            <Select
+              aria-label="Channel"
+              value={filters.channel ?? ""}
+              onChange={(e) => patch({ channel: e.target.value as OrderChannel | "" })}
+              wrapperClassName="w-[calc(50%-6px)] sm:w-40"
+            >
+              <option value="">All channels</option>
+              {ORDER_CHANNELS.map((c) => (
+                <option key={c} value={c}>
+                  {ORDER_CHANNEL_LABELS[c]}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select
             aria-label="Order type"
             value={filters.orderType}
@@ -284,7 +303,7 @@ export default function BillsPage() {
                 ? "Unpaid Cash on Delivery bills for these dates will appear here."
                 : searching
                   ? "Try a different search."
-                  : anyFilter && (filters.status || filters.paymentMode || filters.orderType)
+                  : anyFilter && (filters.status || filters.paymentMode || filters.orderType || filters.channel)
                     ? "No bills match these filters."
                     : "Bills raised in this period will appear here."
             }
@@ -314,6 +333,7 @@ export default function BillsPage() {
                     <Td>
                       {ORDER_TYPE_LABELS[o.orderType]}
                       {o.tableLabel && <span className="text-muted"> · T{o.tableLabel}</span>}
+                      <ChannelBadge channel={o.channel} className="ml-2" />
                     </Td>
                     <Td className="text-muted">{[o.customerName, o.customerPhone].filter(Boolean).join(" · ") || "—"}</Td>
                     <Td className="text-muted">
@@ -445,6 +465,8 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge tone={statusTone[o.status]}>{o.status === "OPEN" ? "Unpaid" : o.status === "PAID" ? "Paid" : "Cancelled"}</Badge>
             <Badge>{ORDER_TYPE_LABELS[o.orderType]}</Badge>
+            <ChannelBadge channel={o.channel} />
+            {o.channelOrderId && <span className="text-muted">#{o.channelOrderId}</span>}
             {o.tableLabel && <Badge>Table {o.tableLabel}</Badge>}
             {o.documentType === "BILL_OF_SUPPLY" && <Badge tone="info">Bill of supply</Badge>}
             {o.documentType === "BILL" && <Badge tone="info">Plain bill</Badge>}

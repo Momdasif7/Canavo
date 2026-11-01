@@ -39,8 +39,11 @@ interface MemberMoney {
   tokens: { id: string; mealSlotId: string | null; balance: number; value: number }[];
 }
 
-/** Modes the counter can't pick by hand: the company's share is added at billing; tokens / gift cards have their own tabs. */
-const SPLIT_HIDDEN: PaymentMode[] = ["GIFT_CARD", "CORPORATE", "MEAL_TOKEN"];
+/**
+ * Modes the counter can't pick by hand: the company's share is added at billing; tokens / gift cards
+ * have their own tabs; "Paid online" is recorded by the channel that took the money (Phase 6).
+ */
+const SPLIT_HIDDEN: PaymentMode[] = ["GIFT_CARD", "CORPORATE", "MEAL_TOKEN", "ONLINE"];
 
 interface SplitRow {
   id: number;

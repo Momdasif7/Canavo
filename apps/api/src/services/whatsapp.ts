@@ -58,7 +58,7 @@ export interface WaConfig {
 export const WA_SETTING_KEY = "whatsapp.config";
 
 export const encryptSecret = (plain: string) => encryptWith(dataKey(), plain);
-const decryptSecret = (enc?: string) => {
+export const decryptSecret = (enc?: string) => {
   if (!enc) return "";
   try {
     return decryptWith(dataKey(), enc);

@@ -50,3 +50,6 @@ ReportSchedule,,yes,,outletId → Outlet.businessId
 Business,,,,"via Coupon, Customer, InventoryItem, MenuItem, Offer, Outlet, User, Vendor"
 TaxRate,yes,,yes,businessId
 DeliveryCashHandover,,yes,,outletId → Outlet.businessId
+ChannelConnection,,yes,,outletId → Outlet.businessId
+ChannelItemMap,,yes,,outletId → Outlet.businessId
+ChannelOrder,,yes,,outletId → Outlet.businessId
