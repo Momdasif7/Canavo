@@ -25,6 +25,7 @@ import {
   tierForSpend,
   toPreTax,
   bestOffer,
+  rankOffers,
   type BestOffer,
   type EngineLine,
   type EngineOffer,
@@ -165,6 +166,19 @@ export interface EvaluatedPromotions extends PricingResult {
   warnings: string[];
   /** Free items the cart qualifies for but doesn't contain yet (Buy X Get Y) */
   suggestions: FreeItemSuggestion[];
+  /** Phase 3.7: every offer / coupon checked and what it would save — "why this offer won" */
+  comparison: OfferComparison[];
+}
+
+export interface OfferComparison {
+  kind: "OFFER" | "COUPON";
+  id: string;
+  label: string;
+  /** Pre-tax saving if applied alone */
+  saving: number;
+  applied: boolean;
+  /** Why it was or wasn't applied */
+  note: string;
 }
 
 /**
@@ -214,7 +228,8 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     manualDiscount: l.manualDiscount,
   }));
   const rates = (ls: EngineLine[]) => ls.map((l) => rate.get(l.menuItemId) ?? 0);
-  const best = bestOffer(offers, engineLines, rates(engineLines), mode, input.discount);
+  const ranked = rankOffers(offers, engineLines, rates(engineLines), mode, input.discount);
+  const best = ranked[0] ?? null;
 
   // Free items (Buy X Get Y) are suggested only when, with the item added, that
   // offer would be the one applied — so the POS never shows FREE for an item the bill charges.
@@ -260,6 +275,9 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       [...(input.discount ? [input.discount] : []), ...billDiscounts],
     );
 
+  const comparison: OfferComparison[] = [];
+  let couponSaving: number | null = null;
+
   // 3. Coupon
   let couponId: string | undefined;
   let couponCode: string | undefined;
@@ -284,6 +302,8 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       warnings.push(err ?? "Invalid coupon code");
     } else {
       const amount = couponAmount(coupon, remainingBase);
+      couponSaving = amount;
+      comparison.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, saving: amount, applied: !(best && best.saving > amount), note: "" });
       if (best && best.saving > amount) {
         warnings.push(`Coupon ${coupon.code} not applied — only one offer per bill, and “${best.offer.name}” saves more`);
       } else {
@@ -295,6 +315,45 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     }
   }
   if (!couponId && best) useOffer(best);
+
+  // Phase 3.7: combinable offers apply on top, on items no other offer has discounted yet.
+  const appliedIds = new Set(applied.filter((a) => a.kind === "OFFER").map((a) => a.id));
+  for (const cand of ranked) {
+    if (!cand.offer.combinable || appliedIds.has(cand.offer.id)) continue;
+    if (cand.lineDiscounts) {
+      const free = engineLines.map((l, i) => (lineDiscounts[i] > 0 ? { ...l, quantity: 0 } : l));
+      const r = evaluateLineOffers([cand.offer], free);
+      const before = remaining();
+      r.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
+      const saving = before - remaining();
+      if (saving > 0) {
+        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: saving });
+        appliedIds.add(cand.offer.id);
+      }
+    } else {
+      const b = evaluateBillOffer([cand.offer], menuSubtotal, remaining());
+      if (b) {
+        const flat = billDiscountConfigSchema.safeParse(cand.offer.config).data?.discountType === "FLAT";
+        billDiscounts.push({ type: "FLAT", value: b.amount, includesTax: flat && outlet.flatDiscountsIncludeTax });
+        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: b.amount });
+        appliedIds.add(cand.offer.id);
+      }
+    }
+  }
+  // Why each offer was or wasn't used (shown on the POS).
+  const winner = couponId ? `the coupon (${couponCode})` : best ? `“${best.offer.name}”` : null;
+  for (const c of ranked) {
+    const on = appliedIds.has(c.offer.id);
+    comparison.push({
+      kind: "OFFER",
+      id: c.offer.id,
+      label: c.offer.name,
+      saving: c.saving,
+      applied: on,
+      note: on ? (c === best && !couponId ? "Saves the most" : "Combines with other offers") : c.offer.combinable ? "Its items already have a discount" : `One offer per bill: ${winner} saves more`,
+    });
+  }
+  for (const c of comparison) if (c.kind === "COUPON") c.note = c.applied ? (best && couponSaving !== null && best.saving === couponSaving ? "Same saving as the best offer; the customer's coupon wins a tie" : "Saves the most") : `One offer per bill: “${best?.offer.name}” saves more`;
 
   // 4. Points (a preview reports problems as warnings so the cart stays usable while editing)
   let pointsRedeemed = 0;
@@ -323,6 +382,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     customer,
     warnings,
     suggestions,
+    comparison: comparison.sort((a, b) => Number(b.applied) - Number(a.applied) || b.saving - a.saving),
   };
 }
 
@@ -332,7 +392,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
  * blocked customer. Creates the customer when a new phone number is given.
  */
 export async function applyPromotions(ctx: PricingContext): Promise<PricingResult> {
-  const { customer: _c, warnings: _w, suggestions: _s, ...result } = await evaluatePromotions(ctx);
+  const { customer: _c, warnings: _w, suggestions: _s, comparison: _cmp, ...result } = await evaluatePromotions(ctx);
   return result;
 }
 

@@ -343,6 +343,7 @@ export default function PosPage() {
         roundOff: serverPreview.bill.roundOff,
         grandTotal: serverPreview.bill.grandTotal,
         applied: serverPreview.applied,
+        comparison: serverPreview.comparison,
         ...(showTax ? {} : noTax),
       }
     : {

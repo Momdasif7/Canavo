@@ -938,6 +938,8 @@ model Offer {
   startTime  String?
   endTime    String?
   priority   Int       @default(0)
+  /// Phase 3.7: applies on top of the best offer (default: one offer per bill)
+  combinable Boolean   @default(false)
   /// Type-specific config, validated by the offers engine
   config     Json
   createdAt  DateTime  @default(now())

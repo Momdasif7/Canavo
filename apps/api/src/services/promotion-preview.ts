@@ -109,6 +109,8 @@ export async function previewPromotions(req: Request, input: OrderCreateInput) {
     warnings,
     suggestions,
     applied: promo.applied,
+    /** Phase 3.7: every offer / coupon checked, what it would save, and why it was (not) used */
+    comparison: promo.comparison,
     promoDiscount: promo.applied.reduce((s, a) => s + a.amount, 0),
     couponCode: promo.couponCode ?? null,
     pointsRedeemed: promo.pointsRedeemed,

@@ -31,6 +31,8 @@ export interface CartTotals {
   grandTotal: number;
   /** Promotions applied by the server (pre-tax amounts) */
   applied: { kind: string; label: string; amount: number }[];
+  /** Phase 3.7: offers / coupon checked by the server and why each was (not) used */
+  comparison?: { label: string; saving: number; applied: boolean; note: string }[];
   /** Manual discount part (pre-tax) when known */
   manualDiscount?: number;
 }
@@ -301,6 +303,23 @@ export function CartPanel(p: Props) {
               </li>
             ))}
           </ul>
+        )}
+        {(totals.comparison ?? []).some((c) => !c.applied) && (
+          <details className="mb-2 text-xs">
+            <summary className="cursor-pointer font-semibold text-muted">Why this offer? ({totals.comparison!.length} checked)</summary>
+            <ul className="mt-1 space-y-0.5">
+              {totals.comparison!.map((c) => (
+                <li key={c.label} className="flex justify-between gap-2">
+                  <span className={c.applied ? "font-semibold" : "text-muted"}>
+                    {c.applied ? "✓ " : ""}
+                    {c.label}
+                    <span className="block font-normal text-muted">{c.note}</span>
+                  </span>
+                  <span className="tabular shrink-0">−{formatINR(c.saving)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         <dl className="tabular space-y-0.5 text-sm">
           <Row label={`Subtotal (${itemCount} item${itemCount === 1 ? "" : "s"})`} value={formatINR(totals.subtotal)} />

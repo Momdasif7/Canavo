@@ -150,6 +150,8 @@ export interface Offer {
   startTime: string | null;
   endTime: string | null;
   priority: number;
+  /** Phase 3.7: also applies on top of the best offer */
+  combinable?: boolean;
   /** Type-specific config (see offer config schemas in @canavo/shared) */
   config: unknown;
   createdAt: string;
