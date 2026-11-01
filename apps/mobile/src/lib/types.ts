@@ -1110,6 +1110,48 @@ export interface OutletOverviewRow {
   staffClockedIn: number;
 }
 
+/** GET /reports/owner-summary — today so far vs the same weekday last week (same time). */
+export interface OwnerOutletDay {
+  outletId: string;
+  name: string;
+  date: string;
+  grossSales: Paise;
+  salesAfterRefunds: Paise;
+  bills: number;
+  averageBill: Paise;
+  voids: { count: number; amount: Paise };
+  refunds: { count: number; amount: Paise };
+  bigDiscounts: number;
+  discountLimitPercent: number;
+  unapprovedApprovals: number;
+  cash:
+    | { status: "OPEN"; expectedCash: Paise; openedAt: string; variance: null; closedAt: null }
+    | { status: "CLOSED"; expectedCash: null; openedAt: null; variance: Paise; closedAt: string | null }
+    | { status: "NONE"; expectedCash: null; openedAt: null; variance: null; closedAt: null };
+  topItems: { name: string; quantity: number; amount: Paise }[];
+  lowStock: number;
+  lastWeek: { date: string; grossSales: Paise; bills: number; fullDaySales: Paise };
+}
+
+export interface OwnerSummary {
+  generatedAt: string;
+  outlets: OwnerOutletDay[];
+  totals: {
+    grossSales: Paise;
+    salesAfterRefunds: Paise;
+    bills: number;
+    averageBill: Paise;
+    voids: { count: number; amount: Paise };
+    refunds: { count: number; amount: Paise };
+    bigDiscounts: number;
+    unapprovedApprovals: number;
+    lowStock: number;
+    cashVariance: Paise;
+    topItems: { name: string; quantity: number; amount: Paise }[];
+    lastWeek: { grossSales: Paise; bills: number; changePercent: number | null };
+  };
+}
+
 export interface OutletsOverview {
   date: string;
   outlets: OutletOverviewRow[];

@@ -11,11 +11,12 @@ import { BusinessBrandRow } from "../../src/components/BusinessBrand";
 import { PinPad } from "../../src/components/PinPad";
 import { SelfieCapture } from "../../src/attendance/SelfieCapture";
 import { Screen } from "../../src/components/Screen";
-import { AppText, Button, Card, Kpi, Notice, Row } from "../../src/components/ui";
+import { AppText, Button, Card, Notice, Row } from "../../src/components/ui";
 import { endpoints } from "../../src/lib/api";
-import { formatDuration, formatMinutes, formatTime, inrShort } from "../../src/lib/format";
+import { formatDuration, formatMinutes, formatTime } from "../../src/lib/format";
 import { useSocketEvent } from "../../src/lib/socket";
-import type { DailyReport, LowStockAlerts } from "../../src/lib/types";
+import type { LowStockAlerts, OwnerSummary } from "../../src/lib/types";
+import { OwnerSummaryView } from "../../src/reports/OwnerSummaryView";
 import { useNotifications } from "../../src/notifications/NotificationsContext";
 import { brand, font, space, useTheme } from "../../src/theme";
 
@@ -55,7 +56,7 @@ function StaffHome() {
   const c = useClock(outlet?.id ?? null, canClock);
   const clockedIn = !!c.status?.clockedIn;
   const now = useNow(clockedIn);
-  const [report, setReport] = useState<DailyReport | null>(null);
+  const [report, setReport] = useState<OwnerSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const canReport = allowed("report:view");
   const canStock = allowed("inventory:view");
@@ -79,7 +80,7 @@ function StaffHome() {
   const loadReport = useCallback(async () => {
     if (!canReport) return;
     try {
-      setReport(await endpoints.dailyReport());
+      setReport(await endpoints.ownerSummary());
     } catch {
       setReport(null);
     }
@@ -227,20 +228,7 @@ function StaffHome() {
 
       {canReport && report ? (
         <View style={{ gap: space.sm }}>
-          <AppText variant="h3">Today at {outlet?.name ?? "the outlet"}</AppText>
-          <View style={styles.kpis}>
-            <Kpi
-              label="Sales"
-              value={inrShort(report.grossSales)}
-              accent={t.success}
-              hint={
-                report.comparison.yesterday.changePercent != null
-                  ? `${report.comparison.yesterday.changePercent >= 0 ? "▲" : "▼"} ${Math.abs(report.comparison.yesterday.changePercent)}% vs yesterday`
-                  : undefined
-              }
-            />
-            <Kpi label="Bills" value={String(report.orders)} hint={`Avg ${inrShort(report.averageOrderValue)}`} />
-          </View>
+          <OwnerSummaryView s={report} />
           <Button title="Open reports" variant="secondary" icon="stats-chart" onPress={() => router.push("/(tabs)/reports")} />
         </View>
       ) : null}
@@ -309,7 +297,6 @@ const styles = StyleSheet.create({
   clockText: { color: "#fff", fontSize: font.xl + 4, fontWeight: "900", letterSpacing: 1 },
   clockSub: { color: "#fff", fontSize: font.md, fontWeight: "700" },
   timer: { color: "#fff", fontSize: font.xl, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  kpis: { flexDirection: "row", gap: space.md, flexWrap: "wrap" },
   bell: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   bellBadge: { position: "absolute", top: 4, right: 2, minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
 });

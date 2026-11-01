@@ -49,6 +49,11 @@ export const FEATURES = {
     description: "Each billing device gets its own invoice series (e.g. INVA1-2026-00007), so bills raised offline print their final GST invoice number instead of a provisional one.",
     requires: ["BILLING"],
   },
+  ANOMALY_ALERTS: {
+    label: "Unusual activity alerts for owners",
+    description: "Every 15 minutes, owners get a push alert when something looks unusual at an outlet today: many or large voids, a large refund, a cash shift closed ₹200 or more short or over, repeated big discounts, or sales well below the same day last week. Each alert is sent once a day.",
+    requires: ["BILLING"],
+  },
   REQUIRE_2FA: {
     label: "Require two-step login for owners and managers",
     description: "Owners and outlet managers must turn on two-step login (authenticator app) before they can use the app. Other staff can still choose to.",

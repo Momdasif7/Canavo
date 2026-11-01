@@ -25,6 +25,7 @@ import type {
   LowStockAlerts,
   NotificationList,
   OutletsOverview,
+  OwnerSummary,
   PromotionPreview,
   PurchaseDetail,
   PurchaseRow,
@@ -422,6 +423,7 @@ export const endpoints = {
   dailyReport: (date?: string) => api.get<DailyReport>("/reports/daily", { query: { date } }),
   salesReport: (from: string, to: string) =>
     api.get<SalesReport>("/reports/sales", { query: { from, to, groupBy: "day" } }),
+  ownerSummary: () => api.get<OwnerSummary>("/reports/owner-summary"),
   outletsOverview: (date?: string) => api.get<OutletsOverview>("/reports/outlets/overview", { query: { date } }),
 
   // Tables & running tabs
