@@ -2,7 +2,6 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import type { DeliveryStatus, Prisma } from "@prisma/client";
 import {
-  can,
   deliveryActivityQuerySchema,
   deliveryAssignSchema,
   deliveryHandoverSchema,
@@ -25,7 +24,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
-import { requireAnyPermission, authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { requireAnyPermission, authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
 import { deliveryStatusLink } from "../services/delivery-notify";
@@ -662,8 +661,8 @@ deliveryRouter.get("/partners/:agentId/timeline", requirePermission("delivery:ma
 });
 
 function canSee(req: Request, d: { agentId: string | null }) {
-  if (can(req.user!.role, "delivery:manage")) return true;
-  return can(req.user!.role, "delivery:own") && d.agentId === req.user!.id;
+  if (userCan(req, "delivery:manage")) return true;
+  return userCan(req, "delivery:own") && d.agentId === req.user!.id;
 }
 
 deliveryRouter.get("/:id", managerOrPartner, async (req, res) => {
@@ -703,9 +702,9 @@ deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
   const { status, note } = parse(deliveryStatusSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager) {
-    if (!can(req.user!.role, "delivery:own") || d.agentId !== req.user!.id) throw forbidden("Not your delivery");
+    if (!userCan(req, "delivery:own") || d.agentId !== req.user!.id) throw forbidden("Not your delivery");
     if (status === "CANCELLED") throw forbidden("Ask the outlet to cancel a delivery");
   }
   if (!canTransitionDelivery(d.status, status)) throw badRequest(`Cannot move delivery from ${d.status} to ${status}`);
@@ -745,7 +744,7 @@ deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
 
 /** Only the assigned partner (or a manager on their behalf) may act on a delivery's money. */
 function assertMyDeliveryEarly(req: Request, d: { agentId: string | null }) {
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager && d.agentId !== req.user!.id) throw forbidden("Not your delivery");
   return manager;
 }
@@ -806,7 +805,7 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
 }
 
 function assertMyDelivery(req: Request, d: { agentId: string | null }) {
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager && d.agentId !== req.user!.id) throw forbidden("Not your delivery");
   return manager;
 }

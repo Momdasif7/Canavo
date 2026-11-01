@@ -1,11 +1,12 @@
 import type { Request } from "express";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DeliveryStatus, Outlet, Prisma } from "@prisma/client";
-import { can, distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
+import { distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
 import { prisma } from "../db";
 import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { badRequest, forbidden, HttpError } from "../lib/http";
 import { autoAssignEnabled, canTakeOrder, notifyNoPartner, pickAvailablePartner } from "./delivery-assign";
+import { userCan } from "../middleware/auth";
 
 type Tx = Prisma.TransactionClient;
 
@@ -176,7 +177,7 @@ async function roughSubtotal(outletId: string, items: OrderCreateInput["items"])
  */
 export async function prepareServiceContext(req: Request, input: OrderCreateInput, outlet: Outlet): Promise<ServiceContext> {
   // Choosing Cash on Delivery is a payment decision: same permission as POST /orders/:id/cod.
-  if (input.delivery?.cod && req.user && !can(req.user.role, "payment:collect")) {
+  if (input.delivery?.cod && req.user && !userCan(req, "payment:collect")) {
     throw forbidden("You don't have permission to place Cash on Delivery orders");
   }
   const extraCharges: ServiceContext["extraCharges"] =

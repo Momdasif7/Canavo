@@ -10,6 +10,7 @@ import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, pas
   passwordLoginSchema,
   refreshSchema,
   effectivePermissions,
+  isPlatformRole,
   normalizeModules,
 } from "@canavo/shared";
 import { platformPrisma, prisma } from "../db";
@@ -344,7 +345,8 @@ authRouter.get("/me", authenticate, async (req, res) => {
   });
   const support = req.support ?? null;
   // In a support view the platform admin acts inside the hotel as a read-only manager of every outlet.
-  const platformAdmin = user.role === "SUPER_ADMIN" && !user.businessId && !support;
+  // Platform support users (Phase 4.2) also work in the platform console: platformRole tells them apart.
+  const platformAdmin = isPlatformRole(user.role) && !user.businessId && !support;
   const role = support ? req.user!.role : user.role;
   const outletSelect = { id: true, name: true, businessId: true, business: { select: { name: true } } } as const;
   const outlets = (
@@ -368,6 +370,8 @@ authRouter.get("/me", authenticate, async (req, res) => {
     ...profile,
     role,
     platformAdmin,
+    platformRole: platformAdmin ? user.role : null,
+    customRole: !support && req.user!.customRoleId ? await customRoleSummary(req.user!.customRoleId) : null,
     support: support && business ? { grantId: support.grantId, businessId: business.id, businessName: business.name, expiresAt: support.expiresAt, readOnly: true } : null,
     twoFactorEnabled: Boolean(totpEnabledAt),
     // The hotel requires two-step login for this role and it isn't on yet: the app sends them to Account → Security.
@@ -376,9 +380,13 @@ authRouter.get("/me", authenticate, async (req, res) => {
     modules,
     features,
     outlets,
-    permissions: effectivePermissions(role, modules),
+    permissions: effectivePermissions(role, modules, support ? null : req.user!.customPermissions),
   });
 });
+
+async function customRoleSummary(id: string) {
+  return platformPrisma.customRole.findUnique({ where: { id }, select: { id: true, name: true, baseRole: true } });
+}
 
 async function assertBusinessActive(businessId: string | null) {
   if (!businessId) return;

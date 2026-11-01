@@ -149,7 +149,7 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
   const groups = navGroupsFor({ me, outletId });
   // Delivery partners mostly use a phone browser: bottom tabs instead of hunting in the drawer.
   const partnerTabs = isDeliveryPartner({ me, outletId }) ? (groups.find((g) => g.id === "partner")?.items ?? []) : [];
-  const roleLabel = me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role];
+  const roleLabel = me.platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : me.customRole?.name ?? ROLE_LABELS[me.role];
   // Hotel staff see their own hotel's logo and name; the platform console keeps CANAVO's.
   // `outlet` reloads on outlet switch and after Settings saves (reloadOutlet).
   const brand: Brand =

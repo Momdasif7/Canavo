@@ -6,6 +6,7 @@ import { platformApi } from "@/lib/platform";
 import type { BusinessListItem, PlatformSummary } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
@@ -25,9 +26,11 @@ export default function PlatformHome() {
         title="Platform console"
         subtitle={`Welcome, ${me?.name ?? "admin"}. Manage CANAVO client businesses, their modules and owner logins.`}
         actions={
-          <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
-            <Plus size={20} /> New business
-          </Link>
+          canManagePlatform(me) ? (
+            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
+              <Plus size={20} /> New business
+            </Link>
+          ) : undefined
         }
       />
       {summary.loading && !s ? (

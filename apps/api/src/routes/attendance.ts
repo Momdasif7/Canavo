@@ -1,12 +1,12 @@
 import { Router } from "express";
 import ExcelJS from "exceljs";
 import { z } from "zod";
-import { attendanceManualSchema, attendanceRegisterSchema, attendanceUpdateSchema, can, clockSchema, leaveRequestSchema, ROLE_LABELS } from "@canavo/shared";
+import { attendanceManualSchema, attendanceRegisterSchema, attendanceUpdateSchema, clockSchema, leaveRequestSchema, ROLE_LABELS } from "@canavo/shared";
 import { prisma } from "../db";
 import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { audit } from "../lib/audit";
 import { addDays } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
 import { canManageAttendanceOf, clockIn, clockOut, dayOutcome, manualRecordFields, upsertManualAttendance } from "../services/attendance";
 import { notify, outletManagers } from "../services/notify";
 import { alertAttendanceMarked } from "../services/alerts";
@@ -55,7 +55,7 @@ attendanceRouter.get("/me/status", async (req, res) => {
 attendanceRouter.get("/calendar", async (req, res) => {
   const month = parse(monthSchema, req.query.month);
   const userId = String(req.query.userId ?? req.user!.id);
-  if (userId !== req.user!.id && !can(req.user!.role, "attendance:manage")) throw forbidden();
+  if (userId !== req.user!.id && !userCan(req, "attendance:manage")) throw forbidden();
   const { from, to } = monthRange(month);
   const [records, leaves] = await Promise.all([
     prisma.staffAttendance.findMany({ where: { userId, workDate: { gte: from, lte: to } }, orderBy: { clockInAt: "asc" } }),
@@ -225,7 +225,7 @@ attendanceRouter.post("/leaves", requirePermission("attendance:self"), async (re
 });
 
 attendanceRouter.get("/leaves", async (req, res) => {
-  const manage = can(req.user!.role, "attendance:manage") && req.query.scope === "outlet";
+  const manage = userCan(req, "attendance:manage") && req.query.scope === "outlet";
   if (manage) {
     const outletIds = req.user!.role === "SUPER_ADMIN" && req.header("x-outlet-id") ? [req.header("x-outlet-id")!] : req.user!.outletIds;
     return res.json(

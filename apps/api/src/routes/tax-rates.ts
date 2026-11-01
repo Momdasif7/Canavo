@@ -1,7 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Prisma, TaxRate } from "@prisma/client";
 import {
-  can,
   effectiveGstRate,
   permissionEnabled,
   roundRate,
@@ -14,7 +13,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse, unauthorized } from "../lib/http";
 import { requireBusinessId, tenant } from "../lib/tenant";
-import { authenticate, requireBusiness, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireBusiness, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 import { taxRateJson } from "../services/tax";
 
 /**
@@ -33,7 +32,7 @@ const requireAnyPermission =
   (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw unauthorized();
     const modules = tenant()?.modules ?? null;
-    if (!permissions.some((p) => can(req.user!.role, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
+    if (!permissions.some((p) => userCan(req, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
     next();
   };
 

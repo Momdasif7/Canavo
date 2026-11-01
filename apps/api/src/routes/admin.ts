@@ -7,7 +7,6 @@ import {
   AADHAAR_CONSENT_VERSION,
   type AadhaarMode,
   auditLogQuerySchema,
-  can,
   reportScheduleSchema,
   restoreSchema,
   SETTING_KEYS,
@@ -20,7 +19,7 @@ import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { decrypt, encrypt, maskAadhaar, verhoeffValid } from "../lib/crypto";
 import { requireBusinessId } from "../lib/tenant";
 import { addDays, startOfLocalDay } from "../lib/time";
-import { authenticate, requireBusiness, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireBusiness, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 import { ipAllowed, normalizeIp, superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { sendSchedule } from "../services/report-schedules";
 import { DEFAULT_TEMPLATES, encryptSecret, getStoredConfig, getWaConfig, sendWhatsApp, WA_PURPOSES, WA_SETTING_KEY, type StoredWaConfig, type WaPurpose } from "../services/whatsapp";
@@ -41,7 +40,7 @@ function requireSettingsAccess(req: Request, _res: Response, next: NextFunction)
 }
 
 /** Lower = more authority (same ladder as staff management). */
-const RANK: Record<string, number> = { SUPER_ADMIN: 0, BUSINESS_OWNER: 1, OUTLET_MANAGER: 2 };
+const RANK: Record<string, number> = { SUPER_ADMIN: 0, PLATFORM_SUPPORT: 0, BUSINESS_OWNER: 1, OUTLET_MANAGER: 2, ACCOUNTANT: 2, AUDITOR: 2 };
 const rank = (role: string) => RANK[role] ?? 3;
 
 // =====================================================================
@@ -146,7 +145,7 @@ async function settingTarget(req: Request, write: boolean) {
   const user = req.user!;
   if (key === "security.ipWhitelist" && user.role !== "SUPER_ADMIN") throw forbidden("Super admin only");
   if (scope === "GLOBAL" || scope === req.businessId) {
-    if (write && !can(user.role, "outlet:manage") && !isPlatformAdmin(req)) throw forbidden("Only the owner can change business-wide settings");
+    if (write && !userCan(req, "outlet:manage") && !isPlatformAdmin(req)) throw forbidden("Only the owner can change business-wide settings");
   } else {
     if (GLOBAL_ONLY.includes(key)) throw badRequest(`${key} can only be set at GLOBAL scope`);
     if (user.role !== "SUPER_ADMIN" && !user.outletIds.includes(scope)) throw forbidden("You are not assigned to this outlet");

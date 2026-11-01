@@ -113,7 +113,7 @@ export default function More() {
         <View style={{ flex: 1 }}>
           <AppText variant="h3">{me.name}</AppText>
           <AppText variant="muted">
-            {platformAdmin ? "Platform admin" : ROLE_LABELS[me.role]}
+            {platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : (me.customRole?.name ?? ROLE_LABELS[me.role])}
             {businessName ? ` · ${businessName}` : ""}
           </AppText>
           <AppText variant="small">+91 {me.phone}{me.email ? ` · ${me.email}` : ""}</AppText>

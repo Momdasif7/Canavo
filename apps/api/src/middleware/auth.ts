@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { withIdempotency } from "../lib/idempotency";
-import { featureEnabled, normalizeFeatures, can, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
+import { featureEnabled, normalizeFeatures, canWith, isPlatformRole, normalizeModules, permissionEnabled, type ModuleKey, type Permission, type Role } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { sessionActive, verifyAccess } from "../lib/tokens";
 import { badRequest, forbidden, HttpError, notFound, unauthorized } from "../lib/http";
@@ -14,6 +14,9 @@ export interface AuthUser {
   businessId: string | null;
   /** Outlets the user may act in (business owners: every outlet of their business) */
   outletIds: string[];
+  /** Custom role (Phase 4.2): its permissions narrow the base role; null = the full base role */
+  customRoleId?: string | null;
+  customPermissions?: string[] | null;
 }
 
 declare global {
@@ -32,7 +35,15 @@ declare global {
   }
 }
 
-const isPlatformAdmin = (u: AuthUser) => u.role === "SUPER_ADMIN" && !u.businessId;
+/** CANAVO operator accounts (super admin, platform support): no business of their own. */
+const isPlatformUser = (u: AuthUser) => isPlatformRole(u.role) && !u.businessId;
+
+/**
+ * Does the signed-in user have this permission (base role ∩ custom role)? Use this instead of
+ * `can(req.user.role, …)` so custom roles are honoured everywhere. Modules are checked by the guards.
+ */
+export const userCan = (req: { user?: AuthUser }, permission: Permission) =>
+  Boolean(req.user && canWith(req.user.role, permission, req.user.customPermissions));
 
 /** Roles a hotel can require two-step login for (feature REQUIRE_2FA). */
 export const TWO_FACTOR_REQUIRED_ROLES: Role[] = ["BUSINESS_OWNER", "OUTLET_MANAGER"];
@@ -64,7 +75,17 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const claims = verifyAccess(header.slice(7));
   const user = await platformPrisma.user.findUnique({
     where: { id: claims.sub },
-    select: { id: true, name: true, role: true, status: true, tokenVersion: true, businessId: true, outlets: true, totpEnabledAt: true },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      status: true,
+      tokenVersion: true,
+      businessId: true,
+      outlets: true,
+      totpEnabledAt: true,
+      customRole: { select: { id: true, permissions: true } },
+    },
   });
   // tokenVersion mismatch → role changed or force-logged-out since token was issued
   if (!user || user.status !== "ACTIVE" || user.tokenVersion !== claims.tv) {
@@ -77,28 +98,40 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   if (user.role === "BUSINESS_OWNER" && user.businessId) {
     outletIds = (await platformPrisma.outlet.findMany({ where: { businessId: user.businessId }, select: { id: true } })).map((o) => o.id);
   }
-  req.user = { id: user.id, name: user.name, role: user.role, businessId: user.businessId, outletIds };
+  req.user = {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    businessId: user.businessId,
+    outletIds,
+    customRoleId: user.customRole?.id ?? null,
+    customPermissions: user.customRole?.permissions ?? null,
+  };
 
   const supportBusinessId = req.header("x-support-business");
-  if (supportBusinessId && isPlatformAdmin(req.user)) {
+  if (supportBusinessId && isPlatformUser(req.user)) {
     const ctx: TenantContext = { platform: false };
     await enterSupport(req, ctx, supportBusinessId, user);
     return runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
   }
 
-  const ctx: TenantContext = { platform: isPlatformAdmin(req.user) };
+  const ctx: TenantContext = { platform: isPlatformUser(req.user) };
   // Platform super admins never enter a hotel's data (privacy): no business context for them.
   if (user.businessId) enterBusiness(req, ctx, await loadBusiness(user.businessId));
   // REQUIRE_2FA (Phase 2.1): owners/managers without two-step login may only reach /auth/* (to set it up).
   if (mustSetUpTwoFactor(user, ctx) && !req.originalUrl.startsWith("/auth/")) {
     throw new HttpError(403, "Your hotel requires two-step login. Turn it on under Account → Security first.", { code: "TWO_FACTOR_SETUP_REQUIRED" });
   }
+  // Auditors are read-only whatever their permissions say (Phase 4.2 safety net, like support views).
+  if (user.role === "AUDITOR" && req.method !== "GET" && req.method !== "HEAD" && !req.originalUrl.startsWith("/auth/")) {
+    throw forbidden("Auditor accounts are read-only.");
+  }
   // Mutations carrying an Idempotency-Key are replay-safe (Phase 1.4).
   await runWithTenant(ctx, () => withIdempotency(req, res, next, user.id));
 }
 
 /**
- * Support view (Phase 2.4): a platform admin opens a hotel only while its owner's grant is
+ * Support view (Phase 2.4): a platform admin (or platform support, Phase 4.2) opens a hotel only while its owner's grant is
  * active, only with their own two-step login on, and only to read. They act as an outlet
  * manager of every outlet (no owner-only screens, no data export); every request is
  * written to the hotel's audit log so the owner sees what was viewed.
@@ -113,7 +146,7 @@ async function enterSupport(req: Request, ctx: TenantContext, businessId: string
   if (!user.totpEnabledAt) throw forbidden("Turn on two-step login (Account → Security) before using support access.");
   enterBusiness(req, ctx, await loadBusiness(businessId));
   const outletIds = (await platformPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id);
-  req.user = { ...req.user!, role: "OUTLET_MANAGER", businessId, outletIds };
+  req.user = { ...req.user!, role: "OUTLET_MANAGER", businessId, outletIds, customRoleId: null, customPermissions: null };
   req.support = { grantId: grant.id, adminId: user.id, businessId, expiresAt: grant.expiresAt };
   const path = req.originalUrl.split("?")[0]!;
   if (req.method !== "GET" && req.method !== "HEAD" && !path.startsWith("/auth/")) throw forbidden("Support access is read-only.");
@@ -144,7 +177,7 @@ export function requireAnyPermission(...permissions: Permission[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw unauthorized();
     const modules = tenant()?.modules ?? null;
-    if (!permissions.some((p) => can(req.user!.role, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
+    if (!permissions.some((p) => userCan(req, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
     next();
   };
 }
@@ -153,7 +186,7 @@ export function requireAnyPermission(...permissions: Permission[]) {
 export function requirePermission(...permissions: Permission[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw unauthorized();
-    if (!permissions.every((p) => can(req.user!.role, p))) throw forbidden("Insufficient permissions");
+    if (!permissions.every((p) => userCan(req, p))) throw forbidden("Insufficient permissions");
     const modules = tenant()?.modules ?? null;
     const off = permissions.find((p) => !permissionEnabled(p, modules));
     if (off) throw forbidden("This feature is not enabled for your business");
@@ -179,9 +212,14 @@ export function requireAnyModule(...modules: ModuleKey[]) {
   };
 }
 
-/** Platform-only screens (businesses, modules, whole-database operations). */
-export function requirePlatformAdmin(req: Request, _res: Response, next: NextFunction) {
-  if (!req.user || !isPlatformAdmin(req.user)) throw forbidden("Platform administrators only");
+/**
+ * Platform console: platform accounts only. Reads need platform:view (super admin and
+ * platform support); anything that changes data needs platform:manage (super admin).
+ */
+export function requirePlatformUser(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user || !isPlatformUser(req.user)) throw forbidden("Platform administrators only");
+  const read = req.method === "GET" || req.method === "HEAD";
+  if (!userCan(req, read ? "platform:view" : "platform:manage")) throw forbidden("Only a super admin can change this");
   next();
 }
 
@@ -193,7 +231,7 @@ export async function requireOutlet(req: Request, _res: Response, next: NextFunc
   const outletId = req.header("x-outlet-id") ?? (req.user?.outletIds.length === 1 ? req.user.outletIds[0] : undefined);
   if (!outletId) throw badRequest("X-Outlet-Id header is required");
   const user = req.user!;
-  if (isPlatformAdmin(user)) {
+  if (isPlatformUser(user)) {
     throw forbidden("The platform admin can't open a hotel's data. The hotel's owner or manager can.");
   } else if (!user.outletIds.includes(outletId)) {
     throw forbidden("You are not assigned to this outlet");

@@ -9,6 +9,8 @@ import { platformApi } from "@/lib/platform";
 import type { PlatformUser } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
+import { Segmented } from "@/components/ui/Segmented";
 import { useToast } from "@/components/providers/ToastProvider";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -19,7 +21,9 @@ import { Input } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 
-/** CANAVO operators (super admins outside any business). */
+type PlatformRoleChoice = "SUPER_ADMIN" | "PLATFORM_SUPPORT";
+
+/** CANAVO operators: super admins, and support users who can only look (Phase 4.2). */
 export default function PlatformAdminsPage() {
   const { me } = useSession();
   const toast = useToast();
@@ -30,11 +34,13 @@ export default function PlatformAdminsPage() {
     <PageContainer>
       <PageHeader
         title="Platform admins"
-        subtitle="People who can onboard businesses, change modules and manage owner accounts. They never see hotel data."
+        subtitle="Super admins onboard businesses, change modules and manage owner accounts. Support users can only look, and open a hotel only when its owner allows support access. Neither sees hotel data otherwise."
         actions={
-          <Button icon={<UserPlus size={20} />} onClick={() => setCreating(true)}>
-            Add admin
-          </Button>
+          canManagePlatform(me) ? (
+            <Button icon={<UserPlus size={20} />} onClick={() => setCreating(true)}>
+              Add admin
+            </Button>
+          ) : undefined
         }
       />
       <Card>
@@ -49,6 +55,7 @@ export default function PlatformAdminsPage() {
             <THead>
               <tr>
                 <Th>Name</Th>
+                <Th>Role</Th>
                 <Th>Email</Th>
                 <Th>Phone</Th>
                 <Th>Status</Th>
@@ -64,6 +71,9 @@ export default function PlatformAdminsPage() {
                       {a.name}
                       {a.id === me?.id && <Badge tone="primary">You</Badge>}
                     </span>
+                  </Td>
+                  <Td>
+                    <Badge tone={a.role === "SUPER_ADMIN" ? "primary" : "info"}>{a.role === "SUPER_ADMIN" ? "Super admin" : "Support (view only)"}</Badge>
                   </Td>
                   <Td className="text-muted">{a.email ?? "—"}</Td>
                   <Td className="tabular text-muted">+91 {a.phone}</Td>
@@ -81,7 +91,7 @@ export default function PlatformAdminsPage() {
         open={creating}
         onClose={() => setCreating(false)}
         onCreated={(a) => {
-          toast(`${a.name} can now sign in as a platform admin`, "success");
+          toast(`${a.name} can now sign in as ${a.role === "SUPER_ADMIN" ? "a platform admin" : "platform support"}`, "success");
           void admins.reload();
         }}
       />
@@ -91,12 +101,14 @@ export default function PlatformAdminsPage() {
 
 function CreateAdminDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (a: PlatformUser) => void }) {
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
+  const [role, setRole] = useState<PlatformRoleChoice>("PLATFORM_SUPPORT");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setForm({ name: "", phone: "", email: "", password: "" });
+      setRole("PLATFORM_SUPPORT");
       setError(null);
     }
   }, [open]);
@@ -104,7 +116,7 @@ function CreateAdminDialog({ open, onClose, onCreated }: { open: boolean; onClos
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async () => {
-    const parsed = platformAdminCreateSchema.safeParse({ name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(), password: form.password });
+    const parsed = platformAdminCreateSchema.safeParse({ name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(), password: form.password, role });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       return setError(`${issue.path.join(".")}: ${issue.message}`);
@@ -126,7 +138,11 @@ function CreateAdminDialog({ open, onClose, onCreated }: { open: boolean; onClos
       open={open}
       onClose={onClose}
       title="Add platform admin"
-      description="Platform admins have full access to every business. Add only trusted CANAVO staff."
+      description={
+        role === "SUPER_ADMIN"
+          ? "Super admins can change every business's account, modules and owners. Add only trusted CANAVO staff."
+          : "Support users can view businesses and open a hotel read-only while its owner allows support access. They can't change anything."
+      }
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -140,6 +156,15 @@ function CreateAdminDialog({ open, onClose, onCreated }: { open: boolean; onClos
     >
       <div className="space-y-4">
         {error && <Alert>{error}</Alert>}
+        <Segmented
+          value={role}
+          onChange={setRole}
+          className="w-full"
+          options={[
+            { value: "PLATFORM_SUPPORT", label: "Support (view only)" },
+            { value: "SUPER_ADMIN", label: "Super admin" },
+          ]}
+        />
         <Input label="Full name" maxLength={100} value={form.name} onChange={(e) => set("name", e.target.value)} />
         <Input
           label="Mobile"

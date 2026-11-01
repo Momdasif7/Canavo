@@ -220,6 +220,10 @@ const MANAGE_RANK: Record<string, number> = {
   KITCHEN: 3,
   DELIVERY: 3,
   INVENTORY_MANAGER: 3,
+  WAITER: 3,
+  ACCOUNTANT: 2,
+  AUDITOR: 2,
+  PLATFORM_SUPPORT: 0,
 };
 
 /** Owners / super admins manage everyone below them incl. managers; managers manage staff. Never yourself. */

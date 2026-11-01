@@ -15,6 +15,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Toggle } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/States";
+import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { ModuleChips, ModulePicker } from "@/components/platform/modules";
 
 const STEPS = ["Business", "Modules", "Owner", "First outlet", "Review"] as const;
@@ -94,7 +96,20 @@ function stepError(w: WizardState, step: Step): string | null {
   return `${label}: ${issue.message}`;
 }
 
+/** Onboarding is for super admins; platform support users only look. */
 export default function NewBusinessPage() {
+  const { me } = useSession();
+  if (me && !canManagePlatform(me)) {
+    return (
+      <PageContainer>
+        <Alert tone="warning">Only a super admin can add businesses. Platform support accounts can only view them.</Alert>
+      </PageContainer>
+    );
+  }
+  return <NewBusinessWizard />;
+}
+
+function NewBusinessWizard() {
   const router = useRouter();
   const [w, setW] = useState<WizardState>(INITIAL);
   const [step, setStep] = useState<Step>(0);

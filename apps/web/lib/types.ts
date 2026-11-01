@@ -91,8 +91,12 @@ export interface Me {
   role: Role;
   photoUrl: string | null;
   shift: Shift | null;
-  /** Platform operator (super admin outside any business) */
+  /** Platform operator (super admin or platform support, outside any business) */
   platformAdmin: boolean;
+  /** Which platform role (support users can only look); null inside a business */
+  platformRole?: "SUPER_ADMIN" | "PLATFORM_SUPPORT" | null;
+  /** The business's custom role this user has, if any (narrows `role`) */
+  customRole?: { id: string; name: string; baseRole: Role } | null;
   /** Business the session acts in; always null for a platform admin (they never open a hotel) */
   business: BusinessRef | null;
   /** Enabled modules; null = platform context */
@@ -446,7 +450,18 @@ export interface Staff {
   createdAt: string;
   /** Two-step login turned on (null = off) */
   totpEnabledAt?: string | null;
+  /** Custom role narrowing `role` (Phase 4.2) */
+  customRoleId?: string | null;
   outlets: { outletId: string }[];
+}
+
+/** A business's own role: a named subset of a built-in base role's permissions. */
+export interface CustomRole {
+  id: string;
+  name: string;
+  baseRole: Role;
+  permissions: Permission[];
+  staffCount?: number;
 }
 
 export interface StaffPerformance {

@@ -53,8 +53,9 @@ export const platformUserCreateSchema = accountSchema.extend({
 });
 
 
-/** Super admin: create another platform administrator. */
+/** Super admin: create another platform administrator, or a read-only platform support user (Phase 4.2). */
 export const platformAdminCreateSchema = accountSchema.extend({
   email: z.string().trim().toLowerCase().email(),
   password: newPasswordSchema,
+  role: z.enum(["SUPER_ADMIN", "PLATFORM_SUPPORT"]).default("SUPER_ADMIN"),
 });

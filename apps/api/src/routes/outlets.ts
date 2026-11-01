@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { can, outletSchema, shiftSchema } from "@canavo/shared";
+import { outletSchema, shiftSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { emitToOutlet } from "../realtime";
 import { requireBusinessId } from "../lib/tenant";
 import { badRequest, forbidden, param, parse } from "../lib/http";
-import { authenticate, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 
 export const outletsRouter = Router();
 outletsRouter.use(authenticate);
@@ -45,7 +45,7 @@ const BASIC_OUTLET_FIELDS = {
   deliveryEnabled: true,
 } as const;
 
-const outletSelect = (req: Express.Request) => (can(req.user!.role, "settings:view") ? undefined : BASIC_OUTLET_FIELDS);
+const outletSelect = (req: Express.Request) => (userCan(req, "settings:view") ? undefined : BASIC_OUTLET_FIELDS);
 
 outletsRouter.get("/", async (req, res) => {
   // Platform super admins have no outlets (they don't see hotel data).
@@ -76,11 +76,11 @@ outletsRouter.get("/current", requireOutlet, async (req, res) => {
 
 outletsRouter.patch("/current", requireOutlet, requirePermission("settings:outlet"), async (req, res) => {
   const data = parse(outletSchema.partial(), req.body);
-  if (BILLING_FIELDS.some((f) => data[f] !== undefined) && !can(req.user!.role, "settings:billing")) {
+  if (BILLING_FIELDS.some((f) => data[f] !== undefined) && !userCan(req, "settings:billing")) {
     throw forbidden("You don't have permission to change billing / GST settings");
   }
   // The approval limit guards managers' own discounts: only the owner changes it (Phase 3.3).
-  if (data.approvalDiscountPercent !== undefined && !can(req.user!.role, "outlet:manage")) throw forbidden("Only the owner can change the approval limit");
+  if (data.approvalDiscountPercent !== undefined && !userCan(req, "outlet:manage")) throw forbidden("Only the owner can change the approval limit");
   const current = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   // Turning GST off also ends the composition scheme (it is a GST registration type).
   if (data.gstEnabled === false) data.compositionScheme = false;
