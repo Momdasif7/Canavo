@@ -364,6 +364,6 @@ export async function onOrderPaidService(tx: Tx, orderId: string): Promise<void>
   await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
   await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });
   // The tab is paid, so its food has been served — clear its tickets from the kitchen display.
-  await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED" } });
+  await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED", servedAt: new Date() } });
   await outboxEmitOutlet(tx, order.outletId, "table:updated", { tableIds, sessionId: session.id, action: "close" });
 }

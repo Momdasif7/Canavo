@@ -68,12 +68,31 @@ kotRouter.get("/", requirePermission("kot:view"), async (req, res) => {
   res.json(await present(kots));
 });
 
+const STAGES = ["RECEIVED", "PREPARING", "READY", "SERVED"] as const;
+const STAGE_AT = { PREPARING: "preparingAt", READY: "readyAt", SERVED: "servedAt" } as const;
+
+/**
+ * Stage timestamps for a status change: stamp every stage up to the new one that isn't
+ * stamped yet (skipping Preparing stamps it too), clear the later ones when moving back.
+ */
+function kotStageTimes(found: { preparingAt: Date | null; readyAt: Date | null; servedAt: Date | null }, status: (typeof STAGES)[number]) {
+  const at = STAGES.indexOf(status);
+  const now = new Date();
+  const out: Partial<Record<(typeof STAGE_AT)[keyof typeof STAGE_AT], Date | null>> = {};
+  for (const [stage, field] of Object.entries(STAGE_AT) as [keyof typeof STAGE_AT, (typeof STAGE_AT)[keyof typeof STAGE_AT]][]) {
+    if (STAGES.indexOf(stage) <= at) {
+      if (!found[field]) out[field] = now;
+    } else if (found[field]) out[field] = null;
+  }
+  return out;
+}
+
 kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
   const { status } = parse(kotStatusSchema, req.body);
   const found = await prisma.kotTicket.findFirst({ where: { id: param(req, "id"), outletId: req.outletId } });
   if (!found) throw notFound("KOT");
   const kot = await prisma.$transaction(async (tx) => {
-    const k = await tx.kotTicket.update({ where: { id: found.id }, data: { status }, include: kotInclude });
+    const k = await tx.kotTicket.update({ where: { id: found.id }, data: { status, ...kotStageTimes(found, status) }, include: kotInclude });
     // Phase 6.1: an aggregator order whose food is all ready → tell the channel (outbox, retried).
     if (status === "READY" && found.status !== "READY" && k.orderId) await onKotReady(tx, k.orderId);
     return k;

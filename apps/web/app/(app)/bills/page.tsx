@@ -28,6 +28,7 @@ import { RefundDialog } from "@/components/bills/RefundDialog";
 import { useApproval } from "@/components/providers/ApprovalProvider";
 import { CodBadge, codPartnerName, isCodPending } from "@/components/bills/CodBadge";
 import { ChannelBadge } from "@/components/bills/ChannelBadge";
+import { KitchenStatus } from "@/components/bills/KitchenStatus";
 import { DownloadButton } from "@/components/reports/ExportButtons";
 import {
   BILLS_PAGE_SIZE,
@@ -422,6 +423,10 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
   const o = order.data?.id === orderId ? order.data : undefined;
   // Stable object: PaymentDialog resets its form whenever `checkout` changes identity.
   const collectCheckout = useMemo(() => (collecting && o ? { kind: "online" as const, order: o } : null), [collecting, o]);
+  // Live food progress: the kitchen moved one of this bill's tickets.
+  useSocketEvent("kot:updated", (k: { orderId?: string | null }) => {
+    if (orderId && k?.orderId === orderId) void order.reload();
+  });
 
   const cancel = async () => {
     if (!o) return;
@@ -532,6 +537,13 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
               <dd>{formatINR(o.grandTotal)}</dd>
             </div>
           </dl>
+
+          {o.kots && (
+            <div>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Kitchen status</h3>
+              <KitchenStatus kots={o.kots} cancelled={o.status === "CANCELLED"} />
+            </div>
+          )}
 
           <div>
             <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Payments</h3>

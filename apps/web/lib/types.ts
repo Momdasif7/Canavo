@@ -278,6 +278,9 @@ export interface Kot {
   status: KotStatus;
   items: KotItem[];
   printedAt: string | null;
+  preparingAt?: string | null;
+  readyAt?: string | null;
+  servedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   order?: {

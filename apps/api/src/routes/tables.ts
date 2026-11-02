@@ -710,7 +710,7 @@ tablesRouter.post("/sessions/:id/close", requirePermission("table:serve"), async
     await tx.tableSession.update({ where: { id: session.id }, data: { status: "CLOSED", closedAt: new Date() } });
     await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
     await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });
-    await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED" } });
+    await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED", servedAt: new Date() } });
     await audit(req, "table.session.close", "TableSession", session.id, { tableIds }, tx);
   });
   emitTables(outletId, { tableIds, sessionId: session.id, action: "close" });

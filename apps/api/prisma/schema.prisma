@@ -563,24 +563,28 @@ enum KotStatus {
 }
 
 model KotTicket {
-  id        String        @id @default(cuid())
+  id          String        @id @default(cuid())
   /// Set for KOTs fired from a bill; null for running dine-in tabs until billed
-  orderId   String?
+  orderId     String?
   /// Dine-in running tab this KOT belongs to
-  sessionId String?
+  sessionId   String?
   /// Pre-orders: hidden from the kitchen until this time
-  releaseAt DateTime?
-  outletId  String
-  kotNumber Int
-  station   String
-  status    KotStatus     @default(RECEIVED)
+  releaseAt   DateTime?
+  outletId    String
+  kotNumber   Int
+  station     String
+  status      KotStatus     @default(RECEIVED)
   /// [{ name, quantity, notes }]
-  items     Json
-  printedAt DateTime?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  order     Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  session   TableSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  items       Json
+  printedAt   DateTime?
+  /// When the kitchen started / finished / served it (bill detail shows the food's progress)
+  preparingAt DateTime?
+  readyAt     DateTime?
+  servedAt    DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  order       Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  session     TableSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([outletId, status])
   @@index([orderId])
