@@ -395,7 +395,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                   dismissToast(t.key);
                   void open(t);
                 }}
-                className="mt-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                className="mt-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-fg hover:bg-primary-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 Open <ArrowRight size={14} weight="bold" />
               </button>

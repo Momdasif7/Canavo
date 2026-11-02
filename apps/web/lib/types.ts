@@ -2,7 +2,7 @@
  * Response shapes of the CANAVO API as consumed by the web app.
  * Dates arrive as ISO strings; all money is integer paise.
  */
-import type { DeliveryStatusValue, ModuleKey, OrderChannel, Permission, Role } from "@canavo/shared";
+import type { Brand, DeliveryStatusValue, ModuleKey, OrderChannel, Permission, Role, UserPreferences } from "@canavo/shared";
 
 export type FoodType = "VEG" | "NON_VEG" | "EGG";
 export type ItemStatus = "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN";
@@ -113,6 +113,10 @@ export interface Me {
   support?: { grantId: string; businessId: string; businessName: string; expiresAt: string; readOnly: true } | null;
   /** The hotel requires two-step login for this role and it isn't on yet (only Account → Security works) */
   twoFactorSetupRequired?: boolean;
+  /** The business's brand look (CANAVO defaults outside a business); missing in a cached /auth/me from older builds */
+  brand?: Brand;
+  /** This user's own appearance preferences */
+  preferences?: UserPreferences;
 }
 
 /** First step of sign-in when two-step login is on: exchange the ticket + a code at /auth/2fa/verify. */

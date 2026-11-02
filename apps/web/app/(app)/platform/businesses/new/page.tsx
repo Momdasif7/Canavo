@@ -187,7 +187,7 @@ function NewBusinessWizard() {
               aria-current={i === step ? "step" : undefined}
               className={clsx(
                 "flex min-h-[40px] items-center gap-2 rounded-full border px-3 text-sm font-semibold",
-                i === step ? "border-primary bg-primary text-white" : i < step ? "border-secondary/40 bg-secondary-50 text-secondary-700 dark:bg-secondary/20 dark:text-green-200" : "border-line text-muted",
+                i === step ? "border-primary bg-primary text-primary-fg" : i < step ? "border-secondary/40 bg-secondary-50 text-secondary-700 dark:bg-secondary/20 dark:text-green-200" : "border-line text-muted",
               )}
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs">{i < step ? <Check size={12} weight="bold" /> : i + 1}</span>

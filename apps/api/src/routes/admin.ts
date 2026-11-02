@@ -7,6 +7,8 @@ import {
   AADHAAR_CONSENT_VERSION,
   type AadhaarMode,
   auditLogQuerySchema,
+  brandSchema,
+  normalizeBrand,
   reportScheduleSchema,
   restoreSchema,
   SETTING_KEYS,
@@ -178,6 +180,24 @@ adminRouter.put("/settings/:scope/:key", requireSettingsAccess, async (req, res)
   });
   await audit(req, "setting.update", "Setting", `${scope}:${key}`, { value });
   res.json({ scope, key, value: s.value, updatedAt: s.updatedAt });
+});
+
+// =====================================================================
+// Business brand (Appearance): accent colour + corner style for everyone
+// in the business. Each user's own look is /auth/me/preferences.
+// =====================================================================
+
+adminRouter.get("/brand", requireBusiness, async (_req, res) => {
+  const b = await prisma.business.findUniqueOrThrow({ where: { id: requireBusinessId() }, select: { brand: true } });
+  res.json(normalizeBrand(b.brand));
+});
+
+/** Owner (outlet:manage) sets the business brand; omitted fields reset to the CANAVO default. */
+adminRouter.put("/brand", requirePermission("outlet:manage"), requireBusiness, async (req, res) => {
+  const brand = parse(brandSchema, req.body);
+  await prisma.business.update({ where: { id: requireBusinessId() }, data: { brand } });
+  await audit(req, "business.brand", "Business", requireBusinessId(), brand);
+  res.json(brand);
 });
 
 // =====================================================================

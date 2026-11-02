@@ -115,7 +115,7 @@ function Movement({ items }: { items: InventoryRow[] }) {
             ))}
           </Select>
           <label className="flex min-h-[40px] items-center gap-2 text-sm font-semibold">
-            <input type="checkbox" className="h-4 w-4 accent-[#FF6B35]" checked={movedOnly} onChange={(e) => setMovedOnly(e.target.checked)} />
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={movedOnly} onChange={(e) => setMovedOnly(e.target.checked)} />
             Moved only
           </label>
         </div>

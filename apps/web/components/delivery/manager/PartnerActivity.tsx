@@ -218,7 +218,7 @@ function PartnerCard({ p, lastHandoverAt, onRecord, onDay }: { p: PartnerRow; la
             {formatINR(t.cashReceived)}
           </p>
         </div>
-        <div className={clsx("rounded-xl px-3 py-2", due > 0 ? "bg-primary text-white" : "bg-secondary-50 dark:bg-secondary/25")}>
+        <div className={clsx("rounded-xl px-3 py-2", due > 0 ? "bg-primary text-primary-fg" : "bg-secondary-50 dark:bg-secondary/25")}>
           <p className={clsx("text-xs font-bold", due > 0 ? "text-white/90" : "text-muted")}>Cash to receive now</p>
           <p className="tabular text-xl font-black" data-testid="activity-to-receive">
             {formatINR(due)}

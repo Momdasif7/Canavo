@@ -92,7 +92,7 @@ function CashInHand({ s }: { s: DeliverySummary }) {
   return (
     <Link href="/delivery/cash" className="block rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" data-testid="cash-in-hand">
       <Card className={clsx("flex h-full items-center gap-4 p-4 hover:bg-surface-2 md:p-5", has ? "border-primary/50 bg-primary-50 hover:bg-primary-50/70 dark:bg-primary/15" : "")}>
-        <span className={clsx("flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl", has ? "bg-primary text-white" : "bg-surface-2 text-muted")}>
+        <span className={clsx("flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl", has ? "bg-primary text-primary-fg" : "bg-surface-2 text-muted")}>
           <Storefront size={30} weight="fill" />
         </span>
         <div className="min-w-0 flex-1">

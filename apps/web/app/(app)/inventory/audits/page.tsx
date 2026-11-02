@@ -40,7 +40,7 @@ export default function AuditsPage() {
           (inProgress ? (
             <Link
               href={`/inventory/audits/${inProgress.id}`}
-              className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600"
+              className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-fg shadow-sm hover:bg-primary-600"
             >
               <ClipboardText size={20} /> Continue counting
             </Link>

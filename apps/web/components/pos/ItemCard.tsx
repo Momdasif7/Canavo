@@ -90,7 +90,7 @@ export const ItemCard = memo(function ItemCard({
         </span>
       )}
       {inCart > 0 && (
-        <span className="absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-white shadow">
+        <span className="absolute right-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-fg shadow">
           {inCart}
         </span>
       )}

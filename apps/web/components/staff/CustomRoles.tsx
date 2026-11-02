@@ -167,7 +167,7 @@ function CustomRoleDialog({ role, onClose, onSaved }: { role: CustomRole | null 
           <div className="grid gap-2 sm:grid-cols-2">
             {available.map((p) => (
               <label key={p} className="flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border border-line px-3">
-                <input type="checkbox" className="h-5 w-5 accent-[#FF6B35]" checked={perms.includes(p)} onChange={() => toggle(p)} />
+                <input type="checkbox" className="h-5 w-5 accent-primary" checked={perms.includes(p)} onChange={() => toggle(p)} />
                 <span className="text-sm">{PERMISSION_LABELS[p]}</span>
               </label>
             ))}

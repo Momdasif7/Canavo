@@ -151,7 +151,7 @@ export default function TablesPage() {
                     onClick={() => chooseArea(a.id)}
                     className={clsx(
                       "min-h-tap shrink-0 rounded-xl border px-4 text-sm font-bold",
-                      a.id === area.id ? "border-primary bg-primary text-white" : "border-line bg-surface hover:border-primary/60",
+                      a.id === area.id ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface hover:border-primary/60",
                     )}
                   >
                     {a.name}

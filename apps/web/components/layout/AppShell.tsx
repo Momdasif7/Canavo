@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { Me } from "@/lib/types";
 import clsx from "clsx";
 import { ROLE_LABELS } from "@canavo/shared";
-import { CaretDown, CaretLeft, Eye, List, LockSimple, Moon, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
+import { CaretDown, CaretLeft, Eye, List, LockSimple, Moon, Palette, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
 import { errorMessage } from "@/lib/api";
 import { mediaUrl } from "@/lib/media";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -77,7 +77,7 @@ function RouteGate({ pathname, children }: { pathname: string; children: React.R
         title="Not available in the platform console"
         description="Hotel data (sales, bills, staff, customers, reports) is private to each hotel. The hotel's owner or manager can open this screen from their own login."
         action={
-          <Link href="/platform" className="inline-flex min-h-tap items-center rounded-xl bg-primary px-4 font-semibold text-white hover:bg-primary-600">
+          <Link href="/platform" className="inline-flex min-h-tap items-center rounded-xl bg-primary px-4 font-semibold text-primary-fg hover:bg-primary-600">
             Go to the platform console
           </Link>
         }
@@ -96,7 +96,7 @@ function NotAvailableState({ home }: { home: string }) {
       </span>
       <p className="mt-1 font-bold text-fg">This page isn&apos;t available for your role</p>
       <p className="max-w-sm text-sm text-muted">Ask your outlet manager if you need access.</p>
-      <Link href={home} className="mt-2 inline-flex min-h-tap items-center rounded-xl bg-primary px-5 font-semibold text-white hover:bg-primary-600">
+      <Link href={home} className="mt-2 inline-flex min-h-tap items-center rounded-xl bg-primary px-5 font-semibold text-primary-fg hover:bg-primary-600">
         Go to my home screen
       </Link>
     </div>
@@ -327,7 +327,7 @@ function SidebarNav({ groups, pathname, compact }: { groups: NavGroup[]; pathnam
       aria-current={active ? "page" : undefined}
       className={clsx(
         "group/item flex min-h-[44px] items-center gap-3 rounded-xl px-[19px] text-[15px] font-semibold transition-colors md:px-[19px]",
-        active ? "bg-primary text-white shadow-sm" : "text-muted hover:bg-surface-2 hover:text-fg",
+        active ? "bg-primary text-primary-fg shadow-sm" : "text-muted hover:bg-surface-2 hover:text-fg",
       )}
     >
       <Icon size={22} weight={active ? "fill" : "regular"} className="shrink-0 transition-transform duration-200 group-hover/item:scale-110" />
@@ -366,7 +366,7 @@ function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: 
       title={`${collapsed ? "Expand" : "Collapse"} sidebar (Ctrl + \\)`}
       className={clsx(
         "absolute -right-3.5 top-[18px] z-20 flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-muted shadow-md",
-        "transition-all duration-300 hover:scale-110 hover:border-primary hover:bg-primary hover:text-white focus-visible:scale-110",
+        "transition-all duration-300 hover:scale-110 hover:border-primary hover:bg-primary hover:text-primary-fg focus-visible:scale-110",
         "opacity-70 group-hover/side:opacity-100",
       )}
     >
@@ -434,6 +434,15 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
             >
               <ShieldCheck size={20} />
               Security
+            </Link>
+            <Link
+              href="/account/appearance"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex min-h-tap w-full items-center gap-3 rounded-xl px-3 font-semibold hover:bg-surface-2"
+            >
+              <Palette size={20} />
+              Appearance
             </Link>
             <button
               type="button"

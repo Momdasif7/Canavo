@@ -458,7 +458,7 @@ export function PaymentDialog({
             }}
             className={clsx(
               "flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border text-sm font-semibold transition-colors",
-              tab === t.id ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:border-primary/60",
+              tab === t.id ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface text-fg hover:border-primary/60",
             )}
           >
             {t.icon}

@@ -13,11 +13,11 @@ export function THead({ children }: { children: React.ReactNode }) {
 }
 
 export function Th({ className, ...rest }: React.ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={clsx("whitespace-nowrap px-4 py-3", className)} {...rest} />;
+  return <th className={clsx("ui-cell whitespace-nowrap px-4 py-3", className)} {...rest} />;
 }
 
 export function Td({ className, ...rest }: React.TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={clsx("border-t border-line px-4 py-3 align-middle text-fg", className)} {...rest} />;
+  return <td className={clsx("ui-cell border-t border-line px-4 py-3 align-middle text-fg", className)} {...rest} />;
 }
 
 export function Tr({ className, onClick, ...rest }: React.HTMLAttributes<HTMLTableRowElement>) {

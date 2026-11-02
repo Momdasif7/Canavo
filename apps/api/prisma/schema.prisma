@@ -142,6 +142,8 @@ model User {
   lastLocationAt        DateTime?
   /// Custom role (Phase 4.2): narrows the base `role`'s permissions; null = the full base role
   customRoleId          String?
+  /// Own appearance (light/dark, text size, density, personal accent) — see userPreferencesSchema in @canavo/shared
+  preferences           Json        @default("{}")
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
 
@@ -1357,6 +1359,8 @@ model Business {
   customRoles    CustomRole[]
   /// Staff Aadhaar storage (Phase 2.5): LAST4 = only the last 4 digits (default); FULL = full number, encrypted
   aadhaarMode    AadhaarMode     @default(LAST4)
+  /// Brand look for everyone in the business { accent, corners } — see brandSchema in @canavo/shared
+  brand          Json            @default("{}")
 }
 
 /// A tax rate a business defines for its menu (e.g. "GST 5%" = CGST 2.5 + SGST 2.5, or with cess / VAT).

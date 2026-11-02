@@ -419,7 +419,7 @@ export function OfferForm({
                     onClick={() => set("daysOfWeek", on ? form.daysOfWeek.filter((x) => x !== i) : [...form.daysOfWeek, i])}
                     className={clsx(
                       "min-h-tap min-w-[56px] rounded-xl border px-3 text-sm font-semibold transition-colors",
-                      on ? "border-primary bg-primary text-white" : "border-line hover:bg-surface-2",
+                      on ? "border-primary bg-primary text-primary-fg" : "border-line hover:bg-surface-2",
                     )}
                   >
                     {d}
@@ -451,7 +451,7 @@ export function OfferForm({
                   <label key={o.id} className={clsx("flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border px-3", on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line")}>
                     <input
                       type="checkbox"
-                      className="h-5 w-5 accent-[#FF6B35]"
+                      className="h-5 w-5 accent-primary"
                       checked={on}
                       onChange={() => set("outletIds", on ? form.outletIds.filter((x) => x !== o.id) : [...form.outletIds, o.id])}
                     />
