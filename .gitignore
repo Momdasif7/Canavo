@@ -17,3 +17,4 @@ playwright-report/
 test-results/
 .next-verify/
 apps/mobile/.env
+*.tsbuildinfo

@@ -1,0 +1,2 @@
+TC ID,Module,Role,Priority,Type,Requirement,Preconditions,Test data,Steps,Expected result,Actual result,Status,Bug ID,Tester,Date,Device/Browser
+MTC-BIL-014,Billing,Cashier,Critical,negative,BIL-004,"Logged in as cashier; a takeaway bill of ₹190.00 is open and unpaid","Cash ₹100.00 + UPI ₹100.00","1. Open the bill and tap Pay. 2. Choose Split. 3. Enter Cash 100. 4. Add UPI 100. 5. Tap Confirm payment.","Payment is refused with ""Payment ₹200.00 exceeds balance ₹190.00""; bill stays Open; no payment recorded.",,,,,,
