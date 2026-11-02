@@ -25,6 +25,7 @@ export async function shareReceipt(opts: {
   const waLink = `https://wa.me/91${opts.phone}?text=${encodeURIComponent(text)}`;
 
   if (env.WATI_API_URL && env.WATI_API_TOKEN) {
+    // BUG-024: a network failure must fall back to the wa.me link, not fail the request.
     const res = await fetch(
       `${env.WATI_API_URL}/api/v1/sendTemplateMessage?whatsappNumber=91${opts.phone}`,
       {
@@ -41,9 +42,12 @@ export async function shareReceipt(opts: {
           ],
         }),
       },
-    );
-    if (res.ok) return { method: "sent", waLink };
-    console.warn(`[whatsapp] WATI send failed (${res.status}); falling back to wa.me link`);
+    ).catch((e: unknown) => {
+      console.warn("[whatsapp] WATI unreachable; falling back to wa.me link", e instanceof Error ? e.message : e);
+      return null;
+    });
+    if (res?.ok) return { method: "sent", waLink };
+    if (res) console.warn(`[whatsapp] WATI send failed (${res.status}); falling back to wa.me link`);
   }
   return { method: "link", waLink };
 }

@@ -824,8 +824,8 @@ deliveryRouter.post("/:id/upi-qr", async (req, res) => {
   const due = d.order.grandTotal - amountPaid(d.order);
   if (due <= 0) throw conflict("Nothing to collect on this order");
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
-  await prisma.payment.updateMany({ where: { orderId: d.order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
   const qr = await createUpiQr({ amount: due, orderId: d.order.id, invoiceNumber: d.order.invoiceNumber, payeeName: outlet.name, vpa: outlet.upiVpa });
+  await prisma.payment.updateMany({ where: { orderId: d.order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
   const payment = await prisma.payment.create({
     data: {
       orderId: d.order.id,

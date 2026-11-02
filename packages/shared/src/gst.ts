@@ -230,7 +230,13 @@ export function computeBill(
     const amount = d.type === "FLAT" ? d.value : Math.round((remaining * d.value) / 100);
     billDisc += Math.max(0, Math.min(amount, remaining));
   }
-  const billDiscShares = allocate(billDisc, afterLineDiscount);
+  // Canonical per-line key for allocation tie-breaks (BUG-017: order independence).
+  const lineKeys = lines.map((l, i) => {
+    const t = taxes[i];
+    const extras = (t.extras ?? []).map((e) => `${e.label}:${e.percent}`).join(",");
+    return [t.cgst, t.sgst, t.igst, t.cess ?? 0, extras, l.unitPrice, l.quantity, l.lineDiscount ?? 0].join("|");
+  });
+  const billDiscShares = allocate(billDisc, afterLineDiscount, lineKeys);
   const taxable = afterLineDiscount.map((v, i) => v - billDiscShares[i]);
   const taxableTotal = taxable.reduce((a, b) => a + b, 0);
 
@@ -238,10 +244,10 @@ export function computeBill(
   const scTotal = config.serviceChargeEnabled
     ? Math.round((taxableTotal * config.serviceChargePercent) / 100)
     : 0;
-  const scShares = allocate(scTotal, taxable);
+  const scShares = allocate(scTotal, taxable, lineKeys);
   const extraTotal = (config.extraCharges ?? []).reduce((s, c) => s + Math.max(0, c.amount), 0);
   // If every line is fully discounted, spread extras by gross so they still carry tax.
-  const extraShares = allocate(extraTotal, taxableTotal > 0 ? taxable : gross.some((g) => g > 0) ? gross : lines.map(() => 1));
+  const extraShares = allocate(extraTotal, taxableTotal > 0 ? taxable : gross.some((g) => g > 0) ? gross : lines.map(() => 1), lineKeys);
 
   // 4. Tax per line.
   const resultLines: BillLineResult[] = lines.map((_, i) => {

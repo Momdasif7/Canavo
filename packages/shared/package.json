@@ -9,16 +9,22 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.lint.json",
     "test": "vitest run",
-    "lint": "eslint --max-warnings=-1 src"
+    "lint": "eslint --max-warnings=-1 src",
+    "test:mutation": "PBT_RUNS=150 stryker run",
+    "test:coverage": "vitest run --coverage --coverage.include=src/** --coverage.exclude=src/**/*.test.ts --coverage.exclude=src/index.ts"
   },
   "dependencies": {
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.3.0",
+    "@stryker-mutator/vitest-runner": "^9.3.0",
     "@typescript-eslint/eslint-plugin": "^8.46.2",
     "@typescript-eslint/parser": "^8.46.2",
+    "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^8.57.1",
     "eslint-plugin-regexp": "^2.10.0",
+    "fast-check": "^4.3.0",
     "vitest": "^3.2.4"
   }
 }

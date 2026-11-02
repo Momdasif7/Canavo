@@ -168,8 +168,6 @@ ordersRouter.post("/:id/upi-qr", requirePermission("payment:collect"), async (re
   const due = amount ?? balance;
   if (due <= 0 || due > balance) throw badRequest("Invalid UPI amount");
 
-  // Replace any earlier pending QR for this order.
-  await prisma.payment.updateMany({ where: { orderId: order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   const qr = await createUpiQr({
     amount: due,
@@ -178,6 +176,8 @@ ordersRouter.post("/:id/upi-qr", requirePermission("payment:collect"), async (re
     payeeName: outlet.name,
     vpa: outlet.upiVpa,
   });
+  // Replace any earlier pending QR only once the new one exists (a failure keeps the old QR usable).
+  await prisma.payment.updateMany({ where: { orderId: order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
   const payment = await prisma.payment.create({
     data: { orderId: order.id, mode: "UPI", amount: due, status: "PENDING", gatewayRef: qr.gatewayRef, qrPayload: qr.qrPayload },
   });

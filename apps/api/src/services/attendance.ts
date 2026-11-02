@@ -39,11 +39,10 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
     distance = Math.round(
       distanceMeters(input, { latitude: outlet.latitude, longitude: outlet.longitude }),
     );
-    const allowance = Math.min(input.accuracy ?? 0, MAX_ACCURACY_ALLOWANCE);
     // Delivery partners usually finish their last run away from the outlet: they may clock out anywhere
     // (the location is still recorded); clocking in still has to happen at the outlet.
     const roaming = action === "out" && user.role === "DELIVERY";
-    if (!roaming && distance > outlet.geofenceMeters + allowance) {
+    if (!roaming && !withinGeofence(distance, outlet.geofenceMeters, input.accuracy)) {
       throw new HttpError(
         403,
         `You are ${distance}m from ${outlet.name}. Clock-in is allowed within ${outlet.geofenceMeters}m.`,
@@ -52,6 +51,15 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
     }
   }
   return { user, outlet, distance };
+}
+
+/**
+ * Geofence rule: inside when the (rounded) distance is at most the outlet's
+ * radius plus the phone's reported GPS accuracy, capped at 100 m. Pure.
+ */
+export function withinGeofence(distanceM: number, geofenceM: number, accuracyM?: number): boolean {
+  const allowance = Math.min(Math.max(accuracyM ?? 0, 0), MAX_ACCURACY_ALLOWANCE);
+  return distanceM <= geofenceM + allowance;
 }
 
 function shiftWindow(shift: { startTime: string; endTime: string } | null) {

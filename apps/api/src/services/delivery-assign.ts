@@ -62,11 +62,7 @@ export async function partnerAvailability(outletId: string, db: Db = prisma, onl
       ]);
       const active = deliveries.length;
       const outForDelivery = deliveries.filter((d) => d.status === "OUT_FOR_DELIVERY").length;
-      const onRun = !p.deliveryAtOutlet || outForDelivery > 0;
-      let reason: string | null = null;
-      if (!onDuty) reason = "Not clocked in";
-      else if (onRun) reason = outForDelivery > 0 ? "Out for delivery" : "Returning to the outlet";
-      else if (active >= max) reason = `Has ${active} of ${max} orders`;
+      const { onRun, reason } = partnerStatus({ onDuty: onDuty > 0, atOutlet: p.deliveryAtOutlet, outForDelivery, active, max });
       return {
         id: p.id,
         name: p.name,
@@ -92,10 +88,29 @@ export async function partnerAvailability(outletId: string, db: Db = prisma, onl
  * then whoever has waited longest since their last assignment.
  */
 export async function pickAvailablePartner(outletId: string, db: Db = prisma): Promise<{ id: string; name: string } | null> {
-  const ranked = (await partnerAvailability(outletId, db))
+  const best = rankAvailablePartners(await partnerAvailability(outletId, db))[0];
+  return best ? { id: best.id, name: best.name } : null;
+}
+
+/**
+ * Dispatch rule (README "Delivery dispatch limit"): a partner can take an order
+ * only when on duty, back at the outlet (not on a run) and under the limit.
+ * Pure — unit tested as a decision table.
+ */
+export function partnerStatus(p: { onDuty: boolean; atOutlet: boolean; outForDelivery: number; active: number; max: number }): { onRun: boolean; reason: string | null } {
+  const onRun = !p.atOutlet || p.outForDelivery > 0;
+  let reason: string | null = null;
+  if (!p.onDuty) reason = "Not clocked in";
+  else if (onRun) reason = p.outForDelivery > 0 ? "Out for delivery" : "Returning to the outlet";
+  else if (p.active >= p.max) reason = `Has ${p.active} of ${p.max} orders`;
+  return { onRun, reason };
+}
+
+/** Available partners, best first: fill a partner who already has an order, then longest since last assignment. */
+export function rankAvailablePartners<T extends { available: boolean; active: number; lastAssignedAt: Date | null }>(partners: T[]): T[] {
+  return partners
     .filter((p) => p.available)
     .sort((a, b) => b.active - a.active || (a.lastAssignedAt?.getTime() ?? 0) - (b.lastAssignedAt?.getTime() ?? 0));
-  return ranked[0] ? { id: ranked[0].id, name: ranked[0].name } : null;
 }
 
 /** Can this partner take one more order right now? (manual assignment / POS picker) */

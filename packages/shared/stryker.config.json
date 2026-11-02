@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "mutate": ["src/gst.ts", "src/money.ts", "src/invoice.ts", "src/rbac.ts", "src/modules.ts", "src/receipt.ts", "src/geo.ts"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "coverageAnalysis": "all",
+  "concurrency": 6,
+  "timeoutMS": 60000,
+  "thresholds": { "high": 90, "low": 80, "break": null },
+  "tempDirName": ".stryker-tmp"
+}

@@ -91,7 +91,9 @@ function leftRight(left: string, right: string, width: number): string {
 function wrap(text: string, width: number): string[] {
   const out: string[] = [];
   let line = "";
-  for (const word of text.split(/\s+/)) {
+  // Hard-break words longer than the paper (BUG-020: they used to overflow the line).
+  const words = text.split(/\s+/).flatMap((w) => (w.length > width ? (w.match(new RegExp(`.{1,${width}}`, "gu")) ?? [w]) : [w]));
+  for (const word of words) {
     if ((line + " " + word).trim().length > width) {
       if (line) out.push(line);
       line = word;
@@ -150,9 +152,9 @@ export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): strin
       w,
     ),
   );
-  if (r.tableLabel) lines.push(`Table: ${r.tableLabel}`);
-  lines.push(`Cashier: ${r.cashierName}`);
-  if (r.customerName) lines.push(`Customer: ${r.customerName}`);
+  if (r.tableLabel) lines.push(...wrap(`Table: ${r.tableLabel}`, w));
+  lines.push(...wrap(`Cashier: ${r.cashierName}`, w));
+  if (r.customerName) lines.push(...wrap(`Customer: ${r.customerName}`, w));
   lines.push(rule);
   lines.push(leftRight("Item", "Qty    Amount", w));
   lines.push(rule);

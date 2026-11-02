@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { env } from "../env";
+import { badRequest } from "../lib/http";
 
 export const razorpayEnabled = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
 
@@ -47,9 +48,11 @@ export async function createUpiQr(opts: {
     return { gatewayRef: qr.id, qrPayload: qr.image_url, imageUrl: qr.image_url, mock: false };
   }
 
+  // BUG-023: never fall back to a placeholder payee — the customer's money would go to whoever owns it.
+  if (!opts.vpa) throw badRequest("Set the outlet's UPI ID in Settings → Outlet before showing a UPI QR");
   const ref = `mock_${crypto.randomBytes(8).toString("hex")}`;
   const params = new URLSearchParams({
-    pa: opts.vpa || "canavo@upi",
+    pa: opts.vpa,
     pn: opts.payeeName,
     am: (opts.amount / 100).toFixed(2),
     tr: ref,

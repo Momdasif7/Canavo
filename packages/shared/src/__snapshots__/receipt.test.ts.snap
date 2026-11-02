@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden receipts (visual regression for thermal output) > UT-RCP-GOLD-58 58 mm tax invoice 1`] = `
+"         SARAVANA TEST
+     Saravana Foods Pvt Ltd
+ 12 Anna Salai, Chennai 600002
+         Ph: 9876543210
+     GSTIN: 33ABCDE1234F1Z5
+     FSSAI: 12345678901234
+--------------------------------
+          TAX INVOICE
+No: INV-2026-00042       DINE-IN
+1/4/2026                10:00 am
+Table: T4
+Cashier: Priya
+Customer: Arun
+--------------------------------
+Item               Qty    Amount
+--------------------------------
+Masala Dosa          2    160.00
+--------------------------------
+Subtotal                  160.00
+Discount                  -10.00
+Service charge              5.00
+Packaging                   5.00
+CGST @2.5%                  4.00
+SGST @2.5%                  4.00
+Round off                  -0.20
+--------------------------------
+TOTAL                  Rs 168.00
+--------------------------------
+Paid (CASH)               168.00
+     ** CASH ON DELIVERY **
+Amount to pay           Rs 20.00
+
+    Thank you! Visit again.
+       Powered by CANAVO"
+`;
+
+exports[`golden receipts (visual regression for thermal output) > UT-RCP-GOLD-80 80 mm bill of supply with long names 1`] = `
+"                 SARAVANA TEST
+             Saravana Foods Pvt Ltd
+         12 Anna Salai, Chennai 600002
+                 Ph: 9876543210
+             GSTIN: 33ABCDE1234F1Z5
+             FSSAI: 12345678901234
+------------------------------------------------
+                 BILL OF SUPPLY
+No: INV-2026-00042                       DINE-IN
+1/4/2026                                10:00 am
+Table: T4
+Cashier: Priya
+Customer: Arun
+------------------------------------------------
+Item                               Qty    Amount
+------------------------------------------------
+Special Ghee Roast Masala Dosa with Extra Sambar
+and Two Chutneys                    12  1,440.00
+------------------------------------------------
+Subtotal                                  160.00
+Discount                                  -10.00
+Service charge                              5.00
+Packaging                                   5.00
+------------------------------------------------
+TOTAL                                  Rs 168.00
+------------------------------------------------
+Paid (CASH)                               168.00
+Composition taxable person,
+not eligible to collect tax.
+
+            Thank you! Visit again.
+               Powered by CANAVO"
+`;

@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`truth table snapshot > UT-RBAC-100 role × permission matrix (review any diff with the product owner) 1`] = `
+{
+  "BUSINESS_OWNER": "outlet:manage settings:billing settings:outlet staff:manage staff:view attendance:self attendance:manage menu:manage menu:view order:create order:view order:cancel payment:collect kot:view kot:update report:view inventory:manage table:manage table:serve reservation:manage delivery:manage customer:view customer:manage offer:manage inventory:view audit:view bills:view settings:view data:export",
+  "CASHIER": "attendance:self menu:view order:create order:view payment:collect kot:view table:serve reservation:manage delivery:manage customer:view bills:view settings:view",
+  "DELIVERY": "attendance:self delivery:own",
+  "INVENTORY_MANAGER": "attendance:self menu:view inventory:manage inventory:view",
+  "KITCHEN": "attendance:self menu:view kot:view kot:update inventory:view",
+  "OUTLET_MANAGER": "settings:billing settings:outlet staff:manage staff:view attendance:self attendance:manage menu:manage menu:view order:create order:view order:cancel payment:collect kot:view kot:update report:view inventory:manage table:manage table:serve reservation:manage delivery:manage customer:view customer:manage offer:manage inventory:view audit:view bills:view settings:view",
+  "SUPER_ADMIN": "audit:view admin:backup platform:manage",
+}
+`;

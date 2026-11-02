@@ -18,3 +18,5 @@ test-results/
 .next-verify/
 apps/mobile/.env
 *.tsbuildinfo
+**/.stryker-tmp/
+packages/shared/reports/

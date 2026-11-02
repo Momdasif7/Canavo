@@ -21,15 +21,19 @@ export function formatINR(paise: Paise, opts: { symbol?: boolean } = {}): string
  * `total` (largest-remainder method). Used to distribute bill discounts and
  * service charges across lines without losing a paisa.
  */
-export function allocate(total: number, weights: number[]): number[] {
+export function allocate(total: number, weights: number[], tieKeys?: string[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);
   if (sum === 0 || total === 0) return weights.map(() => 0);
   const raw = weights.map((w) => (total * w) / sum);
   const floored = raw.map(Math.floor);
   let remainder = total - floored.reduce((a, b) => a + b, 0);
+  // Ties in the fractional part are broken by weight, then by the caller's
+  // canonical key — never by array position — so the result doesn't depend
+  // on the order the items were added (BUG-017).
+  const key = (i: number) => tieKeys?.[i] ?? "";
   const order = raw
     .map((r, i) => ({ i, frac: r - Math.floor(r) }))
-    .sort((a, b) => b.frac - a.frac);
+    .sort((a, b) => b.frac - a.frac || weights[b.i] - weights[a.i] || (key(a.i) < key(b.i) ? -1 : key(a.i) > key(b.i) ? 1 : 0));
   for (let k = 0; remainder > 0; k = (k + 1) % order.length, remainder--) {
     floored[order[k].i] += 1;
   }
