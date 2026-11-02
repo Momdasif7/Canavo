@@ -40,7 +40,7 @@ export function parseTaxExtras(value: unknown): TaxExtra[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((e): e is { label: unknown; percent: unknown } => !!e && typeof e === "object")
-    .map((e) => ({ label: String(e.label ?? "").trim(), percent: Number(e.percent) }))
+    .map((e) => ({ label: (typeof e.label === "string" ? e.label : "").trim(), percent: Number(e.percent) }))
     .filter((e) => e.label && Number.isFinite(e.percent) && e.percent > 0);
 }
 

@@ -56,7 +56,7 @@ const num = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 /** Human-readable cell text (PDF / CSV). Money is paise → "1,234.56". */
 export function formatCell(value: unknown, type: ColumnType = "text"): string {
   if (value === null || value === undefined || value === "") return "";
-  if (typeof value !== "number") return value instanceof Date ? value.toISOString() : String(value);
+  if (typeof value !== "number") return value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value as string | boolean | bigint);
   switch (type) {
     case "money":
       return inr.format(value / 100);

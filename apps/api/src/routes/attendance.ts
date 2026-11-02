@@ -54,8 +54,18 @@ attendanceRouter.get("/me/status", async (req, res) => {
 /** Calendar for one staff member: one entry per day with present/half-day/leave/absent. */
 attendanceRouter.get("/calendar", async (req, res) => {
   const month = parse(monthSchema, req.query.month);
-  const userId = String(req.query.userId ?? req.user!.id);
-  if (userId !== req.user!.id && !can(req.user!.role, "attendance:manage")) throw forbidden();
+  const userId = typeof req.query.userId === "string" && req.query.userId ? req.query.userId : req.user!.id;
+  if (userId !== req.user!.id) {
+    if (!can(req.user!.role, "attendance:manage")) throw forbidden();
+    // BUG-005: the staff member must belong to the caller's business (tenant-filtered
+    // lookup) and, below owner level, to one of the caller's outlets.
+    const owner = req.user!.role === "BUSINESS_OWNER";
+    const staff = await prisma.user.findFirst({
+      where: { id: userId, ...(!owner && { outlets: { some: { outletId: { in: req.user!.outletIds } } } }) },
+      select: { id: true },
+    });
+    if (!staff) throw notFound("Staff member");
+  }
   const { from, to } = monthRange(month);
   const [records, leaves] = await Promise.all([
     prisma.staffAttendance.findMany({ where: { userId, workDate: { gte: from, lte: to } }, orderBy: { clockInAt: "asc" } }),
@@ -244,9 +254,11 @@ attendanceRouter.patch("/leaves/:id", requirePermission("attendance:manage"), as
   const { status } = parse(z.object({ status: z.enum(["APPROVED", "REJECTED"]) }), req.body);
   // Managers may review leave for staff in any of their outlets (matches the ?scope=outlet listing).
   const scope = req.user!.role === "SUPER_ADMIN" ? {} : { user: { outlets: { some: { outletId: { in: req.user!.outletIds } } } } };
-  const leave = await prisma.leaveRequest.findFirst({ where: { id: param(req, "id"), ...scope } });
+  const leave = await prisma.leaveRequest.findFirst({ where: { id: param(req, "id"), ...scope }, include: { user: { select: { id: true, role: true, name: true } } } });
   if (!leave) throw notFound("Leave request");
   if (leave.userId === req.user!.id) throw forbidden("You cannot approve your own leave");
+  // BUG-011: same rank chain as manual attendance (managers review staff below them).
+  if (!canManageAttendanceOf(req.user!, leave.user)) throw forbidden(`You can't review leave for ${leave.user.name}`);
   if (leave.status !== "PENDING") throw badRequest("Leave request already reviewed");
   const updated = await prisma.leaveRequest.update({
     where: { id: leave.id },

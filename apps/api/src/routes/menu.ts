@@ -76,14 +76,27 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
   });
 });
 
+/**
+ * BUG-008: category ids arriving in a body must belong to this business. The
+ * tenant extension filters `where` clauses but not foreign keys written into
+ * `data`, so resolve them through the scoped client first.
+ */
+async function assertOwnCategory(id: string | null | undefined, field: string) {
+  if (!id) return;
+  if (!(await prisma.menuCategory.findFirst({ where: { id }, select: { id: true } }))) throw badRequest(`Unknown ${field}`);
+}
+
 // ---------- Categories ----------
 menuRouter.post("/categories", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema, req.body);
+  await assertOwnCategory(data.parentId, "parent category");
   res.status(201).json(await prisma.menuCategory.create({ data: { ...data, businessId: requireBusinessId() } }));
 });
 
 menuRouter.patch("/categories/:id", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema.partial(), req.body);
+  if (data.parentId && data.parentId === param(req, "id")) throw badRequest("A category can't be its own parent");
+  await assertOwnCategory(data.parentId, "parent category");
   res.json(await prisma.menuCategory.update({ where: { id: param(req, "id") }, data }));
 });
 
@@ -105,6 +118,7 @@ function itemData(data: z.infer<typeof menuItemSchema>) {
 menuRouter.post("/items", requirePermission("menu:manage"), async (req, res) => {
   const body = req.body as { gstRate?: unknown } | undefined;
   const data = parse(menuItemSchema, req.body);
+  await assertOwnCategory(data.categoryId, "category");
   // gstRate has a schema default; only treat it as the client's choice when actually sent.
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: body?.gstRate !== undefined ? data.gstRate : undefined }, true);
   const item = await prisma.menuItem.create({
@@ -127,6 +141,7 @@ menuRouter.patch("/items/:id", requirePermission("menu:manage"), async (req, res
   const data = parse(menuItemSchema.partial(), req.body);
   const { variants, addons, ...rest } = data;
   if (!(await prisma.menuItem.findUnique({ where: { id }, select: { id: true } }))) throw notFound("Menu item");
+  await assertOwnCategory(data.categoryId, "category");
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: data.gstRate }, false);
   const item = await prisma.menuItem.update({
     where: { id },

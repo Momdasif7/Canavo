@@ -25,12 +25,12 @@ PLAT-006,Super Admin / Platform,X-Outlet-Id / X-Business-Id are refused or ignor
 PLAT-007,Super Admin / Platform,Super Admin audit log shows platform actions only,README Privacy,R-10,API,,Both,Not started,
 PLAT-008,Super Admin / Platform,Super Admin creates and restores platform backups; backups cannot be downloaded,README Backups,R-24,"API,Manual",,Both,Not started,
 TEN-001,Tenant isolation,Every query on business-scoped models is filtered by businessId inside a request,README Isolation,R-01,"Unit,Sec",,Both,Not started,
-TEN-002,Tenant isolation,No route returns or mutates another business's rows (IDOR/BOLA) — all ~242 routes,brief P8,R-01,Sec,,Both,Not started,
-TEN-003,Tenant isolation,No route returns or mutates another outlet's rows for users not assigned to it,brief P8,R-01,Sec,,Both,Not started,
-TEN-004,Tenant isolation,"Writes cannot reference another business's IDs (menu item, variant, addon, customer, coupon, ingredient, vendor, outlet, staff)",brief P7/P8,R-02,"API,DB",,Both,Not started,
+TEN-002,Tenant isolation,No route returns or mutates another business's rows (IDOR/BOLA) — all ~242 routes,brief P8,R-01,Sec,"SA-RT-001..004, ISO-ATT-001/002, ISO-INV-001/002, ISO-MENU-001..003, ISO-STF-001/002",Automated,Partial,"Static guard audit of all 254 routes + review sub-agents; BUG-005, BUG-007 fixed. Full runtime matrix in Phase 8"
+TEN-003,Tenant isolation,No route returns or mutates another outlet's rows for users not assigned to it,brief P8,R-01,Sec,"ISO-ATT-005, CON-ATT-001, CON-STF-001",Automated,Partial,"BUG-010, BUG-012 fixed; P3 items SA-DEL-01, SA-INV-01 open"
+TEN-004,Tenant isolation,"Writes cannot reference another business's IDs (menu item, variant, addon, customer, coupon, ingredient, vendor, outlet, staff)",brief P7/P8,R-02,"API,DB","ISO-MENU-001..003, ISO-STF-001/002",Automated,Partial,"BUG-008, BUG-009 fixed; order lines/recipes/transfers/purchases verified safe by review"
 TEN-005,Tenant isolation,Zero orphan rows and zero cross-business FK links in the database,brief P7,R-02,DB,,Both,Not started,
 TEN-006,Tenant isolation,Background jobs and webhooks run inside the correct business context,code tenant.ts,R-01,API,,Both,Not started,
-TEN-007,Tenant isolation,Socket.io rooms are scoped; clients cannot join other outlets/businesses,brief P10,R-11,"RT,Sec",,Both,Not started,
+TEN-007,Tenant isolation,Socket.io rooms are scoped; clients cannot join other outlets/businesses,brief P10,R-11,"RT,Sec",probe (PHASE-03 §3.3),Manual,Fail,BUG-013 — outlet room broadcast to all roles
 RBAC-001,RBAC & modules,Role permission table matches spec for all 7 roles × 32 permissions,code rbac.ts; README,R-01,Unit,,Both,Not started,
 RBAC-002,RBAC & modules,Effective permission = role ∩ business modules; menu permissions available if BILLING or INVENTORY,code modules.ts,R-01,Unit,,Both,Not started,
 RBAC-003,RBAC & modules,API rejects disabled-module endpoints with 403 for every module,README Modules,R-01,API,,Both,Not started,
@@ -39,9 +39,9 @@ RBAC-005,RBAC & modules,"Bills and Settings visible only to Owner, Manager, Cash
 RBAC-006,RBAC & modules,"Kitchen/Delivery/Inventory see basic outlet details only (no GSTIN, UPI ID, billing config)",README Who sees what,R-15,API,,Both,Not started,
 RBAC-007,RBAC & modules,Inventory staff see stock reports only; sales/profit/GST reports Owner & Manager only,README Inventory,R-01,API,SMK-070,Both,"Pass (partial, smoke)",
 RBAC-008,RBAC & modules,Kitchen cannot create bills,rbac.ts,R-01,API,SMK-071,Both,Pass (smoke),
-STF-001,Staff,Owner creates managers and staff but not another owner,README Who creates whom,R-01,API,,Both,Not started,
+STF-001,Staff,Owner creates managers and staff but not another owner,README Who creates whom,R-01,API,code review,Manual,Pass (review),Role chain verified by review; automated in Phase 5
 STF-002,Staff,"Manager creates cashier/kitchen/delivery/inventory only, in own outlets",README Who creates whom,R-01,API,,Both,Not started,
-STF-003,Staff,Role/outlet changes cannot be made via mass assignment,brief P8,R-01,Sec,,Both,Not started,
+STF-003,Staff,Role/outlet changes cannot be made via mass assignment,brief P8,R-01,Sec,code review,Manual,Pass (review),zod strips unknown keys; explicit field lists
 STF-004,Staff,"Aadhaar stored AES-256-GCM encrypted, masked in responses and logs",README Aadhaar; brief P8,R-15,"Unit,Sec",,Both,Not started,
 STF-005,Staff,Owner may reveal any staff Aadhaar; Manager only for staff below them in own outlets; every reveal audited,README Aadhaar,R-15,API,,Both,Not started,
 STF-006,Staff,Production boot refuses to start without DATA_ENCRYPTION_KEY,README Integrations,R-16,"Unit,Ops",,Both,Not started,
@@ -64,10 +64,10 @@ IMP-001,Menu bulk upload,"Template download includes GST rates, categories and s
 IMP-002,Menu bulk upload,Upload .xlsx or .csv; per-row preview New/Update/Error before saving,README Bulk upload,,"API,E2E",,Both,Not started,
 IMP-003,Menu bulk upload,Category + item name match updates existing item (bulk price change),README Bulk upload,,API,,Both,Not started,
 IMP-004,Menu bulk upload,Missing categories/sub-categories are created,README Bulk upload,,API,,Both,Not started,
-IMP-005,Menu bulk upload,Sizes syntax 'Regular=15; Large=25' parsed,README Bulk upload,,Unit,,Both,Not started,
+IMP-005,Menu bulk upload,Sizes syntax 'Regular=15; Large=25' parsed,README Bulk upload,,Unit,"UT-IMP-001, PBT-IMP-001",Automated,Pass,
 IMP-006,Menu bulk upload,Ingredients syntax 'Potato=0.08; Pav=1' becomes recipe in each stock item's unit,README Bulk upload,R-22,Unit,,Both,Not started,
 IMP-007,Menu bulk upload,Blank GST = 0%,README Bulk upload,R-06,Unit,,Both,Not started,
-IMP-008,Menu bulk upload,"Bad rows, duplicates, huge files, formula injection and malicious image URLs (SSRF) rejected safely",brief P5/P8,R-12,"API,Sec",,Both,Not started,
+IMP-008,Menu bulk upload,"Bad rows, duplicates, huge files, formula injection and malicious image URLs (SSRF) rejected safely",brief P5/P8,R-12,"API,Sec","SEC-IMP-001, UT-IMP-002",Automated,Partial,"BUG-006 ReDoS, BUG-016 fixed; SSRF/formula injection Phase 8"
 BIL-001,Billing / POS,"Order types: dine-in, takeaway, delivery, pre-order",README Billing,,"API,E2E",SMK-030,Both,"Pass (takeaway, smoke)",
 BIL-002,Billing / POS,Server always recomputes the bill; client totals ignored,README GST,R-06,"API,Sec",,Both,Not started,
 BIL-003,Billing / POS,Bills are integer paise and grand total rounds to the rupee,README; brief,R-06,"Unit,API",SMK-030,Both,Pass (smoke),
@@ -130,7 +130,7 @@ DEL-007,Delivery,Cashier cannot manually assign a busy/away partner; manager get
 DEL-008,Delivery,COD: cash counts against the partner; cash in hand = collected − received,README Delivery,R-05,"API,DB",,Both,Not started,
 DEL-009,Delivery,"Manual 'Record cash received' entries (partial, editable, deletable)",README Delivery,,API,,Both,Not started,
 DEL-010,Delivery,Partner portal: COD shows 'Collect ₹X cash' + one button; prepaid shows 'Delivered'; no payment options,README Delivery,,E2E,SMK-072,Both,Partial,
-DEL-011,Delivery,Partner sees only own deliveries,README Delivery,R-01,Sec,SMK-072,Both,Partial,
+DEL-011,Delivery,Partner sees only own deliveries,README Delivery,R-01,Sec,"SMK-072, socket probe",Both,Fail,BUG-013 (socket leak of other customers phone/address)
 DEL-012,Delivery,Partner clock-out from anywhere; clock-in at outlet only (GPS + PIN),README Delivery,,"API,Manual",,Both,Not started,
 DEL-013,Delivery,Partner timeline and CSV export,README Delivery,,API,,Both,Not started,
 INV-001,Inventory,Every sale deducts recipe ingredients; variant recipe overrides item recipe,README Inventory,R-22,"Unit,API",inventory.test.ts (14),Both,Partial,
@@ -149,8 +149,8 @@ CRM-004,"Customers, loyalty & khata","Khata ledger, limit, reminders; balance = 
 CRM-005,"Customers, loyalty & khata",Blacklist; visit heatmap,README Customers,,API,,Both,Not started,
 ATT-001,Attendance & leave,GPS-geofenced clock-in with PIN/biometric; inside/boundary/outside,README Attendance,,"Unit,API,Manual",,Both,Not started,
 ATT-002,Attendance & leave,Shifts incl. overnight; late/early/overtime alerts,README Attendance,R-08,Unit,,Both,Not started,
-ATT-003,Attendance & leave,Manual attendance entries by manager,code attendance.ts,,API,,Both,Not started,
-ATT-004,Attendance & leave,Leave workflow (request/approve/reject),README Attendance,,API,,Both,Not started,
+ATT-003,Attendance & leave,Manual attendance entries by manager,code attendance.ts,,API,CON-ATT-001,Automated,Partial,BUG-010 fixed
+ATT-004,Attendance & leave,Leave workflow (request/approve/reject),README Attendance,,API,CON-LV-001/002,Automated,Partial,BUG-011 fixed
 ATT-005,Attendance & leave,"Calendar, salary sheet, xlsx export",README Attendance,,API,,Both,Not started,
 ATT-006,Attendance & leave,Face-recognition clock-in (known not implemented),README Known limitations,,Manual,,Manual,N/A (known gap),
 REP-001,Reports,"Sales, items, categories, peak-hour, GST, profit/food cost, staff, customers, inventory, delivery reports",README Reports,R-19,API,"SMK-060 (sales, daily)",Both,Partial,
@@ -172,11 +172,11 @@ OFL-003,Offline,/orders/sync handles up to 200 orders; one bad entry doesn't blo
 SEC-001,Security,"Security headers (helmet: CSP, HSTS, nosniff, frame-ancestors)",brief P8,,API,manual curl Phase 2,Both,Pass (observed),
 SEC-002,Security,CORS origin whitelist,brief P8,,API,,Both,Not started,
 SEC-003,Security,JSON body limit 1 MB; upload cap 5 MB with magic-byte check,brief P8,R-12,API,,Both,Not started,
-SEC-004,Security,No stack traces or PII in production error bodies or logs,brief P8,R-15,Sec,,Both,Not started,
-SEC-005,Security,"Razorpay webhook signature verification, replay protection, idempotency",brief P8,R-29,API,,Both,Not started,
+SEC-004,Security,No stack traces or PII in production error bodies or logs,brief P8,R-15,Sec,SEC-LOG-001/002,Automated,Partial,BUG-015 OTP log fixed; SA-LOG-01/02 open
+SEC-005,Security,"Razorpay webhook signature verification, replay protection, idempotency",brief P8,R-29,API,code review,Manual,Partial,HMAC + constant-time + fail-closed verified; replay tests Phase 8
 SEC-006,Security,"Business-logic abuse blocked: negative qty/price, client totals, coupon replay, stacking",brief P8,R-06,Sec,,Both,Not started,
-SEC-007,Security,No hardcoded secrets in repo (gitleaks),brief P3,R-16,Sec,,Both,Not started,
-SEC-008,Security,No reachable critical/high dependency CVEs,brief P3/P8,R-14,Sec,npm audit,Automated,Fail,3 critical / 11 high (root) — triage Phase 3
+SEC-007,Security,No hardcoded secrets in repo (gitleaks),brief P3,R-16,Sec,gitleaks v8.28.0 full history,Automated,Pass,2 benign test-fixture hits
+SEC-008,Security,No reachable critical/high dependency CVEs,brief P3/P8,R-14,Sec,npm audit + triage,Automated,Partial,body-parser/multer patched; next/image disabled; Next 15.5+ upgrade + zod 4 pending approval
 SEC-009,Security,Mobile tokens stored in SecureStore,brief P8,R-28,Mobile,,Both,Not started,
 SEC-010,Security,No demo users in production seed,brief P8,R-16,Ops,,Both,Not started,
 PRV-001,Privacy & compliance,"DPDP: consent capture, purpose limitation, export/deletion requests, retention policy",brief P14,R-26,Manual,,Both,Not started,
@@ -192,10 +192,10 @@ NFR-003,Non-functional,"Web accessible (axe: no serious/critical violations), ke
 NFR-004,Non-functional,Works on Chromium/Firefox/WebKit at 360–1440 px and POS tablet landscape,brief P11,,E2E,,Both,Not started,
 NFR-005,Non-functional,Zero console errors on main journeys,brief P11,,E2E,,Both,Not started,
 OPS-001,Build & operations,"Clean clone: npm ci, build, typecheck, unit tests pass without local .env",brief P2,R-27,Build,Phase 2,Automated,Pass (after BUG-001 fix),BUG-001
-OPS-002,Build & operations,Lint runs non-interactively in every workspace,brief P2/P3,R-27,Build,Phase 2,Automated,Partial,BUG-002; api/shared/mobile have no lint yet
+OPS-002,Build & operations,Lint runs non-interactively in every workspace,brief P2/P3,R-27,Build,npm run lint (turbo),Automated,Pass,shared/api type-aware ESLint added; 0 errors
 OPS-003,Build & operations,Migrations apply from empty DB with no drift,brief P7,,DB,Phase 2,Automated,Pass,
 OPS-004,Build & operations,Seed is idempotent,brief P7,,DB,Phase 2,Automated,Pass,
 OPS-005,Build & operations,zod env validation fails fast,brief P16,R-16,Unit,Phase 2 (observed),Automated,Pass (observed),
 OPS-006,Build & operations,/health and /ready; graceful shutdown; structured logs with request IDs,brief P16,,Ops,/health only,Both,Partial,"No /ready, no request IDs (Phase 16)"
-OPS-007,Build & operations,Background jobs single-instance safe,README Deployment,R-17,Con,,Both,Not started,
+OPS-007,Build & operations,Background jobs single-instance safe,README Deployment,R-17,Con,SA-ASYNC-001/002,Automated,Partial,BUG-014 crash-safety fixed; multi-instance jobs Phase 9
 OPS-008,Build & operations,"Backup schedule, restore drill, RPO/RTO, rollback runbook",brief P16,R-24,Manual,,Both,Not started,

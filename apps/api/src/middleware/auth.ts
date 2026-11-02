@@ -27,6 +27,16 @@ declare global {
   }
 }
 
+/**
+ * Guard metadata attached to middleware returned by the factories below. Inert
+ * at runtime; lets the route-guard audit (routes/route-guards.test.ts) see
+ * which permission / module each route requires.
+ */
+export type GuardInfo =
+  | { kind: "permission"; permissions: Permission[] }
+  | { kind: "module"; modules: ModuleKey[] };
+const tagGuard = <F extends object>(fn: F, guard: GuardInfo) => Object.assign(fn, { guard });
+
 const isPlatformAdmin = (u: AuthUser) => u.role === "SUPER_ADMIN" && !u.businessId;
 
 async function loadBusiness(id: string) {
@@ -73,32 +83,32 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
 
 /** Role permission AND the business has the module that permission belongs to. */
 export function requirePermission(...permissions: Permission[]) {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return tagGuard((req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw unauthorized();
     if (!permissions.every((p) => can(req.user!.role, p))) throw forbidden("Insufficient permissions");
     const modules = tenant()?.modules ?? null;
     const off = permissions.find((p) => !permissionEnabled(p, modules));
     if (off) throw forbidden("This feature is not enabled for your business");
     next();
-  };
+  }, { kind: "permission", permissions });
 }
 
 /** Reject the request unless the current business has the module. */
 export function requireModule(module: ModuleKey) {
-  return (_req: Request, _res: Response, next: NextFunction) => {
+  return tagGuard((_req: Request, _res: Response, next: NextFunction) => {
     const modules = tenant()?.modules;
     if (modules && !modules.includes(module)) throw forbidden("This feature is not enabled for your business");
     next();
-  };
+  }, { kind: "module", modules: [module] });
 }
 
 /** Reject unless at least one of the modules is enabled (e.g. the menu serves billing and inventory). */
 export function requireAnyModule(...modules: ModuleKey[]) {
-  return (_req: Request, _res: Response, next: NextFunction) => {
+  return tagGuard((_req: Request, _res: Response, next: NextFunction) => {
     const enabled = tenant()?.modules;
     if (enabled && !modules.some((m) => enabled.includes(m))) throw forbidden("This feature is not enabled for your business");
     next();
-  };
+  }, { kind: "module", modules });
 }
 
 /** Platform-only screens (businesses, modules, whole-database operations). */

@@ -765,7 +765,9 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   emitToOutlet(outletId, "delivery:updated", updated);
   const managers = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
   await notify(managers, "Delivery delivered", `${d.order.invoiceNumber} · ${d.customerName}${due ? ` · ₹${(due / 100).toFixed(2)} cash collected` : ""}`, "delivery");
-  if (due > 0) void cashBalance(outletId, collectorId).then((bal) => alertPartnerCash(outletId, collectorId, bal));
+  if (due > 0) void cashBalance(outletId, collectorId)
+      .then((bal) => alertPartnerCash(outletId, collectorId, bal))
+      .catch((e) => console.error("[delivery] partner cash alert failed", e));
   // The partner is free again: hand them any delivery that is waiting.
   assignWaitingDeliveries(outletId).catch((e) => console.error("[delivery] auto-assign failed", e));
   return { ...withExtras(updated), cashCollected: due, customerMessage: await customerLink(updated) };

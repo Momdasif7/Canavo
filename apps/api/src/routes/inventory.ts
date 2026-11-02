@@ -315,7 +315,8 @@ inventoryRouter.get("/transactions", view, async (req, res) => {
 inventoryRouter.get("/recipes", view, async (req, res) => {
   const { menuItemId } = parse(z.object({ menuItemId: z.string().optional() }), req.query);
   const recipes = await prisma.recipe.findMany({
-    where: menuItemId ? { menuItemId } : {},
+    // BUG-007: Recipe has no businessId of its own — scope through its menu item.
+    where: { menuItem: { businessId: requireBusinessId() }, ...(menuItemId && { menuItemId }) },
     include: { item: { select: { id: true, name: true, unit: true, costPerUnit: true, active: true } } },
     orderBy: [{ menuItemId: "asc" }, { variantId: "asc" }],
   });

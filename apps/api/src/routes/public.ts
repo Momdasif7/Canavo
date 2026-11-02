@@ -76,7 +76,9 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
   }));
 
   emitToOutlet(payment.order.outletId, "payment:confirmed", { orderId: payment.orderId, paymentId: payment.id, paid });
-  void runForOutlet(payment.order.outletId, () => alertPaymentReceived(payment.order.outletId, payment.orderId, rzpPayment.amount));
+  void runForOutlet(payment.order.outletId, () => alertPaymentReceived(payment.order.outletId, payment.orderId, rzpPayment.amount)).catch((e) =>
+    console.error("[webhook] payment alert failed", e),
+  );
   if (paid) emitToOutlet(payment.order.outletId, "order:paid", { id: payment.orderId, invoiceNumber: payment.order.invoiceNumber });
   res.json({ ok: true });
 });

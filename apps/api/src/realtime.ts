@@ -20,8 +20,8 @@ export function initRealtime(server: HttpServer) {
       const user = await prisma.user.findUnique({ where: { id: claims.sub }, include: { outlets: true } });
       if (!user || user.tokenVersion !== claims.tv) return next(new Error("unauthorized"));
       const allowed = user.outlets.some((o) => o.outletId === outletId);
-      socket.join(`user:${user.id}`);
-      if (outletId && allowed) socket.join(`outlet:${outletId}`);
+      void socket.join(`user:${user.id}`);
+      if (outletId && allowed) void socket.join(`outlet:${outletId}`);
       next();
     } catch {
       next(new Error("unauthorized"));

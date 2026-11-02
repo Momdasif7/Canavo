@@ -32,5 +32,7 @@ const shutdown = async () => {
   await prisma.$disconnect();
   process.exit(0);
 };
+// Backstop (BUG-014): a stray rejected promise must be logged, not take the whole API down.
+process.on("unhandledRejection", (reason) => console.error("[process] unhandled rejection", reason));
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

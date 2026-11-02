@@ -7,13 +7,15 @@
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
+    "typecheck": "prisma generate && tsc -p tsconfig.lint.json",
     "test": "vitest run",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
     "postinstall": "prisma generate",
-    "test:smoke": "vitest run -c vitest.smoke.config.ts"
+    "test:smoke": "vitest run -c vitest.smoke.config.ts",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "lint": "eslint --max-warnings=-1 src test prisma"
   },
   "dependencies": {
     "@canavo/shared": "*",
@@ -44,8 +46,15 @@
     "@types/node": "^22.15.0",
     "@types/nodemailer": "^8.0.2",
     "@types/pdfkit": "^0.17.2",
+    "@types/supertest": "^6.0.3",
     "@types/swagger-ui-express": "^4.1.8",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^8.57.1",
+    "eslint-plugin-regexp": "^2.10.0",
+    "fast-check": "^4.3.0",
     "prisma": "6.19.3",
+    "supertest": "^7.1.4",
     "tsx": "^4.20.0",
     "vitest": "^3.2.4"
   }

@@ -302,7 +302,7 @@ function redact(r: Row): Row {
 
 export function csvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
-  const s = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
+  const s = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v as string | number | boolean | bigint);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

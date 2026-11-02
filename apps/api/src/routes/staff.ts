@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { ROLE_LABELS, staffCreateSchema, staffUpdateSchema, type Role } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { forbidden, notFound, param, parse } from "../lib/http";
+import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { forceLogout } from "../lib/tokens";
 import { authenticate, requireOutlet, requirePermission } from "../middleware/auth";
 import { startOfLocalDay, addDays } from "../lib/time";
@@ -80,6 +80,7 @@ staffRouter.get("/", requirePermission("staff:view"), async (req, res) => {
 staffRouter.post("/", requirePermission("staff:manage"), async (req, res) => {
   const data = parse(staffCreateSchema, req.body);
   assertCanAssign(req, data.role, data.outletIds);
+  await assertOwnShift(req, data.shiftId);
   const user = await prisma.user.create({
     data: {
       name: data.name,
@@ -99,9 +100,17 @@ staffRouter.post("/", requirePermission("staff:manage"), async (req, res) => {
   res.status(201).json(user);
 });
 
+/** BUG-009: a shift must belong to one of the caller's outlets (Shift is not tenant-scoped). */
+async function assertOwnShift(req: Express.Request, shiftId: string | undefined) {
+  if (!shiftId) return;
+  const shift = await prisma.shift.findFirst({ where: { id: shiftId, outletId: { in: req.user!.outletIds } }, select: { id: true } });
+  if (!shift) throw badRequest("Unknown shift");
+}
+
 staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) => {
   const id = param(req, "id");
   const data = parse(staffUpdateSchema, req.body);
+  await assertOwnShift(req, data.shiftId);
   const existing = await loadStaff(req, id);
   // You can only edit people below you (and yourself for name/PIN/password).
   if (id !== req.user!.id) assertCanAssign(req, existing.role);
@@ -122,7 +131,12 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
       ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
       ...(data.pin && { pinHash: await bcrypt.hash(data.pin, 10) }),
       ...(data.outletIds && {
-        outlets: { deleteMany: {}, create: data.outletIds.map((outletId) => ({ outletId })) },
+        // BUG-012: replace only the assignments the editor controls; owners control every outlet.
+        outlets: {
+          // (assertCanAssign above guarantees every new outletId is one the editor manages)
+          deleteMany: req.user!.role === "BUSINESS_OWNER" ? {} : { outletId: { in: req.user!.outletIds } },
+          create: data.outletIds.map((outletId) => ({ outletId })),
+        },
       }),
     },
     select: publicFields,

@@ -1,9 +1,11 @@
-import { env } from "../env";
+import { env, isProd } from "../env";
 
 /** Send an OTP via MSG91. Returns false when SMS is not configured (dev mode). */
 export async function sendOtpSms(phone: string, code: string): Promise<boolean> {
   if (!env.MSG91_AUTH_KEY || !env.MSG91_TEMPLATE_ID) {
-    console.info(`[sms:dev] OTP for ${phone}: ${code}`);
+    // BUG-015: OTPs are credentials — never log them (or the number) in production.
+    if (isProd) console.error("[sms] MSG91 is not configured — OTP SMS cannot be sent");
+    else console.info(`[sms:dev] OTP for ${phone}: ${code}`);
     return false;
   }
   const res = await fetch("https://control.msg91.com/api/v5/otp", {

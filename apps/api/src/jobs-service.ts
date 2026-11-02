@@ -64,7 +64,7 @@ export async function markNoShows(now = new Date()) {
       }
     }
     emitToOutlet(r.outletId, "reservation:updated", { ...r, status: "NO_SHOW" });
-    void notify(await outletManagers(r.outletId), "Reservation no-show", `${r.customerName} (${r.partySize} guests) didn't arrive — table freed`, "reservation.noshow", { outletId: r.outletId });
+    void notify(await outletManagers(r.outletId), "Reservation no-show", `${r.customerName} (${r.partySize} guests) didn't arrive — table freed`, "reservation.noshow", { outletId: r.outletId }).catch((e) => console.error("[job] no-show notify failed", e));
   }
   return stale.length;
 }
@@ -93,7 +93,7 @@ export async function markReservedTables(now = new Date()) {
       `${r.customerName}, ${r.partySize} guests${r.preOrderItems && Array.isArray(r.preOrderItems) && r.preOrderItems.length ? " · has a pre-order" : ""}`,
       "reservation.upcoming",
       { outletId: r.outletId },
-    );
+    ).catch((e) => console.error("[job] reservation notify failed", e));
     n++;
   }
   return n;

@@ -11,7 +11,7 @@ function v4ToInt(ip: string): number {
 }
 
 function v6ToBigInt(ip: string): bigint {
-  let [head, tail] = ip.split("::") as [string, string | undefined];
+  const [head, tail] = ip.split("::") as [string, string | undefined];
   const h = head ? head.split(":") : [];
   const t = tail !== undefined ? (tail ? tail.split(":") : []) : [];
   const fill = tail !== undefined ? Array(8 - h.length - t.length).fill("0") : [];

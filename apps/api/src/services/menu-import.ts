@@ -116,14 +116,16 @@ export async function buildTemplate(): Promise<Buffer> {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
-function cellText(v: ExcelJS.CellValue): string {
+export function cellText(v: ExcelJS.CellValue): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "object") {
     if (v instanceof Date) return v.toISOString();
     if ("richText" in v) return v.richText.map((t) => t.text).join("");
     if ("text" in v && typeof v.text === "string") return v.text; // hyperlink
-    if ("result" in v) return v.result === undefined || v.result === null ? "" : String(v.result); // formula
+    if ("error" in v) return ""; // #N/A, #REF! … (BUG-016: was imported as "[object Object]")
+    if ("result" in v) return cellText(v.result as ExcelJS.CellValue); // formula: its (possibly error) result
     if ("hyperlink" in v) return String(v.hyperlink);
+    return "";
   }
   return String(v);
 }
@@ -142,7 +144,7 @@ export async function parseSheet(buf: Buffer, filename: string): Promise<{ rows:
   const wb = new ExcelJS.Workbook();
   const isCsv = /\.csv$/i.test(filename) || (!buf.subarray(0, 2).equals(Buffer.from("PK")) && !/\.xlsx$/i.test(filename));
   try {
-    if (isCsv) await wb.csv.read(Readable.from(buf.toString("utf8").replace(/^﻿/, "")));
+    if (isCsv) await wb.csv.read(Readable.from(buf.toString("utf8").replace(/^\uFEFF/, "")));
     else await wb.xlsx.load(buf as unknown as ArrayBuffer);
   } catch {
     throw badRequest("Couldn't read the file. Upload the CANAVO template as .xlsx, or a .csv with the same columns.");
@@ -177,14 +179,19 @@ const rupees = (s: string): number | null => {
   return Number.isFinite(v) && v >= 0 && v <= 1_000_000 ? toPaise(v) : null;
 };
 
-function pairs(s: string): { key: string; value: string }[] {
+export function pairs(s: string): { key: string; value: string }[] {
   return s
     .split(/[;\n]/)
     .map((p) => p.trim())
     .filter(Boolean)
     .map((p) => {
-      const m = p.match(/^(.*?)\s*[=:]\s*([^=:]+)$/);
-      return m ? { key: m[1].trim(), value: m[2].trim() } : { key: p, value: "" };
+      // Linear-time split on the LAST '=' or ':' (BUG-006: the previous regex
+      // /^(.*?)\s*[=:]\s*([^=:]+)$/ backtracked quadratically on long cells).
+      // Same semantics: the value is everything after the last separator and
+      // must be non-empty; the key is everything before it.
+      const i = Math.max(p.lastIndexOf("="), p.lastIndexOf(":"));
+      if (i < 0 || i === p.length - 1) return { key: p, value: "" };
+      return { key: p.slice(0, i).trim(), value: p.slice(i + 1).trim() };
     });
 }
 

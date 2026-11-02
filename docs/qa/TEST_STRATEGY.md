@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Document | `docs/qa/TEST_STRATEGY.md` |
-| Version | 1.0 (Phase 1) — 2026-11-02 |
+| Version | 1.1 (risk register re-scored after Phase 3) — 2026-11-02 |
 | Branch | `qa/full-testing` (from `main` @ `008952a`) |
 | Owner | QA programme (Principal QA Architect / SDET) |
 | Companion docs | [RTM.csv](RTM.csv) · [BUGS.csv](BUGS.csv) · [UNVERIFIABLE.md](UNVERIFIABLE.md) · [templates/](templates/) · phase reports `PHASE-NN.md` |
@@ -169,8 +169,8 @@ Scored as Impact (1–5) × Likelihood (1–5). Likelihood comes from what was *
 
 | ID | Risk | I | L | Score | Evidence / reasoning | Mitigation (tests) | Phase |
 |---|---|---|---|---|---|---|---|
-| R-01 | **Cross-tenant / cross-outlet read or write** on models that are not auto-scoped (Order, Payment, KotTicket, DiningTable, TableSession, Reservation, Delivery, InventoryStock/Transaction, Purchase, StockAudit/Transfer, Loyalty/Khata txns, CouponRedemption, Notification, Setting…) | 5 | 3 | **15** | `db.ts` auto-filters only 11 models; everything else depends on each of ~242 handlers remembering `outletId`. | Full route × role × foreign-ID matrix; static guard audit | 3, 8 |
-| R-02 | **Foreign IDs smuggled into writes**: e.g. an order line pointing at business B's menuItemId/variantId/addonId, a transfer to another business's outlet, a recipe using B's ingredient, a coupon from B | 5 | 3 | **15** | Nested `connect`/raw IDs in bodies are not covered by the extension's `where` injection. | Cross-tenant FK SQL checks; API negative tests | 7, 8 |
+| R-01 | **Cross-tenant / cross-outlet read or write** on models that are not auto-scoped (Order, Payment, KotTicket, DiningTable, TableSession, Reservation, Delivery, InventoryStock/Transaction, Purchase, StockAudit/Transfer, Loyalty/Khata txns, CouponRedemption, Notification, Setting…) | 5 | 4 | **20** | **Confirmed Phase 3** (BUG-005, BUG-007 cross-business reads; fixed). `db.ts` auto-filters only 11 models; everything else depends on each of ~242 handlers remembering `outletId`. | Full route × role × foreign-ID matrix; static guard audit | 3, 8 |
+| R-02 | **Foreign IDs smuggled into writes**: e.g. an order line pointing at business B's menuItemId/variantId/addonId, a transfer to another business's outlet, a recipe using B's ingredient, a coupon from B | 5 | 4 | **20** | **Confirmed Phase 3** (BUG-008, BUG-009; fixed). Nested `connect`/raw IDs in bodies are not covered by the extension's `where` injection. | Cross-tenant FK SQL checks; API negative tests | 7, 8 |
 | R-03 | **Payment race / overpayment**: balance check runs *before* the transaction | 5 | 3 | **15** | `orders.ts` `/payments` reads the balance outside `$transaction`. | Parallel payment tests | 9 |
 | R-04 | **Tab split not atomic** (known) → partial bills, double-billed items | 4 | 4 | **16** | README "Known limitations". | Failing test, then fix | 9 |
 | R-05 | Coupon / loyalty / khata over-redemption under concurrency | 4 | 3 | **12** | Usage limits and balances checked in app code. | Race tests; reconciliation SQL | 9 |
@@ -179,7 +179,7 @@ Scored as Impact (1–5) × Likelihood (1–5). Likelihood comes from what was *
 | R-08 | **Timezone misuse** (server TZ ≠ IST) in business day, reports, FY, happy hours, shifts | 4 | 3 | **12** | Many `new Date()` uses; helpers exist in `lib/time.ts`. | Run suites under `TZ=UTC` and `TZ=America/New_York` | 3, 4, 14 |
 | R-09 | Access token still valid after logout / password reset (≤ 15 min) | 3 | 5 | **15** | **Observed** (BUG-003): `/auth/me` returns 200 with the access token after `/auth/logout`. | Phase 8 design decision | 8 |
 | R-10 | Super Admin reaching hotel data (X-Business-Id / X-Outlet-Id, platform endpoints, audit log, backup download) | 5 | 2 | **10** | Guards exist; smoke SMK-020 passes on `/orders`. | Full SA matrix | 8 |
-| R-11 | Socket.io room scoping: joining another outlet/business room | 5 | 2 | **10** | 38-line `realtime.ts`, to be reviewed. | Socket auth/room tests | 10 |
+| R-11 | Socket.io room scoping: joining another outlet/business room; **outlet room broadcasts to every role** | 5 | 4 | **20** | **Confirmed Phase 3** (BUG-013, open).  38-line `realtime.ts`, to be reviewed. | Socket auth/room tests | 10 |
 | R-12 | Upload abuse: SVG/polyglot, path traversal, SSRF via bulk-upload image URL, zip/xlsx bombs | 4 | 3 | **12** | multer + exceljs; local storage fallback served by API. | Upload test pack | 8 |
 | R-13 | Brute force on OTP / staff PIN / clock-in PIN | 4 | 3 | **12** | IP limiter only on `/login` and `/otp` (50 per 15 min); account lockout after 5. | Brute-force tests per factor | 8 |
 | R-14 | **Vulnerable dependencies**: root 3 critical / 11 high (next, body-parser, multer, zod at runtime); mobile 1 critical / 24 high | 4 | 3 | **12** | `npm audit` 2026-11-02. | Reachability triage, upgrades | 3, 8 |
@@ -199,7 +199,7 @@ Scored as Impact (1–5) × Likelihood (1–5). Likelihood comes from what was *
 | R-28 | Mobile token storage / deep-link hijack | 4 | 2 | **8** | SecureStore is a dependency; usage not yet verified. | Code review + device tests | 8, 12 |
 | R-29 | Webhook replay / forged Razorpay callbacks | 4 | 2 | **8** | Raw-body signature verification present. | Signature/replay tests | 8 |
 
-Top five by score: **R-04, R-01, R-02, R-03, R-09**.
+Top five by score (re-scored after Phase 3): **R-01 (20), R-02 (20), R-11 (20), R-04 (16), R-03 / R-09 (15)**.
 
 ## 10. Defect management
 

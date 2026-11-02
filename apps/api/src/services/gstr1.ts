@@ -144,9 +144,11 @@ export function lineRate(l: Gstr1Line, interState: boolean): number {
 
 /** Split "INV-2026-00012" into series "INV-2026-" and sequence 12. */
 export function splitInvoiceNumber(inv: string): { series: string; seq: number } {
-  const m = /^(.*?)(\d+)$/.exec(inv);
-  if (!m) return { series: inv, seq: 0 };
-  return { series: m[1], seq: Number(m[2]) };
+  // Linear scan for the trailing digits (the old /^(.*?)(\d+)$/ was super-linear).
+  let i = inv.length;
+  while (i > 0 && inv.charCodeAt(i - 1) >= 48 && inv.charCodeAt(i - 1) <= 57) i--;
+  if (i === inv.length) return { series: inv, seq: 0 };
+  return { series: inv.slice(0, i), seq: Number(inv.slice(i)) };
 }
 
 /** GSTN limits the HSN description to 30 characters. */

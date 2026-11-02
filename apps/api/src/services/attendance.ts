@@ -237,7 +237,8 @@ export async function upsertManualAttendance(
 ) {
   if (!canManageAttendanceOf(req.user!, user)) throw forbidden(`You can't mark attendance for ${user.name}`);
   const fields = manualRecordFields(date, outlet.timezone, user.shift, e);
-  const existing = await prisma.staffAttendance.findFirst({ where: { userId: user.id, workDate: date }, orderBy: { clockInAt: "asc" } });
+  // BUG-010: only this outlet's record — staff working at several outlets have one per outlet.
+  const existing = await prisma.staffAttendance.findFirst({ where: { userId: user.id, outletId: outlet.id, workDate: date }, orderBy: { clockInAt: "asc" } });
   // An omitted note keeps the existing one; an empty / null note clears it.
   const note = e.note === undefined ? (existing?.note ?? null) : e.note || null;
   const common = { ...fields, status: e.status, note, markedById: req.user!.id, editedAt: new Date() } as const;
