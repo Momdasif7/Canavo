@@ -419,6 +419,18 @@ async function authJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Mobile OTP sign-in, step 1: text a 6-digit code. Outside production without SMS, `devCode` carries it. */
+export async function requestLoginOtp(phone: string): Promise<{ ok: true; expiresIn: number; devCode?: string }> {
+  return json("/auth/otp/request", { method: "POST", body: { phone }, auth: false, outletId: null });
+}
+
+/** Mobile OTP sign-in, step 2. With two-step login on, returns the challenge (then call verifyTwoFactor). */
+export async function loginWithOtp(phone: string, code: string): Promise<Session | MfaChallenge> {
+  const s = await authJson<Session | MfaChallenge>("/auth/otp/verify", { phone, code });
+  if (!("mfaRequired" in s)) setSession(s);
+  return s;
+}
+
 /** Second sign-in step: a 6-digit app code or a recovery code. */
 export async function verifyTwoFactor(mfaToken: string, input: { code?: string; recoveryCode?: string }): Promise<Session> {
   const s = await authJson<Session>("/auth/2fa/verify", { mfaToken, ...input });
