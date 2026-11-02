@@ -183,6 +183,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/staff", label: "Staff", icon: UsersThree, anyOf: ["staff:view"] },
       { href: "/attendance", label: "Attendance", icon: CalendarCheck, anyOf: ["attendance:manage"] },
+      // Every employee who clocks in: own calendar and leave requests (managers use it for their own leave too).
+      { href: "/my-attendance", label: "My attendance & leave", icon: CalendarCheck, anyOf: ["attendance:self"] },
     ],
   },
   {

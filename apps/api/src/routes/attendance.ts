@@ -230,7 +230,8 @@ attendanceRouter.get("/leaves", async (req, res) => {
     const outletIds = req.user!.role === "SUPER_ADMIN" && req.header("x-outlet-id") ? [req.header("x-outlet-id")!] : req.user!.outletIds;
     return res.json(
       await prisma.leaveRequest.findMany({
-        where: { user: { outlets: { some: { outletId: { in: outletIds } } } } },
+        // Owners also see other owners' leave (owners aren't assigned to outlets, so a manager never would).
+        where: req.user!.role === "BUSINESS_OWNER" ? { user: { businessId: req.user!.businessId } } : { user: { outlets: { some: { outletId: { in: outletIds } } } } },
         include: { user: { select: { id: true, name: true, role: true } } },
         orderBy: { createdAt: "desc" },
         take: 200,
@@ -243,7 +244,13 @@ attendanceRouter.get("/leaves", async (req, res) => {
 attendanceRouter.patch("/leaves/:id", requirePermission("attendance:manage"), async (req, res) => {
   const { status } = parse(z.object({ status: z.enum(["APPROVED", "REJECTED"]) }), req.body);
   // Managers may review leave for staff in any of their outlets (matches the ?scope=outlet listing).
-  const scope = req.user!.role === "SUPER_ADMIN" ? {} : { user: { outlets: { some: { outletId: { in: req.user!.outletIds } } } } };
+  // Owners review anyone in the business, including another owner; managers only staff of their outlets.
+  const scope =
+    req.user!.role === "SUPER_ADMIN"
+      ? {}
+      : req.user!.role === "BUSINESS_OWNER"
+        ? { user: { businessId: req.user!.businessId } }
+        : { user: { outlets: { some: { outletId: { in: req.user!.outletIds } } } } };
   const leave = await prisma.leaveRequest.findFirst({ where: { id: param(req, "id"), ...scope } });
   if (!leave) throw notFound("Leave request");
   if (leave.userId === req.user!.id) throw forbidden("You cannot approve your own leave");
