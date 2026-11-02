@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Branch | `feat/market-leader`: foundation (`d1c2343`, `70469f4`) plus two agents in parallel (`agent/channels`, `agent/storefront`), merged and verified |
-| Date | 2026-11-01 |
+| Branch | `feat/market-leader`: foundation (`d1c2343`, `70469f4`) plus two agents in parallel (`agent/channels`, `agent/storefront`), then three more for the pending items (`agent/aggflow`, `agent/online`, `agent/mobile`), all merged and verified |
+| Date | 2026-11-01, pending items finished 2026-11-02 |
 | Decision applied | **D3: partner hub first** (one integration relays Zomato / Swiggy). Built against a local fake hub; there are no real credentials. |
-| Tests | Unit **192** (shared 43, API 149) · Integration **179** · Smoke **17** · Browser: online page, QR page (phone size), Settings → Online ordering / Channels, Tables → QR codes |
+| Tests | Unit **197** (shared 43, API 154) · Integration **200** · Smoke **17** · Browser: online page, QR page (phone size), Settings → Online ordering / Channels, Tables → QR codes, and end to end: an online order placed on the public page arrives billed on the Online orders board, then Packed, then Handed to rider |
 
 ## Summary
 
@@ -55,9 +55,13 @@ The migrations in order produce exactly the merged schema (verified: empty diff)
 
 ## Not done yet
 
-- A real hub adapter (e.g. UrbanPiper) and direct Zomato/Swiggy APIs. They need vendor onboarding and credentials.
-- Mobile screens.
-- API documentation (OpenAPI) for the new routes.
+Everything listed as not done in the first pass is now built: the packing/handover board, "we deliver" orders, the UrbanPiper adapter, OpenAPI, phone OTP, UPI refunds, the map pin and the mobile screens. What remains:
+
+- **Real vendor connections:** live UrbanPiper credentials and direct Zomato/Swiggy APIs. Vendor onboarding is needed; the UrbanPiper field mapping is marked `TODO(verify-at-onboarding)`.
+- **Item stock toggle:** pushing an item's out-of-stock state to the hub automatically. The adapter method exists, but nothing calls it on stock-out yet.
+- **Auto-print timing:** with auto-print on, an online-page order that still needs confirmation prints before anyone accepts it.
+- **Customer cancellation:** customers can't cancel online orders themselves.
+- **On-device checks:** map, geolocation and the mobile Online tab haven't been tried on real phones.
 
 ## Could not verify
 
