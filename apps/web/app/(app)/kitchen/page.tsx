@@ -210,7 +210,7 @@ export default function KitchenPage() {
               onClick={() => chooseStation(s)}
               className={clsx(
                 "relative flex min-h-tap shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-bold",
-                station === s ? "border-primary bg-primary text-white" : "border-line bg-surface hover:border-primary/60",
+                station === s ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface hover:border-primary/60",
               )}
             >
               {s === "ALL" ? "All stations" : s}

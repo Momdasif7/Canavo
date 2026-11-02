@@ -177,7 +177,7 @@ function CreateSchedule({ onCreated }: { onCreated: (s: ReportSchedule) => void 
           <div className="grid grid-cols-2 gap-2">
             {keys.map((k) => (
               <label key={k} className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-line px-3 text-sm font-semibold has-[:checked]:border-primary has-[:checked]:bg-primary-50 dark:has-[:checked]:bg-primary/10">
-                <input type="checkbox" className="h-4 w-4 accent-[#FF6B35]" checked={reports.includes(k)} onChange={() => toggle(k)} />
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={reports.includes(k)} onChange={() => toggle(k)} />
                 {REPORT_LABELS[k]}
               </label>
             ))}

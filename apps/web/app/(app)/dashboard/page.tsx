@@ -254,7 +254,7 @@ function Breakdown({ rows, countLabel }: { rows: { label: string; amount: number
 }
 
 function HourlyChart({ hourly }: { hourly: DailyReport["hourly"] }) {
-  const { theme } = useTheme();
+  const { theme, accent } = useTheme();
   const dark = theme === "dark";
   // Trim to trading hours: first to last hour with sales, padded, at least 7:00–22:00.
   const data = useMemo(() => {
@@ -293,7 +293,7 @@ function HourlyChart({ hourly }: { hourly: DailyReport["hourly"] }) {
               );
             }}
           />
-          <Bar dataKey="amount" fill="#FF6B35" radius={[4, 4, 0, 0]} maxBarSize={36} />
+          <Bar dataKey="amount" fill={accent} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>
       </ResponsiveContainer>
     </div>

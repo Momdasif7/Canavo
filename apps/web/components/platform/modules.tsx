@@ -74,7 +74,7 @@ export function ModulePicker({
               <span
                 className={clsx(
                   "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                  on ? "border-primary bg-primary text-white" : "border-line bg-surface",
+                  on ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface",
                 )}
                 aria-hidden
               >

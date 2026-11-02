@@ -178,7 +178,7 @@ export function RangePicker({
             onClick={() => onPreset(p.value)}
             className={clsx(
               "inline-flex min-h-[40px] items-center rounded-full border px-3.5 text-sm font-semibold transition-colors disabled:opacity-50",
-              active === p.value ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:bg-surface-2",
+              active === p.value ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface text-fg hover:bg-surface-2",
             )}
           >
             {p.label}

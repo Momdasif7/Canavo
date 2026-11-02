@@ -106,7 +106,7 @@ export function NotificationPrefsEditor({ value, onChange, readOnly }: EditorPro
                   ) : (
                     <input
                       type="checkbox"
-                      className="h-5 w-5 accent-[#FF6B35]"
+                      className="h-5 w-5 accent-primary"
                       aria-label={`Custom channels for ${e.label}`}
                       checked={custom}
                       disabled={readOnly}

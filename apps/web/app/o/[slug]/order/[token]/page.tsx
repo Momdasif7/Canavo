@@ -104,7 +104,7 @@ export default function OnlineOrderStatusPage() {
                 <div className="mx-auto mt-3 w-fit rounded-xl bg-white p-3">
                   <QRCodeSVG value={view.upi.qrPayload} size={200} />
                 </div>
-                <a href={view.upi.qrPayload} className="mt-3 inline-flex min-h-tap items-center justify-center rounded-xl bg-primary px-5 font-semibold text-white">
+                <a href={view.upi.qrPayload} className="mt-3 inline-flex min-h-tap items-center justify-center rounded-xl bg-primary px-5 font-semibold text-primary-fg">
                   Open UPI app
                 </a>
               </>

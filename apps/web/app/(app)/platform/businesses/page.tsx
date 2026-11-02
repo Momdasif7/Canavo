@@ -33,7 +33,7 @@ export default function BusinessesPage() {
         subtitle={list.data ? `${list.data.length} client business${list.data.length === 1 ? "" : "es"}` : undefined}
         actions={
           canManagePlatform(me) ? (
-            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
+            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-fg shadow-sm hover:bg-primary-600">
               <Plus size={20} /> New business
             </Link>
           ) : undefined

@@ -6,6 +6,7 @@ import { ToastProvider } from "./ToastProvider";
 import { SessionProvider } from "./SessionProvider";
 import { ConnectivityProvider } from "./ConnectivityProvider";
 import { ApprovalProvider } from "./ApprovalProvider";
+import { AppearanceSync } from "./AppearanceSync";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -20,6 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <ToastProvider>
         <SessionProvider>
+          <AppearanceSync />
           <ConnectivityProvider>
             <ApprovalProvider>{children}</ApprovalProvider>
           </ConnectivityProvider>

@@ -202,7 +202,7 @@ export function StaffForm({
                 <label key={o.id} className={`flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border px-3 ${on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line"}`}>
                   <input
                     type="checkbox"
-                    className="h-5 w-5 accent-[#FF6B35]"
+                    className="h-5 w-5 accent-primary"
                     checked={on}
                     onChange={() => set("outletIds", on ? form.outletIds.filter((x) => x !== o.id) : [...form.outletIds, o.id])}
                   />

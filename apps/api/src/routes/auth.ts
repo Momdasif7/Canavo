@@ -11,7 +11,10 @@ import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, pas
   refreshSchema,
   effectivePermissions,
   isPlatformRole,
+  normalizeBrand,
   normalizeModules,
+  normalizeUserPreferences,
+  userPreferencesUpdateSchema,
 } from "@canavo/shared";
 import { platformPrisma, prisma } from "../db";
 import { isProd } from "../env";
@@ -340,6 +343,7 @@ authRouter.get("/me", authenticate, async (req, res) => {
       shift: true,
       businessId: true,
       totpEnabledAt: true,
+      preferences: true,
       outlets: { select: { outlet: { select: { id: true, name: true, businessId: true } } } },
     },
   });
@@ -358,14 +362,14 @@ authRouter.get("/me", authenticate, async (req, res) => {
   // Which business is this session acting in?
   const businessId = support?.businessId ?? user.businessId ?? null;
   const business = businessId
-    ? await platformPrisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, status: true, modules: true, features: true } })
+    ? await platformPrisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, status: true, modules: true, features: true, brand: true } })
     : null;
   const modules = business ? normalizeModules(business.modules) : null;
   // Effective flags only (on AND the required modules enabled), so clients can gate UI directly
   const features = business
     ? Object.fromEntries(FEATURE_KEYS.filter((k) => featureEnabled(normalizeFeatures(business.features), k, modules)).map((k) => [k, true]))
     : {};
-  const { outlets: _assigned, totpEnabledAt, ...profile } = user;
+  const { outlets: _assigned, totpEnabledAt, preferences, ...profile } = user;
   res.json({
     ...profile,
     role,
@@ -381,7 +385,26 @@ authRouter.get("/me", authenticate, async (req, res) => {
     features,
     outlets,
     permissions: effectivePermissions(role, modules, support ? null : req.user!.customPermissions),
+    // Appearance: the business's brand look (CANAVO defaults outside a business) and this user's own preferences.
+    brand: normalizeBrand(business?.brand),
+    preferences: normalizeUserPreferences(preferences),
   });
+});
+
+// ---------- Own appearance preferences (every signed-in user, only their own row) ----------
+
+authRouter.get("/me/preferences", authenticate, async (req, res) => {
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { preferences: true } });
+  res.json(normalizeUserPreferences(user.preferences));
+});
+
+/** Partial update: fields left out keep their saved value. */
+authRouter.put("/me/preferences", authenticate, async (req, res) => {
+  const patch = parse(userPreferencesUpdateSchema, req.body);
+  const user = await platformPrisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { preferences: true } });
+  const preferences = { ...normalizeUserPreferences(user.preferences), ...patch };
+  await platformPrisma.user.update({ where: { id: req.user!.id }, data: { preferences } });
+  res.json(preferences);
 });
 
 async function customRoleSummary(id: string) {

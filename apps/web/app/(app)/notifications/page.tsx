@@ -96,7 +96,7 @@ export default function NotificationsPage() {
                     data-testid={`family-${f}`}
                     className={clsx(
                       "min-h-[36px] rounded-full border px-3 text-sm font-semibold transition-colors",
-                      on ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:bg-surface-2",
+                      on ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface text-fg hover:bg-surface-2",
                       dim && "text-muted",
                     )}
                   >

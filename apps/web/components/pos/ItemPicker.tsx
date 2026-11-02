@@ -120,7 +120,7 @@ export function ItemPicker({ item, onClose, onAdd }: { item: MenuItem | null; on
                     on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line hover:border-primary/60",
                   )}
                 >
-                  <span className={clsx("flex h-6 w-6 items-center justify-center rounded-md border-2", on ? "border-primary bg-primary text-white" : "border-line")}>
+                  <span className={clsx("flex h-6 w-6 items-center justify-center rounded-md border-2", on ? "border-primary bg-primary text-primary-fg" : "border-line")}>
                     {on && <Check size={14} weight="bold" />}
                   </span>
                   <span className="flex-1 text-left font-medium">{a.name}</span>

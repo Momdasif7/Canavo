@@ -153,7 +153,7 @@ export function BillDialog({
                   const amt = unbilled.filter((i) => i.seat === s).reduce((a, i) => a + i.amount, 0);
                   return (
                     <label key={s} className={clsx("flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border px-3", on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line")}>
-                      <input type="checkbox" checked={on} onChange={() => setSeatSel((x) => (on ? x.filter((y) => y !== s) : [...x, s].sort((a, b) => a - b)))} className="h-5 w-5 accent-[#FF6B35]" />
+                      <input type="checkbox" checked={on} onChange={() => setSeatSel((x) => (on ? x.filter((y) => y !== s) : [...x, s].sort((a, b) => a - b)))} className="h-5 w-5 accent-primary" />
                       <span className="font-semibold">Seat {s}</span>
                       <span className="tabular text-xs text-muted">{formatINR(amt)}</span>
                     </label>

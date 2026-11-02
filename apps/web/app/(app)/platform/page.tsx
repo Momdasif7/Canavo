@@ -27,7 +27,7 @@ export default function PlatformHome() {
         subtitle={`Welcome, ${me?.name ?? "admin"}. Manage CANAVO client businesses, their modules and owner logins.`}
         actions={
           canManagePlatform(me) ? (
-            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
+            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-fg shadow-sm hover:bg-primary-600">
               <Plus size={20} /> New business
             </Link>
           ) : undefined
