@@ -26,7 +26,7 @@ import { redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { redeemTokens, spendWallet } from "../services/canteen";
-import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
+import { amountPaid, buildReceipt, createOrder, getOrder, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
 import { renderReceiptPdf } from "../services/pdf";
@@ -105,12 +105,15 @@ async function billWhere(req: Express.Request, q: z.infer<typeof billFilterSchem
   const from = q.from ?? q.date;
   const to = q.to ?? q.from ?? q.date;
   if (from && to && from > to) throw badRequest("'from' date is after 'to' date");
-  let createdAt: { gte: Date; lt: Date } | undefined;
+  let createdAt: { gte?: Date; lt: Date } | undefined;
   if (from && to) {
     const gte = startOfLocalDay(from, outlet.timezone);
     const lt = new Date(startOfLocalDay(to, outlet.timezone).getTime() + 86_400_000);
     if ((lt.getTime() - gte.getTime()) / 86_400_000 > MAX_RANGE_DAYS) throw badRequest(`Pick at most ${MAX_RANGE_DAYS} days`);
     createdAt = { gte, lt };
+  } else if (to) {
+    // 'to' alone: everything up to the end of that day (it used to be ignored — every bill came back).
+    createdAt = { lt: new Date(startOfLocalDay(to, outlet.timezone).getTime() + 86_400_000) };
   }
   return {
     outletId: req.outletId,
@@ -237,8 +240,12 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
   if (order.status === "CANCELLED") throw conflict("Order already cancelled");
   if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
   const updated = await prisma.$transaction(async (tx) => {
-    if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: order.grandTotal, reason, approval }, tx);
-    const u = await cancelOrderInTx(tx, req, order, reason);
+    // Re-check on the locked bill: a double tap / a refund at the same moment must not void it twice.
+    const fresh = await lockOrder(tx, order.id, req.outletId!);
+    if (fresh.status === "CANCELLED") throw conflict("Order already cancelled");
+    if (fresh.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
+    if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: fresh.grandTotal, reason, approval }, tx);
+    const u = await cancelOrderInTx(tx, req, fresh, reason);
     // Phase 6.1: an aggregator order is cancelled on the channel too (outbox: retried until the hub answers).
     await queueChannelStatus(tx, order.id, "CANCELLED", reason);
     return u;
@@ -293,6 +300,11 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
   }
 
   const paid = await prisma.$transaction(async (tx) => {
+    // Two tills collecting at once: re-check on the locked bill so it is never paid twice.
+    const fresh = await lockOrder(tx, order.id, req.outletId!);
+    if (fresh.status !== "OPEN") throw conflict(`Order is ${fresh.status.toLowerCase()}`);
+    const freshBalance = fresh.grandTotal - amountPaid(fresh);
+    if (total > freshBalance) throw badRequest(`Payment ${formatINR(total)} exceeds balance ${formatINR(freshBalance)}`);
     for (const p of payments) {
       // Gift cards are spent with a compare-and-set inside this transaction (Phase 3.8).
       const card = p.mode === "GIFT_CARD" ? await redeemGiftCard(tx, p.giftCardCode!, p.amount, { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id }) : null;

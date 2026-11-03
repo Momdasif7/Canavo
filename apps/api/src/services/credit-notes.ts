@@ -45,6 +45,8 @@ export const creditNoteNumber = (invoicePrefix: string, fyStart: number, seq: nu
 export async function createCreditNote(req: Request, orderId: string, input: RefundInput, opts: { systemRefund?: boolean } = {}) {
   const outletId = req.outletId!;
   return prisma.$transaction(async (tx) => {
+    // Lock the bill first: two refunds (or a refund and a void) at the same moment run one after the other.
+    await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} AND "outletId" = ${outletId} FOR UPDATE`;
     const order = await tx.order.findFirst({
       where: { id: orderId, outletId },
       include: { items: true, creditNotes: true, payments: { where: { status: "SUCCESS" } }, outlet: { select: { invoicePrefix: true, timezone: true } } },

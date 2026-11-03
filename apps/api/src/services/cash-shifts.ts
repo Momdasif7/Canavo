@@ -121,8 +121,9 @@ export async function closeShift(req: Request, input: { countedCash: number; den
   const closedAt = new Date();
   const summary = await shiftSummary({ ...shift, closedAt });
   const variance = input.countedCash - summary.expectedCash;
-  const closed = await prisma.cashShift.update({
-    where: { id: shift.id },
+  // Only the first close counts: a second device closing at the same moment used to overwrite the Z-report.
+  const { count } = await prisma.cashShift.updateMany({
+    where: { id: shift.id, status: "OPEN" },
     data: {
       status: "CLOSED",
       closedAt,
@@ -135,6 +136,8 @@ export async function closeShift(req: Request, input: { countedCash: number; den
       summary: summary as unknown as Prisma.InputJsonValue,
     },
   });
+  if (!count) throw conflict("No cash shift is open");
+  const closed = await prisma.cashShift.findUniqueOrThrow({ where: { id: shift.id } });
   await audit(req, "cash_shift.close", "CashShift", shift.id, { expectedCash: summary.expectedCash, countedCash: input.countedCash, variance });
   return { ...closed, summary };
 }
