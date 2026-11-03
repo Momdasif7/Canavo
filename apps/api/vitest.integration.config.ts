@@ -12,7 +12,7 @@ const APP_DB = process.env.IT_APP_DATABASE_URL ?? "postgresql://canavo_app_it:ca
 
 export default defineConfig({
   test: {
-    include: ["test/integration/**/*.test.ts"],
+    include: [process.env.IT_INCLUDE ?? "test/integration/**/*.test.ts"],
     globalSetup: ["test/integration/global-setup.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
