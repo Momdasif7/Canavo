@@ -12,7 +12,7 @@ import {
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, notFound, param, parse } from "../lib/http";
-import { zonedParts } from "../lib/time";
+import { isValidYmd, zonedParts } from "../lib/time";
 import { authenticate, requireAnyPermission, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { overlapWarnings, preorderCutoffAt, slotAt } from "../services/meal-slots";
@@ -41,7 +41,7 @@ export const canteenMealsRouter = Router();
 // its requests must pass through this router untouched.
 canteenMealsRouter.use(["/slots", "/preorders", "/production", "/subscriptions"], authenticate, requireOutlet, requireModule("CANTEEN"));
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine(isValidYmd, "Not a real date");
 const today = async (outletId: string) => zonedParts(new Date(), (await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { timezone: true } })).timezone).date;
 
 // ---------- Slots ----------
@@ -119,7 +119,7 @@ canteenMealsRouter.put("/slots/:id/items", requirePermission("canteen:manage"), 
 
 /** Book a meal for a date + slot (default: tomorrow). Cutoff: the slot's preorderCutoff on the previous day. */
 canteenMealsRouter.post("/preorders", requirePermission("order:create"), async (req, res) => {
-  res.status(201).json(await bookPreorder(req, parse(canteenPreorderSchema, req.body)));
+  res.status(201).json(await bookPreorder(req, parse(canteenPreorderSchema.extend({ date: ymd }), req.body)));
 });
 
 canteenMealsRouter.get("/preorders", requireAnyPermission("canteen:manage", "order:create"), async (req, res) => {
@@ -202,7 +202,9 @@ canteenMealsRouter.get("/subscriptions/:id", requirePermission("canteen:manage")
 
 /** Create a plan; it's paid upfront on a normal bill (GST charged once, on that bill). */
 canteenMealsRouter.post("/subscriptions", requirePermission("canteen:manage", "payment:collect"), async (req, res) => {
-  res.status(201).json(await createSubscription(req, parse(mealSubscriptionSchema, req.body)));
+  const input = parse(mealSubscriptionSchema, req.body);
+  if (!isValidYmd(input.startDate) || !isValidYmd(input.endDate)) throw badRequest("Validation failed", { fieldErrors: { startDate: ["Not a real date"] } });
+  res.status(201).json(await createSubscription(req, input));
 });
 
 canteenMealsRouter.post("/subscriptions/:id/pause", requirePermission("canteen:manage"), async (req, res) => {

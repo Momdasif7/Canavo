@@ -37,9 +37,10 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     if (err.code === "P2025") return res.status(404).json({ error: "Not found" });
     // A referenced id that doesn't exist (or isn't visible): the client's mistake, not ours
     if (err.code === "P2003") return res.status(400).json({ error: "A referenced record was not found" });
+    if (err.code === "P2020" || err.code === "P2033") return res.status(400).json({ error: "A number is too large" });
   }
   // A number too large for its 32-bit column (paise, points, quantities sent by the client)
-  if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value/.test(err.message)) {
+  if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value|out of range for type integer/.test(err.message)) {
     return res.status(400).json({ error: "A number is too large" });
   }
   // PostgreSQL text can't hold U+0000 (22021) — bad input that slipped past rejectNulBytes, not a server fault.

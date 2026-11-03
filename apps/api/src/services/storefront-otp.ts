@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { CUSTOMER_OTP } from "@canavo/shared";
 import { prisma } from "../db";
 import { env, isProd } from "../env";
@@ -43,11 +44,20 @@ export async function verifyCustomerOtp(outletId: string, phone: string, code: s
     orderBy: { createdAt: "desc" },
   });
   if (!otp) throw badRequest("The code has expired — ask for a new one");
+  // Count the try BEFORE comparing, atomically (row-locked increment): guesses sent in parallel
+  // can't all read the same attempt count, so at most maxAttempts codes are checked per OTP.
+  const counted = await prisma.customerOtp
+    .update({ where: { id: otp.id, consumed: false, attempts: { lt: CUSTOMER_OTP.maxAttempts } }, data: { attempts: { increment: 1 } }, select: { attempts: true } })
+    .catch((e) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") return null; // locked / used meanwhile
+      throw e;
+    });
+  if (!counted) throw badRequest("Wrong code too many times — ask for a new one");
   const a = Buffer.from(otp.codeHash);
   const b = Buffer.from(hashCode(outletId, phone, code));
   if (!(a.length === b.length && crypto.timingSafeEqual(a, b))) {
-    const attempts = otp.attempts + 1;
-    await prisma.customerOtp.update({ where: { id: otp.id }, data: { attempts, consumed: attempts >= CUSTOMER_OTP.maxAttempts } });
+    const { attempts } = counted;
+    if (attempts >= CUSTOMER_OTP.maxAttempts) await prisma.customerOtp.updateMany({ where: { id: otp.id }, data: { consumed: true } });
     const left = CUSTOMER_OTP.maxAttempts - attempts;
     throw badRequest(left > 0 ? `Wrong code — ${left} ${left === 1 ? "try" : "tries"} left` : "Wrong code too many times — ask for a new one");
   }

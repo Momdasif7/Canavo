@@ -22,6 +22,7 @@ import { requireBusinessId } from "../lib/tenant";
 import { authenticate, requireAnyPermission, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
 import { adjustWallet, corporateOutstanding, corporateStatement, findMember, memberSnapshot, purchaseTokens, topUpWallet } from "../services/canteen";
 import { sendExport } from "../services/report-export";
+import { isValidYmd } from "../lib/time";
 
 /**
  * Canteen (Phase 5.1 / 5.2, CANTEEN module): corporate accounts, subsidy rules, statements,
@@ -38,6 +39,11 @@ async function getAccount(id: string) {
   const a = await prisma.corporateAccount.findFirst({ where: { id } });
   if (!a) throw notFound("Corporate account");
   return a;
+}
+
+/** The shared schemas only check the YYYY-MM-DD shape: 2026-13-01 must be a 400, not a crash. */
+function realDates(...dates: string[]) {
+  if (!dates.every(isValidYmd)) throw badRequest("Validation failed", { fieldErrors: { from: ["Not a real date"] } });
 }
 
 async function outletTimezone(outletId: string) {
@@ -126,6 +132,7 @@ canteenRouter.delete("/rules/:id", manage, async (req, res) => {
 canteenRouter.get("/accounts/:id/statement", manage, async (req, res) => {
   const a = await getAccount(param(req, "id"));
   const q = parse(statementQuerySchema.extend({ format: z.enum(["json", "xlsx", "pdf"]).default("json") }), req.query);
+  realDates(q.from, q.to);
   if (q.from > q.to) throw badRequest("'from' date is after 'to' date");
   const st = await corporateStatement(a.id, q.from, q.to, await outletTimezone(req.outletId!));
   if (q.format === "json") return res.json({ account: a, ...st });
@@ -179,6 +186,7 @@ canteenRouter.get("/accounts/:id/statements", manage, async (req, res) => {
 canteenRouter.post("/accounts/:id/statements", manage, async (req, res) => {
   const a = await getAccount(param(req, "id"));
   const input = parse(statementCreateSchema, req.body);
+  realDates(input.from, input.to);
   if (input.from > input.to) throw badRequest("'from' date is after 'to' date");
   const overlap = await prisma.corporateStatement.findFirst({ where: { corporateAccountId: a.id, periodFrom: { lte: input.to }, periodTo: { gte: input.from } }, select: { periodFrom: true, periodTo: true } });
   if (overlap) throw conflict(`A statement for ${overlap.periodFrom} to ${overlap.periodTo} overlaps these dates`);
@@ -254,7 +262,9 @@ async function saveMember(input: z.infer<typeof memberSchema>) {
   // An existing customer with this phone becomes a member (keeps their history and khata).
   const existing = await prisma.customer.findFirst({ where: { phone: input.phone } });
   const data = { ...input, canteenMember: true, corporateAccountId: input.corporateAccountId ?? null, cardUid: input.cardUid ?? null, employeeCode: input.employeeCode ?? null, department: input.department ?? null };
-  if (existing) return { member: await prisma.customer.update({ where: { id: existing.id }, data, select: memberSelect }), created: false };
+  // Re-enrolling an existing customer: fields left out keep their value (a CSV without a card
+  // column must not wipe everyone's cards). Clearing a field is done with PATCH.
+  if (existing) return { member: await prisma.customer.update({ where: { id: existing.id }, data: { ...input, canteenMember: true }, select: memberSelect }), created: false };
   return { member: await prisma.customer.create({ data: { ...data, businessId: requireBusinessId() }, select: memberSelect }), created: true };
 }
 
