@@ -71,25 +71,27 @@ export async function rotateRefresh(raw: string) {
     include: { user: true },
   });
   if (!row) throw unauthorized("Invalid refresh token");
-  if (row.revokedAt) {
+  const reuse = async () => {
     await prisma.refreshToken.updateMany({
       where: { familyId: row.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
-    throw unauthorized("Refresh token reuse detected; please log in again");
-  }
+    return unauthorized("Refresh token reuse detected; please log in again");
+  };
+  if (row.revokedAt) throw await reuse();
   if (row.expiresAt < new Date() || row.user.status !== "ACTIVE") {
     throw unauthorized("Session expired");
   }
+  // Claim the token atomically: of two concurrent refreshes with the same token only one
+  // rotates, the other counts as a replay.
+  const claimed = await prisma.refreshToken.updateMany({ where: { id: row.id, revokedAt: null }, data: { revokedAt: new Date() } });
+  if (claimed.count === 0) throw await reuse();
   const next = await createRefresh(row.userId, row.familyId, {
     deviceId: row.deviceId ?? undefined,
     ip: row.ip ?? undefined,
     userAgent: row.userAgent ?? undefined,
   });
-  await prisma.refreshToken.update({
-    where: { id: row.id },
-    data: { revokedAt: new Date(), replacedBy: next.id },
-  });
+  await prisma.refreshToken.update({ where: { id: row.id }, data: { replacedBy: next.id } });
   return {
     accessToken: signAccess(row.user, row.familyId),
     refreshToken: next.raw,

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
 import { customRoleSchema, customRoleUpdateSchema, PERMISSION_LABELS, ROLE_LABELS, ROLE_PERMISSIONS, staffCreateSchema, staffUpdateSchema, type Permission, type Role } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
@@ -62,6 +63,13 @@ function assertCanAssign(req: Express.Request, role?: Role, outletIds?: string[]
   if (me !== "SUPER_ADMIN" && outletIds?.some((id) => !req.user!.outletIds.includes(id))) {
     throw forbidden("You can only assign staff to your own outlets");
   }
+}
+
+/** A shift given to a staff member must be one of their outlets' shifts (the FK alone would accept any hotel's). */
+async function assertShift(shiftId: string | undefined, outletIds: string[]) {
+  if (!shiftId) return;
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId }, select: { outletId: true } });
+  if (!shift || (outletIds.length && !outletIds.includes(shift.outletId))) throw badRequest("Shift not found in this staff member's outlets");
 }
 
 /** A custom role given to a staff member must be this business's and based on their role. */
@@ -149,6 +157,7 @@ staffRouter.post("/", requirePermission("staff:manage"), async (req, res) => {
   const data = parse(staffCreateSchema, req.body);
   assertCanAssign(req, data.role, data.outletIds);
   await assertCustomRole(data.customRoleId, data.role);
+  await assertShift(data.shiftId, data.outletIds);
   const user = await prisma.user.create({
     data: {
       customRoleId: data.customRoleId ?? null,
@@ -182,6 +191,11 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   let customRoleId = data.customRoleId;
   if (customRoleId === undefined && data.role && data.role !== existing.role && existing.customRoleId) customRoleId = null;
   await assertCustomRole(customRoleId, nextRole);
+  // A manager's outlet list only covers their own outlets: assignments elsewhere (outlets they don't run) stay.
+  const outletIds = data.outletIds && [
+    ...new Set([...data.outletIds, ...(isBusinessWide(req.user!.role) ? [] : existing.outlets.map((o) => o.outletId).filter((o) => !req.user!.outletIds.includes(o)))]),
+  ];
+  await assertShift(data.shiftId, outletIds ?? existing.outlets.map((o) => o.outletId));
 
   const user = await prisma.user.update({
     where: { id },
@@ -197,8 +211,8 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
       customRoleId,
       ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
       ...(data.pin && { pinHash: await bcrypt.hash(data.pin, 10) }),
-      ...(data.outletIds && {
-        outlets: { deleteMany: {}, create: data.outletIds.map((outletId) => ({ outletId })) },
+      ...(outletIds && {
+        outlets: { deleteMany: {}, create: outletIds.map((outletId) => ({ outletId })) },
       }),
     },
     select: publicFields,
@@ -238,7 +252,7 @@ staffRouter.post("/:id/reset-link", requirePermission("staff:manage"), async (re
 staffRouter.get("/:id/performance", requirePermission("staff:view"), async (req, res) => {
   const id = param(req, "id");
   await loadStaff(req, id);
-  const days = Math.min(Number(req.query.days ?? 30), 365);
+  const { days } = parse(z.object({ days: z.coerce.number().int().min(1).max(365).default(30) }), req.query);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   const fromDate = addDays(today, -(days - 1));

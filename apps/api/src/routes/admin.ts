@@ -20,7 +20,7 @@ import { audit } from "../lib/audit";
 import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { decrypt, encrypt, maskAadhaar, verhoeffValid } from "../lib/crypto";
 import { requireBusinessId } from "../lib/tenant";
-import { addDays, startOfLocalDay } from "../lib/time";
+import { addDays, isValidYmd as isRealDate, startOfLocalDay } from "../lib/time";
 import { authenticate, requireBusiness, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 import { ipAllowed, normalizeIp, superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { sendSchedule } from "../services/report-schedules";
@@ -85,8 +85,11 @@ adminRouter.post("/report-schedules/:id/send-now", requirePermission("report:vie
 // Audit logs
 // =====================================================================
 
+/** "2026-13-45" passes the YYYY-MM-DD pattern but isn't a date (it crashed the IST day maths with a 500). */
+const auditQuery = auditLogQuerySchema.refine((q) => [q.from, q.to].every((d) => d === undefined || isRealDate(d)), { message: "Not a real date", path: ["from"] });
+
 adminRouter.get("/audit-logs", requirePermission("audit:view"), async (req, res) => {
-  const q = parse(auditLogQuerySchema, req.query);
+  const q = parse(auditQuery, req.query);
   const tz = "Asia/Kolkata";
   // The platform admin sees only platform actions (hotel activity is private to the hotel).
   // Owners see their whole business, including business-level actions with no outlet (settings,
