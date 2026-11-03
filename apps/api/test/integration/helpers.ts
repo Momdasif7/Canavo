@@ -3,13 +3,23 @@
  * creates extra tenants directly through the unfiltered Prisma client (the
  * platform onboarding API is exercised separately in its own tests).
  */
+import http from "node:http";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 import type { Role } from "@canavo/shared";
 import { createApp } from "../../src/app";
 import { platformPrisma as db } from "../../src/db";
 
-export const app = createApp();
+/**
+ * ONE long-lived HTTP server per test file. `request(expressApp)` would start a new
+ * server on a random port for every request; with Node's keep-alive global agent
+ * and several test processes running in parallel, a stale keep-alive socket can be
+ * re-established to a port that another process now owns — the request is then
+ * answered by a different test process (seen in Phase 5 as impossible 200 {}
+ * responses). supertest accepts a listening server directly.
+ */
+export const app = http.createServer(createApp()).listen(0, "127.0.0.1");
+app.unref();
 export const PASSWORD = "Canavo@123";
 export { db };
 
