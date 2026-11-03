@@ -78,6 +78,18 @@ export async function getOrder(id: string, outletId: string) {
 }
 
 /**
+ * Lock the bill's row until the transaction ends and return it fresh. Payments, voids and refunds
+ * on one bill take this lock first, so two of them at the same moment run one after the other
+ * (each re-checks status / balance on what the other committed).
+ */
+export async function lockOrder(tx: Prisma.TransactionClient, id: string, outletId: string) {
+  await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${id} FOR UPDATE`;
+  const order = await tx.order.findFirst({ where: { id, outletId }, include: orderInclude });
+  if (!order) throw notFound("Order");
+  return order;
+}
+
+/**
  * Create a bill. Prices and tax are always recomputed server-side from the
  * menu — client totals are never trusted. Offline-raised bills (with
  * `clientOrderId`) are idempotent and skip live availability checks, since the

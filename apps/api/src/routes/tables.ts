@@ -144,6 +144,8 @@ export async function openSession(
   if (!table) throw notFound("Table");
   await assertStaff(outletId, body.waiterId);
   const session = await prisma.$transaction(async (tx) => {
+    // Lock the table: two devices opening it at the same moment must not both get a tab.
+    await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${table.id} FOR UPDATE`;
     if (await findOpenSession(outletId, table.id, tx)) throw conflict(`Table ${table.label} already has an open tab`);
     const s = await tx.tableSession.create({
       data: {
@@ -447,9 +449,10 @@ tablesRouter.put("/layout", requirePermission("table:manage"), async (req, res) 
   if (areaIds.length && (await prisma.diningArea.count({ where: { outletId, id: { in: areaIds } } })) !== areaIds.length) {
     throw badRequest("Unknown area in layout");
   }
-  await prisma.$transaction(
-    tables.map(({ id, ...pos }) => prisma.diningTable.update({ where: { id }, data: pos })),
-  );
+  // Callback form: the batch form isn't supported with row-level security (it threw → 500 on every save).
+  await prisma.$transaction(async (tx) => {
+    for (const { id, ...pos } of tables) await tx.diningTable.update({ where: { id }, data: pos });
+  });
   await audit(req, "table.layout.save", "DiningTable", undefined, { count: tables.length });
   emitTables(outletId, { tableIds: tables.map((t) => t.id), action: "layout" });
   res.json(await prisma.diningTable.findMany({ where: { outletId, active: true }, orderBy: { label: "asc" } }));
@@ -579,6 +582,7 @@ tablesRouter.post("/sessions/:id/transfer", requirePermission("table:serve"), as
   if (!target) throw notFound("Target table");
   if (target.id === session.tableId) throw badRequest("Session is already on that table");
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${target.id} FOR UPDATE`;
     if (await findOpenSession(outletId, target.id, tx)) throw conflict(`Table ${target.label} is occupied`);
     await tx.tableSession.update({ where: { id: session.id }, data: { tableId: target.id } });
     await tx.diningTable.update({ where: { id: session.tableId }, data: { status: "AVAILABLE" } });

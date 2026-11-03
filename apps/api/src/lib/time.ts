@@ -22,8 +22,19 @@ export const hhmmToMinutes = (t: string) => {
 };
 
 /** UTC instant for local midnight of `ymd` in `timeZone` (handles fixed offsets like IST exactly). */
+/** Midnight UTC of a YYYY-MM-DD calendar date; "2026-13-45" (Invalid Date) or "2026-02-30" (rolls into March) is a 400, not a 500 / a wrong day. */
+function utcMidnight(ymd: string): Date {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== ymd) {
+    // A client error (400 via the error handler's `expose` branch). No import of ./http: this module
+    // is also used by scripts (seed) that must not load the server env.
+    throw Object.assign(new Error(`Invalid date ${ymd}`), { status: 400, expose: true });
+  }
+  return d;
+}
+
 export function startOfLocalDay(ymd: string, timeZone: string): Date {
-  const guess = new Date(`${ymd}T00:00:00Z`);
+  const guess = utcMidnight(ymd);
   const { minutes, date } = zonedParts(guess, timeZone);
   // Offset = local wall time − UTC wall time at the guess instant
   let offset = minutes;
@@ -32,7 +43,7 @@ export function startOfLocalDay(ymd: string, timeZone: string): Date {
 }
 
 export function addDays(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
+  const d = utcMidnight(ymd);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
