@@ -66,11 +66,12 @@ notificationsRouter.delete("/read", async (req, res) => {
 /** Register (or re-assign to the current user) an Expo push token for this device. */
 notificationsRouter.post("/devices", async (req, res) => {
   const { token, platform } = parse(deviceTokenSchema, req.body);
-  const device = await prisma.deviceToken.upsert({
-    where: { token },
-    create: { token, platform, userId: req.user!.id },
-    update: { platform, userId: req.user!.id },
-  });
+  // Not an upsert: a token held by another hotel's user is invisible here (RLS), and the upsert's
+  // ON CONFLICT update then failed with a 500. Now that case is a plain 409 and the token stays put.
+  const visible = await prisma.deviceToken.findUnique({ where: { token }, select: { id: true } });
+  const device = visible
+    ? await prisma.deviceToken.update({ where: { token }, data: { platform, userId: req.user!.id } })
+    : await prisma.deviceToken.create({ data: { token, platform, userId: req.user!.id } });
   res.status(201).json(device);
 });
 

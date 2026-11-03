@@ -14,7 +14,15 @@ import { alertAttendanceMarked } from "../services/alerts";
 export const attendanceRouter = Router();
 attendanceRouter.use(authenticate, requireModule("ATTENDANCE"));
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** A real calendar date: "2025-13-01" would crash date maths (500) and "2025-02-30" would be stored as a work date. */
+const isRealDate = (s: string) => {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealDate, "Not a real date");
+function assertRealDates(...dates: string[]) {
+  if (!dates.every(isRealDate)) throw badRequest("Validation failed", { formErrors: ["Not a real date"] });
+}
 const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
 function monthRange(month: string) {
@@ -55,7 +63,14 @@ attendanceRouter.get("/me/status", async (req, res) => {
 attendanceRouter.get("/calendar", async (req, res) => {
   const month = parse(monthSchema, req.query.month);
   const userId = String(req.query.userId ?? req.user!.id);
-  if (userId !== req.user!.id && !userCan(req, "attendance:manage")) throw forbidden();
+  if (userId !== req.user!.id) {
+    if (!userCan(req, "attendance:manage")) throw forbidden();
+    // Managers see staff of their own outlets only (as everywhere else in attendance); owners the whole business.
+    if (req.user!.role !== "BUSINESS_OWNER") {
+      const inScope = await prisma.user.findFirst({ where: { id: userId, outlets: { some: { outletId: { in: req.user!.outletIds } } } }, select: { id: true } });
+      if (!inScope) throw notFound("Staff member");
+    }
+  }
   const { from, to } = monthRange(month);
   const [records, leaves] = await Promise.all([
     prisma.staffAttendance.findMany({ where: { userId, workDate: { gte: from, lte: to } }, orderBy: { clockInAt: "asc" } }),
@@ -216,6 +231,7 @@ attendanceRouter.get("/salary", requireOutlet, requirePermission("attendance:man
 // ---------- Leave ----------
 attendanceRouter.post("/leaves", requirePermission("attendance:self"), async (req, res) => {
   const data = parse(leaveRequestSchema, req.body);
+  assertRealDates(data.fromDate, data.toDate);
   const leave = await prisma.leaveRequest.create({ data: { ...data, userId: req.user!.id } });
   const managers = new Set<string>();
   for (const outletId of req.user!.outletIds) (await outletManagers(outletId)).forEach((m) => managers.add(m));
@@ -327,6 +343,7 @@ async function loadTarget(req: Express.Request, userId: string) {
 /** Add / correct attendance for one employee on one day. */
 attendanceRouter.post("/manual", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
   const data = parse(attendanceManualSchema, req.body);
+  assertRealDates(data.date);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { id: true, timezone: true } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   if (data.date > today) throw badRequest("Attendance can't be marked for a future date");
@@ -337,6 +354,7 @@ attendanceRouter.post("/manual", requireOutlet, requirePermission("attendance:ma
 /** Mark the whole register for a date (e.g. "everyone present 9:00–18:00"). */
 attendanceRouter.post("/register", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
   const { date, entries } = parse(attendanceRegisterSchema, req.body);
+  assertRealDates(date);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { id: true, timezone: true } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   if (date > today) throw badRequest("Attendance can't be marked for a future date");

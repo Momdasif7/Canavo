@@ -36,6 +36,10 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     if (err.code === "P2002") return res.status(409).json({ error: "Already exists", details: err.meta });
     if (err.code === "P2025") return res.status(404).json({ error: "Not found" });
   }
+  // A number that passed validation but doesn't fit the column (e.g. 1e12 paise into an INT4): bad input, not a crash.
+  if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value/.test(err.message)) {
+    return res.status(400).json({ error: "Validation failed", details: { formErrors: ["A number is too large"] } });
+  }
   // body-parser / http-errors (malformed JSON, payload too large, ...)
   const status = (err as { status?: number; expose?: boolean }).status;
   if ((err as { expose?: boolean }).expose && status && status < 500) {
