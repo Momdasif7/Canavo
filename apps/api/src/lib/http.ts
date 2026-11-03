@@ -36,6 +36,10 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     if (err.code === "P2002") return res.status(409).json({ error: "Already exists", details: err.meta });
     if (err.code === "P2025") return res.status(404).json({ error: "Not found" });
   }
+  // PostgreSQL text can't hold U+0000 (22021) — bad input that slipped past rejectNulBytes, not a server fault.
+  if (err instanceof Error && /\b22021\b|invalid byte sequence for encoding/.test(err.message)) {
+    return res.status(400).json({ error: "Text contains an invalid character" });
+  }
   // body-parser / http-errors (malformed JSON, payload too large, ...)
   const status = (err as { status?: number; expose?: boolean }).status;
   if ((err as { expose?: boolean }).expose && status && status < 500) {
@@ -44,6 +48,27 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   // Unexpected: report with the request id; the client gets the id (to quote to support), never a stack trace.
   reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
   res.status(500).json({ error: "Internal server error", requestId: req.id });
+}
+
+const hasNul = (v: unknown, depth = 0): boolean => {
+  if (typeof v === "string") return v.includes("\u0000");
+  if (depth > 64 || v === null || typeof v !== "object") return false;
+  return Object.entries(v).some(([k, x]) => k.includes("\u0000") || hasNul(x, depth + 1));
+};
+
+/**
+ * Refuse U+0000 anywhere in the URL (path, ids, query) or a parsed JSON body with a 400:
+ * PostgreSQL text can't store it, so it would otherwise surface as a database error (QA BUG-006).
+ */
+export function rejectNulBytes(req: Request, _res: Response, next: NextFunction) {
+  let url = req.originalUrl;
+  try {
+    url = decodeURIComponent(url.replace(/\+/g, " "));
+  } catch {
+    /* malformed %-escapes: Express answers those itself */
+  }
+  if (url.includes("\u0000") || hasNul(req.body)) return next(badRequest("Text contains an invalid character"));
+  next();
 }
 
 /** Read a route param as a string (Express 5 types allow string | string[]). */

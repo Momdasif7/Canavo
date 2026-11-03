@@ -43,10 +43,12 @@ const MAX_FAILED = 5;
 const LOCK_MS = 15 * 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
-const ipLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
+// JSON like every other error (the default is a text/html body the apps can't show — QA BUG-007).
+const tooMany = { error: "Too many attempts — please wait a few minutes and try again" };
+const ipLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false, message: tooMany });
 authRouter.use(["/login", "/otp", "/2fa/verify"], ipLimiter);
 // Password links: few legitimate requests, so a tight limit (also slows enumeration and SMS/email abuse).
-const linkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const linkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: tooMany });
 authRouter.use("/password", linkLimiter);
 
 const sessionMeta = (req: Request, deviceId?: string | null): SessionMeta => ({

@@ -8,7 +8,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
 import { env, isProd } from "./env";
-import { errorHandler, notFound } from "./lib/http";
+import { errorHandler, notFound, rejectNulBytes } from "./lib/http";
 import { openapi } from "./openapi";
 import { publicRouter } from "./routes/public";
 import { storefrontPublicRouter } from "./routes/storefront-public";
@@ -51,15 +51,24 @@ export function createApp() {
   app.use(httpMetrics);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.use(cors({ origin: allowedOrigin(), exposedHeaders: ["content-disposition"], credentials: true }));
+  // Bills, customers and staff data must not sit in browser / proxy caches; routes serving
+  // public assets (uploaded images) set their own Cache-Control (QA BUG-008).
+  app.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   // Structured JSON access logs in production (or LOG_FORMAT=json); short lines in development.
   if (isProd || env.LOG_FORMAT === "json") app.use(httpLogger);
   else app.use(morgan("dev"));
 
+  // U+0000 in a path / query can't reach PostgreSQL (checked again for JSON bodies below).
+  app.use(rejectNulBytes);
   // Public routes first: the Razorpay webhook needs the raw body.
   app.use(publicRouter);
   // Phase 6.1: channel hub webhooks (raw body for the signature)
   app.use(channelWebhooksRouter);
   app.use(express.json({ limit: "1mb" }));
+  app.use(rejectNulBytes);
 
   // Phase 6.3/6.4: customers' QR table page and online ordering page (no login).
   app.use(storefrontPublicRouter);

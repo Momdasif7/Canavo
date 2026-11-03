@@ -29,7 +29,6 @@ export const ops: Op[] = [
   ["put", "/admin/settings/{scope}/{key}", "Write a setting. Body: {value} validated per key (SETTING_SCHEMAS)", "Admin"],
   ["post", "/admin/backups", "Create a gzipped NDJSON backup of all tables (admin:backup)", "Admin"],
   ["get", "/admin/backups", "List backups", "Admin"],
-  ["get", "/admin/backups/{file}", "Download a backup file", "Admin"],
   ["post", "/admin/backups/{file}/restore", 'Restore a backup (truncates all tables). Body: {confirm: "RESTORE"}; refuses on migration mismatch', "Admin"],
   ["get", "/admin/table-counts", "Row count per table (verify backups/restores)", "Admin"],
   ["get", "/admin/export", "Full data export ?format=json|csv-zip (super admin; secrets redacted)", "Admin"],
