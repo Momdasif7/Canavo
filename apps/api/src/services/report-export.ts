@@ -69,11 +69,21 @@ export function formatCell(value: unknown, type: ColumnType = "text"): string {
   }
 }
 
-/** Value written to an Excel cell: money converted to rupees (numeric), others as-is. */
+/**
+ * Text that a spreadsheet would read as a formula (=, +, -, @, tab, CR first — CSV/formula
+ * injection, OWASP) gets a leading apostrophe so it stays text even after a CSV round trip.
+ * Names, notes and reasons in exports are typed by staff and customers.
+ */
+export function safeCellText(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
+/** Value written to an Excel cell: money converted to rupees (numeric), text made formula-safe. */
 export function excelValue(value: unknown, type: ColumnType = "text"): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === "number" && type === "money") return Math.round(value) / 100;
-  if (typeof value === "object" && !(value instanceof Date)) return JSON.stringify(value);
+  if (typeof value === "object" && !(value instanceof Date)) return safeCellText(JSON.stringify(value));
+  if (typeof value === "string") return safeCellText(value);
   return value;
 }
 

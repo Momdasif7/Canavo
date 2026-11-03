@@ -13,7 +13,7 @@ import {
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
-import { startOfLocalDay } from "../lib/time";
+import { isValidYmd, startOfLocalDay } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { activeOffers, couponAmount, couponError, offerConfigError } from "../services/promotions";
 import { emitToOutlet } from "../realtime";
@@ -143,8 +143,8 @@ offersRouter.post("/coupons/validate", requirePermission("order:create"), async 
 offersRouter.get("/coupons/report", requirePermission("offer:manage"), async (req, res) => {
   const q = parse(
     z.object({
-      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      from: z.string().refine(isValidYmd, "Use a real date (YYYY-MM-DD)").optional(),
+      to: z.string().refine(isValidYmd, "Use a real date (YYYY-MM-DD)").optional(),
     }),
     req.query,
   );
@@ -246,8 +246,16 @@ offersRouter.delete("/coupons/:id", requirePermission("offer:manage"), async (re
 });
 
 // ---------- Offer CRUD ----------
+/** outletIds must be outlets of this business (RLS-scoped count); empty = all outlets. */
+async function assertOwnOutlets(ids: string[] | undefined) {
+  if (!ids?.length) return;
+  const unique = [...new Set(ids)];
+  if ((await prisma.outlet.count({ where: { id: { in: unique } } })) !== unique.length) throw badRequest("Unknown outlet in outletIds");
+}
+
 offersRouter.post("/", requirePermission("offer:manage"), async (req, res) => {
   const data = parse(offerCreateSchema, req.body);
+  await assertOwnOutlets(data.outletIds);
   const offer = await prisma.offer.create({
     data: {
       ...data,
@@ -274,6 +282,7 @@ offersRouter.patch("/:id", requirePermission("offer:manage"), async (req, res) =
   const existing = await prisma.offer.findUnique({ where: { id } });
   if (!existing) throw notFound("Offer");
   const data = parse(offerUpdateSchema, req.body);
+  await assertOwnOutlets(data.outletIds);
   const type = data.type ?? existing.type;
   const config = data.config !== undefined ? data.config : existing.config;
   const err = offerConfigError(type, config);

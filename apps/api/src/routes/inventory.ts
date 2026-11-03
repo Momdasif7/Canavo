@@ -26,7 +26,7 @@ import { prisma } from "../db";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, notFound, param, parse } from "../lib/http";
-import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
+import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
@@ -44,6 +44,7 @@ import {
   updateWeightedCost,
 } from "../services/inventory";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
+import { safeCellText } from "../services/report-export";
 
 type Tx = Prisma.TransactionClient;
 
@@ -67,6 +68,7 @@ async function outletTz(outletId: string) {
 
 /** Inclusive local-date range → UTC instants. Defaults to the last 7 days. */
 async function dateRange(req: Request, from?: string, to?: string) {
+  for (const d of [from, to]) if (d !== undefined && !isValidYmd(d)) throw badRequest("Dates must be real dates in YYYY-MM-DD");
   const tz = await outletTz(req.outletId!);
   const today = zonedParts(new Date(), tz).date;
   const t = to ?? today;
@@ -87,7 +89,7 @@ async function respond(req: Request, res: Response, json: unknown, sheet: { name
   const ws = wb.addWorksheet(sheet.name);
   ws.columns = sheet.columns.map((c) => ({ width: 14, ...c }));
   ws.getRow(1).font = { bold: true };
-  for (const r of sheet.rows) ws.addRow(r);
+  for (const r of sheet.rows) ws.addRow(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "string" ? safeCellText(v) : v])));
   res.setHeader("content-disposition", `attachment; filename="${sheet.filename}.xlsx"`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   await wb.xlsx.write(res);
@@ -911,6 +913,7 @@ inventoryRouter.post("/audits/:id/complete", manage, async (req, res) => {
 
 inventoryRouter.post("/audits/:id/cancel", manage, async (req, res) => {
   const id = param(req, "id");
+  if (!(await prisma.stockAudit.findFirst({ where: { id, outletId: req.outletId }, select: { id: true } }))) throw notFound("Stock audit");
   const r = await prisma.stockAudit.updateMany({ where: { id, outletId: req.outletId, status: "IN_PROGRESS" }, data: { status: "CANCELLED" } });
   if (!r.count) throw conflict("Only in-progress audits can be cancelled");
   await audit(req, "inventory.audit.cancel", "StockAudit", id);

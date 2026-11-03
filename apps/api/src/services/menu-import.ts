@@ -6,6 +6,8 @@ import { prisma } from "../db";
 import { badRequest } from "../lib/http";
 import { moduleEnabled, requireBusinessId } from "../lib/tenant";
 import { defaultTaxRate } from "./tax";
+import { publicImageUrlError } from "../lib/safe-url";
+import { safeCellText } from "./report-export";
 
 /**
  * Bulk menu import from the Excel template (or a CSV with the same columns).
@@ -85,7 +87,7 @@ export async function buildTemplate(): Promise<Buffer> {
   const help = wb.addWorksheet("How to fill");
   help.columns = [{ width: 34 }, { width: 90 }];
   const add = (a: string, b = "", bold = false) => {
-    const row = help.addRow([a, b]);
+    const row = help.addRow([safeCellText(a), safeCellText(b)]);
     if (bold) row.font = { bold: true };
   };
   add("CANAVO menu upload", "", true);
@@ -264,6 +266,7 @@ export async function planImport(raw: { row: number; data: RawRow }[]): Promise<
     const station = (data.station || "MAIN").trim().toUpperCase().slice(0, 40);
     const imageUrl = (data.imageUrl ?? "").trim() || null;
     if (imageUrl && !/^https?:\/\/\S+$/i.test(imageUrl)) errors.push("Image URL must start with http:// or https://");
+    else if (imageUrl && publicImageUrlError(imageUrl)) errors.push(publicImageUrlError(imageUrl)!);
 
     let ingredients: { inventoryItemId: string; quantity: number }[] | null = null;
     if (data.ingredients) {
