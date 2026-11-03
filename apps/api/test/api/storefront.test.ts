@@ -289,8 +289,10 @@ describe("public QR table ordering", () => {
 describe("public online ordering", () => {
   it("unknown / malformed / other-case slugs → 404; the page has no secrets", async () => {
     for (const s of ["no-such-outlet-qa", "ab", slug.toUpperCase(), `${slug}%00`, "..%2F..%2Fetc", "x".repeat(41)]) {
-      expect((await pub("GET", `/public/o/${s}`)).status, s).toBe(404);
-      expect((await pub("POST", `/public/o/${s}/orders`, online())).status, s).toBe(404);
+      // A NUL byte is refused before routing (400, BUG-006); everything else is a plain 404.
+      const refused = s.includes("%00") ? 400 : 404;
+      expect((await pub("GET", `/public/o/${s}`)).status, s).toBe(refused);
+      expect((await pub("POST", `/public/o/${s}/orders`, online())).status, s).toBe(refused);
     }
     const r = await pub("GET", `/public/o/${slug}`);
     expect(r.status).toBe(200);

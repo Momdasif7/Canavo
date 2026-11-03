@@ -159,11 +159,16 @@ describe("GET /uploads/files/:name — traversal and probing", () => {
     "abcdefgh.PNG",
     "short.png",
     `${"a".repeat(65)}.png`,
-    "abcdefgh%00.png",
     "abcdefghij.png", // well-formed but not there
   ])("%s → 404", async (name) => {
     const r = await fetch(`${srv.base}/uploads/files/${name}`);
     expect(r.status).toBe(404);
+    expect(r.headers.get("content-type")).toMatch(/application\/json/);
+  });
+
+  it("a NUL byte in the name is refused before routing (400, BUG-006)", async () => {
+    const r = await fetch(`${srv.base}/uploads/files/abcdefgh%00.png`);
+    expect(r.status).toBe(400);
     expect(r.headers.get("content-type")).toMatch(/application\/json/);
   });
 
