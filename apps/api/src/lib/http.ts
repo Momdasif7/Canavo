@@ -35,6 +35,11 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002") return res.status(409).json({ error: "Already exists", details: err.meta });
     if (err.code === "P2025") return res.status(404).json({ error: "Not found" });
+    if (err.code === "P2020" || err.code === "P2033") return res.status(400).json({ error: "A number is too large" });
+  }
+  // A number the schema let through but the INT4 column can't hold (e.g. 1e12 paise).
+  if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value|out of range for type integer/.test(err.message)) {
+    return res.status(400).json({ error: "A number is too large" });
   }
   // body-parser / http-errors (malformed JSON, payload too large, ...)
   const status = (err as { status?: number; expose?: boolean }).status;
