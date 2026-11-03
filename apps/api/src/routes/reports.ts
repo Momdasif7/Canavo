@@ -6,7 +6,7 @@ import { prisma } from "../db";
 import { dayOutcome } from "../services/attendance";
 import { badRequest, forbidden, parse } from "../lib/http";
 import { moduleEnabled } from "../lib/tenant";
-import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
+import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { sendExport, type ExportColumn, type ExportFormat, type ExportTable } from "../services/report-export";
 import { buildGstr1, type Gstr1Order } from "../services/gstr1";
@@ -20,7 +20,7 @@ reportsRouter.use(authenticate, requireModule("REPORTS"));
 // Shared helpers
 // =====================================================================
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidYmd, "Use a real date (YYYY-MM-DD)");
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MAX_RANGE_DAYS = 366;
 

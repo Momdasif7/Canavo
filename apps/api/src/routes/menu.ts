@@ -4,7 +4,7 @@ import type { TaxRate } from "@prisma/client";
 import { categorySchema, totalTaxPercent, effectiveGstRate, menuItemSchema, roundRate, taxFromRate, toPaise } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { badRequest, notFound, param, parse } from "../lib/http";
+import { badRequest, HttpError, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireAnyModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { featureOn, moduleEnabled, requireBusinessId } from "../lib/tenant";
@@ -13,6 +13,7 @@ import { defaultTaxRate, resolveItemTax, taxRateBrief } from "../services/tax";
 import multer from "multer";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 import { applyImport, buildTemplate, parseSheet, planImport, summarize } from "../services/menu-import";
+import { publicImageUrlError } from "../lib/safe-url";
 
 export const menuRouter = Router();
 menuRouter.use(authenticate, requireOutlet, requireAnyModule("BILLING", "INVENTORY"));
@@ -124,14 +125,30 @@ export async function currentSlotMenu(outletId: string) {
   };
 }
 
+/**
+ * A category id from the body must be one of this business's own (RLS-scoped lookup): foreign-key
+ * checks in PostgreSQL ignore row-level security, so another hotel's id would otherwise be linked.
+ */
+async function assertOwnCategory(id: string | null | undefined, what = "Category") {
+  if (id == null) return;
+  if (!(await prisma.menuCategory.findUnique({ where: { id }, select: { id: true } }))) throw badRequest(`${what} not found`);
+}
+
+function assertImageUrl(url: string | undefined) {
+  const err = url ? publicImageUrlError(url) : null;
+  if (err) throw badRequest(err);
+}
+
 // ---------- Categories ----------
 menuRouter.post("/categories", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema, req.body);
+  await assertOwnCategory(data.parentId, "Parent category");
   res.status(201).json(await prisma.menuCategory.create({ data: { ...data, businessId: requireBusinessId() } }));
 });
 
 menuRouter.patch("/categories/:id", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema.partial(), req.body);
+  await assertOwnCategory(data.parentId, "Parent category");
   res.json(await prisma.menuCategory.update({ where: { id: param(req, "id") }, data }));
 });
 
@@ -153,6 +170,8 @@ function itemData(data: z.infer<typeof menuItemSchema>) {
 menuRouter.post("/items", requirePermission("menu:manage"), async (req, res) => {
   const body = req.body as { gstRate?: unknown } | undefined;
   const data = parse(menuItemSchema, req.body);
+  await assertOwnCategory(data.categoryId);
+  assertImageUrl(data.imageUrl);
   // gstRate has a schema default; only treat it as the client's choice when actually sent.
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: body?.gstRate !== undefined ? data.gstRate : undefined }, true);
   const item = await prisma.menuItem.create({
@@ -175,6 +194,8 @@ menuRouter.patch("/items/:id", requirePermission("menu:manage"), async (req, res
   const data = parse(menuItemSchema.partial(), req.body);
   const { variants, addons, ...rest } = data;
   if (!(await prisma.menuItem.findUnique({ where: { id }, select: { id: true } }))) throw notFound("Menu item");
+  await assertOwnCategory(data.categoryId);
+  assertImageUrl(data.imageUrl);
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: data.gstRate }, false);
   const item = await prisma.menuItem.update({
     where: { id },
@@ -258,7 +279,14 @@ menuRouter.get("/import/template", requirePermission("menu:manage"), async (_req
  * returns a per-row preview (create / update / error). With ?apply=1 the valid
  * rows are saved in one transaction; rows with errors are skipped.
  */
-menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single("file"), async (req, res) => {
+/** Multer errors (too big, wrong field) are the client's: 413 / 400, not 500. */
+const importFile: express.RequestHandler = (req, res, next) =>
+  importUpload.single("file")(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) return next(err.code === "LIMIT_FILE_SIZE" ? new HttpError(413, "The file must be 5 MB or smaller") : badRequest(err.message));
+    next(err);
+  });
+
+menuRouter.post("/import", requirePermission("menu:manage"), importFile, async (req, res) => {
   if (!req.file) throw badRequest("Attach the filled template as \"file\"");
   const { rows } = await parseSheet(req.file.buffer, req.file.originalname);
   if (!rows.length) throw badRequest("The sheet has no item rows");

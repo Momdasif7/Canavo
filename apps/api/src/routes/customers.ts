@@ -16,7 +16,7 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
+import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { CRM_TEMPLATES, sendCustomerMessage } from "../services/customer-messages";
 import { getLoyaltyConfig, loyaltySetting, redeemableNow } from "../services/promotions";
@@ -163,7 +163,7 @@ customersRouter.post("/", requirePermission("customer:view"), async (req, res) =
     throw forbidden("Only managers can set a khata limit");
   }
   const existing = await prisma.customer.findFirst({ where: { phone: data.phone } });
-  if (existing) throw badRequest(`Customer with phone ${data.phone} already exists`, { id: existing.id });
+  if (existing) throw new HttpError(409, `Customer with phone ${data.phone} already exists`, { id: existing.id });
   const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, businessId: requireBusinessId() } });
   await audit(req, "customer.create", "Customer", customer.id);
   res.status(201).json(customer);
@@ -291,7 +291,7 @@ customersRouter.patch("/:id", requirePermission("customer:manage"), async (req, 
   const c = await getCustomer(param(req, "id"));
   const data = parse(customerUpdateSchema, req.body);
   if (data.phone && data.phone !== c.phone && (await prisma.customer.findFirst({ where: { phone: data.phone } }))) {
-    throw badRequest(`Another customer already uses ${data.phone}`);
+    throw conflict(`Another customer already uses ${data.phone}`);
   }
   const updated = await prisma.customer.update({
     where: { id: c.id },

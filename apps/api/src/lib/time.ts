@@ -36,3 +36,10 @@ export function addDays(ymd: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+/** A real calendar date in YYYY-MM-DD (rejects 2026-02-30, 2026-13-01, years before 2000 / after 2099). */
+export function isValidYmd(s: string): boolean {
+  if (!/^(20\d\d)-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
