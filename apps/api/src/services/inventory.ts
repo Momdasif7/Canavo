@@ -114,6 +114,14 @@ export interface StockMovement {
   userId?: string;
 }
 
+/**
+ * Lines in a fixed order (by inventory item id) before posting their movements. Every
+ * transaction that touches several stock rows must lock them in the same order, or two of
+ * them at once (e.g. wastage [oil, milk] and [milk, oil]) deadlock (QA Phase 7).
+ */
+export const inItemOrder = <T extends { inventoryItemId: string }>(lines: readonly T[]): T[] =>
+  [...lines].sort((a, b) => a.inventoryItemId.localeCompare(b.inventoryItemId));
+
 export async function applyStockMovement(tx: Tx, m: StockMovement) {
   const quantity = round3(m.quantity);
   if (quantity === 0) return null;

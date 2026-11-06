@@ -25,6 +25,12 @@ export function parse<S extends ZodType>(schema: S, data: unknown): z.output<S> 
   return result.data;
 }
 
+/** PostgreSQL deadlock (40P01) / serialization failure (40001), however Prisma wrapped it. */
+export function isTransactionConflict(err: unknown) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") return true;
+  return (err instanceof Prisma.PrismaClientUnknownRequestError || err instanceof Prisma.PrismaClientKnownRequestError) && /\b40P01\b|\b40001\b|deadlock detected/.test(err.message);
+}
+
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });
@@ -38,6 +44,11 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     // A referenced id that doesn't exist (or isn't visible): the client's mistake, not ours
     if (err.code === "P2003") return res.status(400).json({ error: "A referenced record was not found" });
     if (err.code === "P2020" || err.code === "P2033") return res.status(400).json({ error: "A number is too large" });
+  }
+  // Two transactions that locked the same rows in opposite order (or a serialization conflict):
+  // PostgreSQL rolled one back. Nothing was saved, so the client can safely send it again (QA Phase 7).
+  if (isTransactionConflict(err)) {
+    return res.status(409).json({ error: "Someone else changed the same records at the same moment. Nothing was saved — please try again.", details: { code: "TRY_AGAIN" } });
   }
   // A number too large for its 32-bit column (paise, points, quantities sent by the client)
   if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value|out of range for type integer/.test(err.message)) {

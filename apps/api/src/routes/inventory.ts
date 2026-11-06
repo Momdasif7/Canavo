@@ -35,6 +35,7 @@ import {
   alertLowStock,
   applyStockMovement,
   convertQuantity,
+  inItemOrder,
   isLowStock,
   lowStockItems,
   netPrice,
@@ -553,7 +554,7 @@ async function receivePurchase(tx: Tx, purchaseId: string, outletId: string, use
   if (!claimed.count) throw conflict("Only draft purchases can be received");
   const p = await tx.purchase.findUniqueOrThrow({ where: { id: purchaseId }, include: { items: true } });
   await loadItems(p.items.map((i) => i.inventoryItemId), tx);
-  for (const line of p.items) {
+  for (const line of inItemOrder(p.items)) {
     // Canteens on 5% GST can't claim input credit, so tax is part of the real cost.
     const landed = line.quantity > 0 ? line.total / line.quantity : line.unitCost;
     await updateWeightedCost(tx, line.inventoryItemId, line.quantity, landed);
@@ -692,7 +693,7 @@ inventoryRouter.post("/purchases/:id/cancel", manage, async (req, res) => {
     });
     if (!claimed.count) throw conflict("Purchase changed meanwhile; reload and retry");
     if (p.status === "RECEIVED") {
-      for (const line of p.items) {
+      for (const line of inItemOrder(p.items)) {
         await applyStockMovement(tx, {
           outletId: req.outletId!,
           inventoryItemId: line.inventoryItemId,
@@ -744,7 +745,7 @@ inventoryRouter.post("/wastage", manage, async (req, res) => {
   const byId = await loadItems(items.map((i) => i.inventoryItemId));
   const txns = await prisma.$transaction(async (tx) => {
     const out = [];
-    for (const w of items) {
+    for (const w of inItemOrder(items)) {
       const item = byId.get(w.inventoryItemId)!;
       const q = convertQuantity(w.quantity, (w.unit ?? item.unit) as StockUnit, item.unit);
       const t = await applyStockMovement(tx, {
@@ -891,7 +892,7 @@ inventoryRouter.post("/audits/:id/complete", manage, async (req, res) => {
   await prisma.$transaction(async (tx) => {
     const claimed = await tx.stockAudit.updateMany({ where: { id, status: "IN_PROGRESS" }, data: { status: "COMPLETED", completedAt: new Date() } });
     if (!claimed.count) throw conflict("Audit changed meanwhile");
-    for (const l of before.lines) {
+    for (const l of inItemOrder(before.lines)) {
       if (l.variance == null || l.variance === 0) continue;
       await applyStockMovement(tx, {
         outletId: req.outletId!,
@@ -1066,7 +1067,7 @@ inventoryRouter.post("/transfers/:id/dispatch", manage, async (req, res) => {
   if (!canActFor(req, t.fromOutletId)) throw forbidden("You don't have access to the source outlet");
   await prisma.$transaction(async (tx) => {
     await transition(tx, t.id, "APPROVED", { status: "DISPATCHED" });
-    for (const l of t.items) {
+    for (const l of inItemOrder(t.items)) {
       await applyStockMovement(tx, {
         outletId: t.fromOutletId,
         inventoryItemId: l.inventoryItemId,
@@ -1094,7 +1095,7 @@ inventoryRouter.post("/transfers/:id/receive", manage, async (req, res) => {
     await transition(tx, t.id, "DISPATCHED", { status: "RECEIVED" });
     const out = await tx.inventoryTransaction.findMany({ where: { refType: "StockTransfer", refId: t.id, type: "TRANSFER_OUT" } });
     const cost = new Map(out.map((o) => [o.inventoryItemId, o.unitCost ?? undefined]));
-    for (const l of t.items) {
+    for (const l of inItemOrder(t.items)) {
       await applyStockMovement(tx, {
         outletId: t.toOutletId,
         inventoryItemId: l.inventoryItemId,

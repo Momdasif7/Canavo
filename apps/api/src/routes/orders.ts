@@ -26,7 +26,7 @@ import { redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
 import { redeemTokens, spendWallet } from "../services/canteen";
-import { amountPaid, buildReceipt, createOrder, getOrder, lockOrder, settleIfPaid } from "../services/billing";
+import { amountPaid, assertConfirmable, buildReceipt, createOrder, getOrder, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { sendExport } from "../services/report-export";
 import { renderReceiptPdf } from "../services/pdf";
@@ -384,6 +384,9 @@ ordersRouter.post("/:id/payments/:paymentId/confirm", requirePermission("payment
   if (!payment) throw notFound("Payment");
   if (payment.status !== "PENDING") throw conflict(`Payment is ${payment.status.toLowerCase()}`);
   const paid = await prisma.$transaction(async (tx) => {
+    // Re-check on the locked bill: a QR left on screen after the bill was settled another way
+    // (or confirmed twice at once) used to be added on top — the bill counted as paid twice (QA Phase 7).
+    await assertConfirmable(tx, order.id, payment.id, req.outletId!);
     await tx.payment.update({ where: { id: payment.id }, data: { status: "SUCCESS", confirmedAt: new Date(), reference } });
     await audit(req, "payment.manual_confirm", "Payment", payment.id, { reference }, tx);
     return settleIfPaid(order.id, tx);

@@ -215,10 +215,18 @@ menuRouter.patch("/items/:id", requirePermission("menu:manage"), async (req, res
 
 menuRouter.delete("/items/:id", requirePermission("menu:manage"), async (req, res) => {
   const id = param(req, "id");
-  const sold = await prisma.orderItem.count({ where: { menuItemId: id } });
-  // Items on past invoices are hidden, not deleted, to keep invoice history intact.
-  if (sold) await prisma.menuItem.update({ where: { id }, data: { status: "HIDDEN" } });
+  const [sold, onTabs, onPlans] = await Promise.all([
+    prisma.orderItem.count({ where: { menuItemId: id } }),
+    // Running tabs and meal plans point at the item without a foreign key: deleting it would leave
+    // a tab that can no longer be billed ("Unknown menu item") — QA Phase 7.
+    prisma.tableSessionItem.count({ where: { menuItemId: id, billedOrderId: null, session: { status: "OPEN" } } }),
+    prisma.mealSubscription.count({ where: { menuItemId: id } }),
+  ]);
+  // Items on past invoices (or still in use) are hidden, not deleted, to keep history intact.
+  const hide = sold + onTabs + onPlans > 0;
+  if (hide) await prisma.menuItem.update({ where: { id }, data: { status: "HIDDEN" } });
   else await prisma.menuItem.delete({ where: { id } });
+  await audit(req, hide ? "menu.item.delete.hidden" : "menu.item.delete", "MenuItem", id, { sold, onTabs, onPlans });
   emitToOutlet(req.outletId!, "menu:changed", { id });
   res.status(204).end();
 });

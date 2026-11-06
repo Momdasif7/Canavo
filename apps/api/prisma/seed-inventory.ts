@@ -201,6 +201,8 @@ export async function seedInventory(prisma: PrismaClient): Promise<void> {
             createdById: admin?.id,
             receivedAt: new Date(),
             items: { create: lines.map(({ inventoryItemId, quantity, unitCost, taxRate, total }) => ({ inventoryItemId, quantity, unitCost, taxRate, total })) },
+            // A paid purchase has its payment row, like one paid in the app (QA Phase 7 reconciliation B08).
+            ...(p.paid && { payments: { create: [{ amount: subtotal + tax, mode: "BANK", reference: "Seed", createdById: admin?.id }] } }),
           },
         });
         for (const l of lines) {
