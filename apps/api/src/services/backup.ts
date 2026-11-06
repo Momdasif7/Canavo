@@ -299,6 +299,46 @@ function reviveRow(m: DmmfModel, r: Row): Row {
   return out;
 }
 
+/** Autoincrement columns (e.g. OutboxEvent.seq): their sequences must continue after the restored rows. */
+function serialColumns(): { table: string; column: string }[] {
+  return models().flatMap((m) =>
+    m.fields
+      .filter((f) => f.kind === "scalar" && typeof f.default === "object" && f.default !== null && "name" in f.default && f.default.name === "autoincrement")
+      .map((f) => ({ table: tableName(m), column: f.dbName ?? f.name })),
+  );
+}
+
+async function resetSequences(tx: Tx) {
+  for (const { table, column } of serialColumns()) {
+    await tx.$executeRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('"${table}"', '${column}'), coalesce((SELECT max("${column}") FROM "${table}"), 0) + 1, false)`,
+    );
+  }
+}
+
+/**
+ * A restore empties every table (TRUNCATE) and moves sequences (UPDATE on the sequence). A
+ * least-privilege app role often has only SELECT/INSERT/UPDATE/DELETE: refuse up front, with the
+ * grant to run, instead of failing half-way through (docs/deployment/DEPLOYMENT.md §1).
+ */
+async function assertRestorePrivileges() {
+  const tables = models().map(tableName);
+  const missing = await prisma.$queryRaw<{ t: string }[]>`
+    SELECT t FROM unnest(${tables}::text[]) AS t WHERE NOT has_table_privilege(format('%I', t), 'TRUNCATE')`;
+  const seqs = serialColumns();
+  const missingSeq = seqs.length
+    ? await prisma.$queryRaw<{ s: string }[]>`
+        SELECT s FROM unnest(${seqs.map((c) => `"${c.table}".${c.column}`)}::text[]) AS s
+        WHERE NOT has_sequence_privilege(pg_get_serial_sequence(split_part(s, '.', 1), split_part(s, '.', 2)), 'UPDATE')`
+    : [];
+  if (missing.length || missingSeq.length) {
+    throw conflict(
+      `This database role can't restore a backup: it lacks TRUNCATE on ${missing.length} table(s)${missingSeq.length ? " and UPDATE on the ID sequences" : ""}. ` +
+        "Nothing was changed. Run as the database owner: GRANT TRUNCATE ON ALL TABLES IN SCHEMA public TO <app role>; GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO <app role>;",
+    );
+  }
+}
+
 export async function restoreBackup(file: string) {
   const full = await assertBackupExists(file);
   const byName = new Map(models().map((m) => [m.name, m]));
@@ -317,11 +357,20 @@ export async function restoreBackup(file: string) {
     );
   }
 
+  try {
+    await assertRestorePrivileges();
+  } catch (e) {
+    lines.close();
+    throw e;
+  }
+
   const counts: Record<string, number> = {};
   await prisma.$transaction(
     async (tx) => {
       const tables = models().map((m) => `"${tableName(m)}"`).join(", ");
-      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`);
+      // No RESTART IDENTITY: it needs sequence ownership, which a least-privilege app role doesn't have.
+      // Sequences are moved past the restored rows below instead.
+      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE`);
       let model: DmmfModel | undefined;
       let batch: Row[] = [];
       let ended = false;
@@ -339,6 +388,7 @@ export async function restoreBackup(file: string) {
           for (const [name, c] of Object.entries(rec.counts ?? {})) {
             if ((counts[name] ?? 0) !== c) throw new Error(`Row count mismatch for ${name}: file says ${c}, restored ${counts[name] ?? 0}`);
           }
+          await resetSequences(tx);
           ended = true;
           break;
         }

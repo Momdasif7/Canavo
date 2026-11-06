@@ -63,8 +63,10 @@ export async function seedService(prisma: PrismaClient): Promise<void> {
   // One reservation for this evening (20:00 IST, or 3h from now if that has passed).
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   const dayStart = new Date(`${today}T00:00:00+05:30`);
+  // Open-ended window: after ~21:00 IST the demo booking moves past midnight, and a same-day
+  // re-run must still find it (a bounded "today" window seeded a duplicate).
   const existing = await prisma.reservation.count({
-    where: { outletId: outlet.id, reservedFor: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) } },
+    where: { outletId: outlet.id, customerPhone: "9845012345", reservedFor: { gte: dayStart } },
   });
   if (!existing) {
     const evening = new Date(`${today}T20:00:00+05:30`);

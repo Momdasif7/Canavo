@@ -35,7 +35,7 @@ The web app calls the API directly at its own URL (`NEXT_PUBLIC_API_URL`). The A
 3. Copy the **Internal Database URL**. The API uses it, and it never leaves Render's private network.
 4. Leave **Access Control** empty so only Render services can connect.
 5. **Row-level security needs a normal database role.** The database itself blocks one hotel from reading another hotel's rows, but superusers and roles with `BYPASSRLS` skip that check. Render's and Neon's default roles are fine. To confirm, run this once in a SQL shell connected with the API's `DATABASE_URL`:
-   `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;` Both values must be `f`. On Supabase, or with RDS's master user, create a separate app role, grant it the tables, and use that role in `DATABASE_URL`.
+   `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;` Both values must be `f`. On Supabase, or with RDS's master user, create a separate app role, grant it the tables, and use that role in `DATABASE_URL`. The platform restore (Admin → Backups) empties every table and moves the ID sequences, so that role needs, besides `SELECT, INSERT, UPDATE, DELETE`: `GRANT TRUNCATE ON ALL TABLES IN SCHEMA public TO <app role>; GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO <app role>;` (without them a restore is refused up front and nothing changes).
 
 **Using Neon / Supabase / RDS instead:** delete the `databases:` block from `render.yaml` and set `DATABASE_URL` on canavo-api to the provider's URL, adding `?sslmode=require`. Use the provider's **direct** (non-pooled) URL: migrations need it.
 
@@ -148,6 +148,8 @@ The scripted version of these checks is the API smoke suite (`SMOKE_API_URL=http
 | `DATA_ENCRYPTION_KEY` and JWT secrets | Keep copies in a password manager. They can't be recovered from the database. |
 
 **Restore drill (do it monthly, and before going live).** Run `npm run backup:drill -w @canavo/api` with `DATABASE_URL` pointing at a **staging copy**. Never point it at production. It takes a backup, restores it into a scratch database, and compares row counts per table and the total of paid bills. It prints the time each step took, which gives you your recovery time. On 2026-11-01, the dev data (13,646 rows) took about 4 s end to end, and the paid total matched to the paisa.
+
+**Logical dumps (`pg_dump`).** A superuser dump/restore round trip is exact (row counts, money totals, RLS policies, grants, enums, sequences: QA Phase 7). A `pg_dump` run as a *non-superuser* table owner (Render / Neon default role) fails: `FORCE ROW LEVEL SECURITY` binds the owner too. Rely on the provider's backups/PITR there, or the platform backup. To restore an old `pg_dump`, restore it into an **empty** database and then run `npx prisma migrate deploy`: the migrations roll it forward. Deploy, verify and forward-fix steps: [docs/qa/phase-7/migration-runbook.md](../qa/phase-7/migration-runbook.md).
 
 | Target | With these settings |
 |---|---|
