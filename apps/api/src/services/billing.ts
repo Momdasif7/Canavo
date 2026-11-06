@@ -28,6 +28,7 @@ import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from
 import { checkLowStockAfterOrder, deductStockForOrder } from "./inventory";
 import { resolveItemTax, taxConfigForOutlet, taxSnapshot } from "./tax";
 import { alertKitchenNewKots } from "./alerts";
+import { lastKotNumber } from "./kot-number";
 
 /**
  * Failure-injection seam for integration tests only (never active outside NODE_ENV=test):
@@ -335,9 +336,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       byStation.set(l.item.kitchenStation, arr);
     }
     const today = zonedParts(createdAt, outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({
-      where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } },
-    });
+    let kotNumber = await lastKotNumber(tx, outletId, startOfLocalDay(today, outlet.timezone));
     for (const [station, stationLines] of byStation) {
       await tx.kotTicket.create({
         data: {

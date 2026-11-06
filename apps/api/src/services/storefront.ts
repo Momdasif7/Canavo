@@ -28,6 +28,7 @@ import { createCreditNote } from "./credit-notes";
 import { onOrderCancelledService, selectZone } from "./service-context";
 import { phoneTokenValid } from "./storefront-otp";
 import { resolveItemTax } from "./tax";
+import { lastKotNumber } from "./kot-number";
 
 /**
  * Phase 6.3 / 6.4 (CHANNELS): QR table ordering and the outlet's online ordering page.
@@ -507,7 +508,7 @@ export async function fireOrderKots(outletId: string, orderId: string) {
   }
   const kots = await prisma.$transaction(async (tx) => {
     const today = zonedParts(new Date(), outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } } });
+    let kotNumber = await lastKotNumber(tx, outletId, startOfLocalDay(today, outlet.timezone));
     const created = [];
     for (const [station, items] of byStation) {
       created.push(

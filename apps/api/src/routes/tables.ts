@@ -26,6 +26,7 @@ import { badRequest, conflict, notFound, param, parse } from "../lib/http";
 import { startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
+import { lastKotNumber } from "../services/kot-number";
 import { createOrder } from "../services/billing";
 import { equalSplit, groupBillItems, runWithSessionBill } from "../services/service-context";
 import { resolveItemTax, taxConfigForOutlet } from "../services/tax";
@@ -183,7 +184,7 @@ export async function addItemsToSession(
 
   const kots = await prisma.$transaction(async (tx) => {
     const today = zonedParts(new Date(), outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } } });
+    let kotNumber = await lastKotNumber(tx, outletId, startOfLocalDay(today, outlet.timezone));
     const byStation = new Map<string, typeof priced>();
     for (const p of priced) byStation.set(p.line.station, [...(byStation.get(p.line.station) ?? []), p]);
     const created = [];

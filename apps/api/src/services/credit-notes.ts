@@ -79,9 +79,12 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
         const before = credited.get(item.id);
         const left = item.quantity - (before?.quantity ?? 0);
         if (req.quantity > left) throw badRequest(`Only ${left} × ${item.name} can still be refunded`);
-        // The last units take whatever is left, so rounding never leaves paise behind.
+        // The last units take whatever is left, so rounding never leaves paise behind. Earlier refunds
+        // round the running total (not each share), so their sum never passes the line and the last
+        // share can't go negative (dba-1: CGST 20 on 8 units refunded one by one gave −1 on the last).
         const last = req.quantity === left;
-        const part = (v: number, done: number) => (last ? v - done : Math.round((v * req.quantity) / item.quantity));
+        const doneQty = before?.quantity ?? 0;
+        const part = (v: number, done: number) => (last ? v - done : Math.max(0, Math.round((v * (doneQty + req.quantity)) / item.quantity) - done));
         const out: CreditedLine = {
           orderItemId: item.id,
           name: item.name,
