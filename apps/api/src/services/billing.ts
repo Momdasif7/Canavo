@@ -16,7 +16,7 @@ import { prisma } from "../db";
 import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound } from "../lib/http";
-import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
+import { hhmmToMinutes, zonedParts } from "../lib/time";
 import { emitToOutlet } from "../realtime";
 import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
 import { acceptOfflineNumber } from "./offline-series";
@@ -28,6 +28,7 @@ import { onOrderCreatedService, onOrderPaidService, prepareServiceContext } from
 import { checkLowStockAfterOrder, deductStockForOrder } from "./inventory";
 import { resolveItemTax, taxConfigForOutlet, taxSnapshot } from "./tax";
 import { alertKitchenNewKots } from "./alerts";
+import { lastKotNumberToday } from "./kot-number";
 
 /**
  * Failure-injection seam for integration tests only (never active outside NODE_ENV=test):
@@ -101,19 +102,6 @@ export async function assertConfirmable(tx: Prisma.TransactionClient, orderId: s
   if (fresh.status !== "OPEN") throw conflict(`Order is already ${fresh.status.toLowerCase()} — this QR is no longer needed`);
   const due = fresh.grandTotal - amountPaid(fresh);
   if (p.amount > due) throw conflict(`Only ${formatINR(due)} is still due on this bill — this QR is out of date`);
-}
-
-/**
- * Last KOT number used today at the outlet (numbers restart daily); the caller numbers its
- * tickets from here inside the same transaction. A per-outlet advisory lock, held until commit,
- * makes concurrent bills, tab rounds and online orders take turns — counting alone let two of
- * them print the same KOT number (QA Phase 7). The day is the ticket's own (now), not the bill's
- * date: an offline bill synced later still gets today's next number.
- */
-export async function lastKotNumberToday(tx: Prisma.TransactionClient, outletId: string, timezone: string) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`kot:${outletId}`}))`;
-  const today = zonedParts(new Date(), timezone).date;
-  return tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, timezone) } } });
 }
 
 /**

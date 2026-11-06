@@ -54,6 +54,12 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value|out of range for type integer/.test(err.message)) {
     return res.status(400).json({ error: "A number is too large" });
   }
+  // A database CHECK constraint (23514, e.g. a balance that would go below zero in a race): the write is
+  // refused and rolled back. Reported (it means a code path missed a guard), answered as a conflict.
+  if (err instanceof Error && /\b23514\b|violates check constraint/.test(err.message)) {
+    reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+    return res.status(409).json({ error: "This change conflicts with the current data. Refresh and try again.", requestId: req.id });
+  }
   // PostgreSQL text can't hold U+0000 (22021) — bad input that slipped past rejectNulBytes, not a server fault.
   if (err instanceof Error && /\b22021\b|invalid byte sequence for encoding/.test(err.message)) {
     return res.status(400).json({ error: "Text contains an invalid character" });

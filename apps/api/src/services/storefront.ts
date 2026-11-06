@@ -14,13 +14,13 @@ import {
 import { platformPrisma, prisma } from "../db";
 import { conflict, badRequest, notFound, HttpError } from "../lib/http";
 import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
-import { hhmmToMinutes, startOfLocalDay, zonedParts } from "../lib/time";
+import { hhmmToMinutes, zonedParts } from "../lib/time";
 import { featureOn, moduleEnabled, runForOutlet } from "../lib/tenant";
 import { emitToOutlet } from "../realtime";
 import { currentSlotMenu } from "../routes/menu";
 import { cancelOrderInTx } from "./order-cancel";
 import { addItemsToSession, findOpenSession, openSession } from "../routes/tables";
-import { getOrder, lastKotNumberToday } from "./billing";
+import { getOrder } from "./billing";
 import { createChannelOrder, systemRequest } from "./channel-orders";
 import { notify, outletManagers, outletStaff } from "./notify";
 import { createUpiQr, refundPayment, type GatewayRefund } from "./razorpay";
@@ -28,6 +28,7 @@ import { createCreditNote } from "./credit-notes";
 import { onOrderCancelledService, selectZone } from "./service-context";
 import { phoneTokenValid } from "./storefront-otp";
 import { resolveItemTax } from "./tax";
+import { lastKotNumberToday } from "./kot-number";
 
 /**
  * Phase 6.3 / 6.4 (CHANNELS): QR table ordering and the outlet's online ordering page.
