@@ -23,10 +23,9 @@ import {
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
-import { startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
-import { createOrder } from "../services/billing";
+import { createOrder, lastKotNumberToday } from "../services/billing";
 import { equalSplit, groupBillItems, runWithSessionBill } from "../services/service-context";
 import { resolveItemTax, taxConfigForOutlet } from "../services/tax";
 import { alertKitchenNewKots, alertTableAttention } from "../services/alerts";
@@ -182,8 +181,7 @@ export async function addItemsToSession(
   const label = await sessionLabel(session);
 
   const kots = await prisma.$transaction(async (tx) => {
-    const today = zonedParts(new Date(), outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } } });
+    let kotNumber = await lastKotNumberToday(tx, outletId, outlet.timezone);
     const byStation = new Map<string, typeof priced>();
     for (const p of priced) byStation.set(p.line.station, [...(byStation.get(p.line.station) ?? []), p]);
     const created = [];
@@ -603,11 +601,21 @@ tablesRouter.post("/sessions/:id/merge", requirePermission("table:serve"), async
   const touched: string[] = [];
   const mergedSessions: string[] = [];
   await prisma.$transaction(async (tx) => {
-    const merged = new Set(session.mergedTableIds);
-    let guests = session.guests;
+    // Lock this tab and every tab being merged in, always in id order, then re-read them: merging
+    // A into B while someone merges B into A used to let both commit — both tabs ended CLOSED with
+    // the items inside them, and the tables showed occupied with no open tab (QA Phase 7).
+    const others = (await Promise.all(tables.filter((t) => !own.has(t.id)).map((t) => findOpenSession(outletId, t.id, tx)))).filter((s) => s !== null);
+    const lockIds = [...new Set([session.id, ...others.map((s) => s.id)])].sort();
+    await tx.$queryRaw`SELECT id FROM "TableSession" WHERE id IN (${Prisma.join(lockIds)}) ORDER BY id FOR UPDATE`;
+    const me = await tx.tableSession.findUniqueOrThrow({ where: { id: session.id } });
+    if (me.status !== "OPEN") throw conflict("Table session is closed");
+    const merged = new Set(me.mergedTableIds);
+    let guests = me.guests;
     for (const t of tables) {
       if (own.has(t.id)) continue;
       const other = await findOpenSession(outletId, t.id, tx);
+      if (other && other.id !== session.id && !lockIds.includes(other.id)) throw conflict("The tables changed meanwhile — reload and try again");
+      if (other?.id === session.id) continue;
       if (other) {
         await tx.tableSessionItem.updateMany({ where: { sessionId: other.id }, data: { sessionId: session.id } });
         await tx.kotTicket.updateMany({ where: { sessionId: other.id }, data: { sessionId: session.id } });

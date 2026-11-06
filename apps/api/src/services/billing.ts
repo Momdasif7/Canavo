@@ -15,7 +15,7 @@ import {
 import { prisma } from "../db";
 import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { audit } from "../lib/audit";
-import { badRequest, notFound } from "../lib/http";
+import { badRequest, conflict, notFound } from "../lib/http";
 import { hhmmToMinutes, zonedParts, startOfLocalDay } from "../lib/time";
 import { emitToOutlet } from "../realtime";
 import { approvalsOn, logUnapproved, requireApproval } from "./approvals";
@@ -87,6 +87,33 @@ export async function lockOrder(tx: Prisma.TransactionClient, id: string, outlet
   const order = await tx.order.findFirst({ where: { id, outletId }, include: orderInclude });
   if (!order) throw notFound("Order");
   return order;
+}
+
+/**
+ * Before a cashier / partner marks a pending UPI payment as received: lock the bill, and refuse
+ * when the payment is no longer pending, the bill is no longer open, or it would pay more than is
+ * still due. (A real gateway webhook is different: that money did arrive and is always recorded.)
+ */
+export async function assertConfirmable(tx: Prisma.TransactionClient, orderId: string, paymentId: string, outletId: string) {
+  const fresh = await lockOrder(tx, orderId, outletId);
+  const p = fresh.payments.find((x) => x.id === paymentId);
+  if (!p || p.status !== "PENDING") throw conflict(`Payment is ${p ? p.status.toLowerCase() : "gone"}`);
+  if (fresh.status !== "OPEN") throw conflict(`Order is already ${fresh.status.toLowerCase()} — this QR is no longer needed`);
+  const due = fresh.grandTotal - amountPaid(fresh);
+  if (p.amount > due) throw conflict(`Only ${formatINR(due)} is still due on this bill — this QR is out of date`);
+}
+
+/**
+ * Last KOT number used today at the outlet (numbers restart daily); the caller numbers its
+ * tickets from here inside the same transaction. A per-outlet advisory lock, held until commit,
+ * makes concurrent bills, tab rounds and online orders take turns — counting alone let two of
+ * them print the same KOT number (QA Phase 7). The day is the ticket's own (now), not the bill's
+ * date: an offline bill synced later still gets today's next number.
+ */
+export async function lastKotNumberToday(tx: Prisma.TransactionClient, outletId: string, timezone: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`kot:${outletId}`}))`;
+  const today = zonedParts(new Date(), timezone).date;
+  return tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, timezone) } } });
 }
 
 /**
@@ -334,10 +361,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
       arr.push(l);
       byStation.set(l.item.kitchenStation, arr);
     }
-    const today = zonedParts(createdAt, outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({
-      where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } },
-    });
+    let kotNumber = byStation.size ? await lastKotNumberToday(tx, outletId, outlet.timezone) : 0;
     for (const [station, stationLines] of byStation) {
       await tx.kotTicket.create({
         data: {
@@ -379,7 +403,19 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
     if (process.env.NODE_ENV === "test") await billingTestHooks.beforeCommit?.(input);
     return full;
   };
-  const order = opts.tx ? await persist(opts.tx) : await prisma.$transaction(persist);
+  let order: Awaited<ReturnType<typeof persist>>;
+  try {
+    order = opts.tx ? await persist(opts.tx) : await prisma.$transaction(persist);
+  } catch (e) {
+    // The same offline bill synced twice at once (a device retrying while its first flush is still
+    // running): the loser hits the clientOrderId unique key. Answer like a normal resend (QA Phase 7).
+    const existing =
+      !opts.tx && input.clientOrderId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
+        ? await prisma.order.findUnique({ where: { clientOrderId: input.clientOrderId }, include: orderInclude })
+        : null;
+    if (existing?.outletId === outletId) return { order: existing, duplicate: true, effects: () => undefined };
+    throw e;
+  }
 
   // Events are already in the outbox; this only asks the publisher to deliver them now.
   const effects = () => kickOutbox();

@@ -317,10 +317,14 @@ customersRouter.post("/:id/loyalty/adjust", requirePermission("customer:manage")
     const c = await tx.customer.findUnique({ where: { id } });
     if (!c) throw notFound("Customer");
     if (c.points + points < 0) throw badRequest(`Customer has only ${c.points} points`);
+    // Compare-and-set: two deductions at the same moment used to both pass the check above and
+    // leave the customer with negative points (QA Phase 7).
+    const moved = await tx.customer.updateMany({ where: { id, ...(points < 0 && { points: { gte: -points } }) }, data: { points: { increment: points } } });
+    if (!moved.count) throw badRequest(`Customer has fewer than ${-points} points now`);
     const txn = await tx.loyaltyTransaction.create({
       data: { customerId: id, type: "ADJUST", points, note: `${note} (by ${req.user!.name})`, createdById: req.user!.id },
     });
-    const customer = await tx.customer.update({ where: { id }, data: { points: { increment: points } } });
+    const customer = await tx.customer.findUniqueOrThrow({ where: { id } });
     await audit(req, "loyalty.adjust", "Customer", id, { points, note, before: c.points, after: customer.points }, tx);
     return { customer, transaction: txn };
   });
@@ -336,6 +340,10 @@ customersRouter.post("/:id/khata/settle", requirePermission("payment:collect"), 
     if (!c) throw notFound("Customer");
     if (c.khataBalance <= 0) throw badRequest("No outstanding khata balance");
     if (amount > c.khataBalance) throw badRequest(`Amount exceeds outstanding ${formatINR(c.khataBalance)}`);
+    // Compare-and-set: two settlements of the full balance at once used to both pass the check
+    // above — the cash was collected twice and the balance went negative (QA Phase 7).
+    const moved = await tx.customer.updateMany({ where: { id, khataBalance: { gte: amount } }, data: { khataBalance: { decrement: amount } } });
+    if (!moved.count) throw badRequest("The outstanding khata changed meanwhile — reload and try again");
     const txn = await tx.khataTransaction.create({
       data: {
         customerId: id,
@@ -347,7 +355,7 @@ customersRouter.post("/:id/khata/settle", requirePermission("payment:collect"), 
         createdById: req.user!.id,
       },
     });
-    const customer = await tx.customer.update({ where: { id }, data: { khataBalance: { decrement: amount } } });
+    const customer = await tx.customer.findUniqueOrThrow({ where: { id } });
     await audit(req, "khata.settle", "Customer", id, { amount, mode, balanceAfter: customer.khataBalance }, tx);
     return { customer, transaction: txn };
   });

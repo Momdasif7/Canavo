@@ -20,7 +20,7 @@ import { emitToOutlet } from "../realtime";
 import { currentSlotMenu } from "../routes/menu";
 import { cancelOrderInTx } from "./order-cancel";
 import { addItemsToSession, findOpenSession, openSession } from "../routes/tables";
-import { getOrder } from "./billing";
+import { getOrder, lastKotNumberToday } from "./billing";
 import { createChannelOrder, systemRequest } from "./channel-orders";
 import { notify, outletManagers, outletStaff } from "./notify";
 import { createUpiQr, refundPayment, type GatewayRefund } from "./razorpay";
@@ -506,8 +506,7 @@ export async function fireOrderKots(outletId: string, orderId: string) {
     byStation.set(st, [...(byStation.get(st) ?? []), i]);
   }
   const kots = await prisma.$transaction(async (tx) => {
-    const today = zonedParts(new Date(), outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } } });
+    let kotNumber = await lastKotNumberToday(tx, outletId, outlet.timezone);
     const created = [];
     for (const [station, items] of byStation) {
       created.push(

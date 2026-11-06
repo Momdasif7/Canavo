@@ -30,7 +30,7 @@ import { notify, outletManagers } from "../services/notify";
 import { deliveryStatusLink } from "../services/delivery-notify";
 import { getWaConfig, sendWhatsApp } from "../services/whatsapp";
 import { canTransitionDelivery, selectZone } from "../services/service-context";
-import { amountPaid, lockOrder, settleIfPaid } from "../services/billing";
+import { amountPaid, assertConfirmable, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { cashBalance, cashCollected, cashHandedOver, pendingCollections, reallocateHandovers } from "../services/delivery-cash";
 import { assignWaitingDeliveries, canTakeOrder, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
@@ -897,6 +897,8 @@ deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", managerOrPartner, async (r
   if (!payment || payment.status !== "PENDING") throw notFound("Pending UPI payment");
   const reference = typeof req.body?.reference === "string" ? String(req.body.reference).slice(0, 100) : undefined;
   const paid = await prisma.$transaction(async (tx) => {
+    // Same re-check as the counter's confirm: never on a bill already settled, never more than is due.
+    await assertConfirmable(tx, d.order.id, payment.id, outletId);
     await tx.payment.update({ where: { id: payment.id }, data: { status: "SUCCESS", confirmedAt: new Date(), reference } });
     await audit(req, "delivery.upi_confirm", "Delivery", d.id, { paymentId: payment.id, reference: reference ?? null }, tx);
     return settleIfPaid(d.order.id, tx);

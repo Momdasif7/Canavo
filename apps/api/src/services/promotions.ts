@@ -144,11 +144,11 @@ export async function findOrCreateCustomer(phone: string, name: string | null | 
     }
     return existing;
   }
-  return db.customer.upsert({
-    where: { businessId_phone: { businessId: requireBusinessId(), phone } },
-    create: { phone, name: name?.trim() || null, businessId: requireBusinessId() },
-    update: {},
-  });
+  // INSERT … ON CONFLICT DO NOTHING: two tills billing the same new phone at once both get the one
+  // customer (a plain upsert here is find-then-create under the tenant filter and lost the race with
+  // a 409, which also aborted the bill's transaction — QA Phase 7).
+  await db.customer.createMany({ data: [{ phone, name: name?.trim() || null, businessId: requireBusinessId() }], skipDuplicates: true });
+  return db.customer.findFirstOrThrow({ where: { phone } });
 }
 
 // ---------------------------------------------------------------------------
