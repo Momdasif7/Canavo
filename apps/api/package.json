@@ -20,6 +20,7 @@
     "start:worker": "node dist/worker.js",
     "backup:drill": "tsx --env-file-if-exists=.env scripts/backup-drill.ts",
     "test:api": "IT_INCLUDE=\"test/api/**/*.test.ts\" vitest run -c vitest.integration.config.ts",
+    "test:db": "IT_INCLUDE=\"test/db/**/*.test.ts\" vitest run -c vitest.integration.config.ts",
     "docs:api": "tsx scripts/export-api-docs.ts"
   },
   "dependencies": {
