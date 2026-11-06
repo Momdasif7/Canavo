@@ -81,6 +81,8 @@ export const PERMISSIONS = [
   "canteen:manage",
   /** Phase 6: online ordering, QR ordering, aggregator channels (owner, manager) */
   "channel:manage",
+  /** Upload bank / card settlement files, which mark payments settled (owner, manager, accountant) — QA BUG-051 */
+  "settlement:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -110,7 +112,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   /** Serves tables: no payments, bills list, settings or reports (cashiers / managers bill and collect) */
   WAITER: ["attendance:self", "menu:view", "order:create", "kot:view", "table:serve", "reservation:manage", "customer:view"],
   /** Reports (incl. GSTR-1 / exports), bills and stock — no POS, staff, settings changes, cancels or refunds */
-  ACCOUNTANT: ["attendance:self", "report:view", "bills:view", "order:view", "inventory:view", "menu:view"],
+  ACCOUNTANT: ["attendance:self", "report:view", "bills:view", "order:view", "inventory:view", "menu:view", "settlement:manage"],
   /** Read-only; the API also refuses every write from an auditor (middleware/auth.ts) */
   AUDITOR: ["report:view", "bills:view", "order:view", "audit:view", "inventory:view", "staff:view", "menu:view"],
   /** Reads the platform console and opens owner-granted support views; changes nothing */
@@ -171,4 +173,5 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "approval:grant": "Approve voids, refunds and discounts with a PIN",
   "canteen:manage": "Canteen: corporate accounts, members, wallets, meal slots and subscriptions",
   "channel:manage": "Online orders and channels: QR ordering, online page, Zomato / Swiggy",
+  "settlement:manage": "Upload bank / card settlements (marks payments settled)",
 };

@@ -31,6 +31,8 @@ export interface ShiftSummary {
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
+  /** Counter cash of paid bills voided in this shift, handed back from the drawer */
+  voidCashReturned: number;
   payIns: number;
   payOuts: number;
   expectedCash: number;
@@ -39,7 +41,7 @@ export interface ShiftSummary {
 export async function shiftSummary(shift: { outletId: string; openedAt: Date; closedAt: Date | null; openingFloat: number; id: string }, db: Tx | typeof prisma = prisma): Promise<ShiftSummary> {
   const to = shift.closedAt ?? new Date();
   const win = { gte: shift.openedAt, lt: to };
-  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash, walletCash, tokenCash] = await Promise.all([
+  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash, walletCash, tokenCash, voidCash] = await Promise.all([
     db.order.aggregate({ where: { outletId: shift.outletId, status: "PAID", paidAt: win }, _count: true, _sum: { grandTotal: true, discount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } }),
     db.order.aggregate({ where: { outletId: shift.outletId, cancelledAt: win }, _count: true, _sum: { grandTotal: true } }),
     db.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", createdAt: win, order: { outletId: shift.outletId } }, _count: true, _sum: { amount: true } }),
@@ -50,6 +52,8 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
     db.giftCard.aggregate({ where: { soldOutletId: shift.outletId, soldMode: "CASH", createdAt: win }, _sum: { initialValue: true } }),
     db.walletTxn.aggregate({ where: { outletId: shift.outletId, type: "TOPUP", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
     db.mealTokenTxn.aggregate({ where: { outletId: shift.outletId, type: "PURCHASE", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
+    // Voiding a paid bill gives its cash back (QA BUG-050) — whichever shift took it.
+    db.payment.aggregate({ where: { status: "SUCCESS", mode: "CASH", collectedById: null, order: { outletId: shift.outletId, status: "CANCELLED", cancelledAt: win } }, _sum: { amount: true } }),
   ]);
   const s = orders._sum;
   const cashRefunds = refunds.find((r) => r.refundMode === "CASH")?._sum.amount ?? 0;
@@ -60,6 +64,7 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
   const giftCardCashSales = giftCash._sum.initialValue ?? 0;
   const canteenCashTopups = (walletCash._sum.amount ?? 0) + (tokenCash._sum.amount ?? 0);
   const handed = handovers._sum.amount ?? 0;
+  const voidCashReturned = voidCash._sum.amount ?? 0;
   return {
     from: shift.openedAt.toISOString(),
     to: to.toISOString(),
@@ -79,9 +84,10 @@ export async function shiftSummary(shift: { outletId: string; openedAt: Date; cl
     deliveryCashHandedOver: handed,
     refunds: Object.fromEntries(refunds.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
     cashRefunds,
+    voidCashReturned,
     payIns,
     payOuts,
-    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + canteenCashTopups + handed + payIns - payOuts - cashRefunds,
+    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + canteenCashTopups + handed + payIns - payOuts - cashRefunds - voidCashReturned,
   };
 }
 

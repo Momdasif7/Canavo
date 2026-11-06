@@ -18,7 +18,8 @@ settlementsRouter.use(authenticate, requireOutlet, requireModule("BILLING"), req
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-settlementsRouter.post("/", async (req, res) => {
+// Reading the reconciliation is a report; uploading a file writes (marks payments settled).
+settlementsRouter.post("/", requirePermission("settlement:manage"), async (req, res) => {
   const { mode, rows } = parse(settlementUploadSchema, req.body);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { timezone: true } });
   const dates = [...new Set(rows.map((r) => r.date))].sort();

@@ -10,6 +10,7 @@ import { Kpi, KpiGrid, ReportBody, Section } from "@/components/reports/shared";
 import { ReportToolbar } from "@/components/reports/ReportToolbar";
 import { useReportRange } from "@/components/reports/range";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useSession } from "@/components/providers/SessionProvider";
 import { Button } from "@/components/ui/Button";
 import { Select, Textarea } from "@/components/ui/Input";
 import { Alert, EmptyState } from "@/components/ui/States";
@@ -27,6 +28,7 @@ interface Settlements {
  */
 export default function SettlementsPage() {
   const { from, to } = useReportRange().range;
+  const { can } = useSession();
   const data = useApiQuery<Settlements>(`settlements:${from}:${to}`, () => api.get<Settlements>("/settlements", { query: { from, to } }));
   const [mode, setMode] = useState<"CARD" | "UPI">("CARD");
   const [text, setText] = useState("");
@@ -76,20 +78,22 @@ export default function SettlementsPage() {
                 />
               ))}
             </KpiGrid>
-            <Section title="Upload a settlement file" subtitle="Paste rows from the bank or card-machine report: date, amount (₹), reference (approval code / UTR).">
-              <div className="space-y-3 p-4">
-                {error && <Alert>{error}</Alert>}
-                {result && <Alert tone="info">{result}</Alert>}
-                <Select label="Payments of" value={mode} onChange={(e) => setMode(e.target.value as "CARD" | "UPI")} wrapperClassName="max-w-[200px]">
-                  <option value="CARD">Card</option>
-                  <option value="UPI">UPI</option>
-                </Select>
-                <Textarea label="Rows" rows={6} placeholder={"2026-11-01, 1250.00, AB12CD\n2026-11-01, 380, 998877"} value={text} onChange={(e) => setText(e.target.value)} />
-                <Button icon={<UploadSimple size={20} />} loading={busy} disabled={!text.trim()} onClick={() => void upload()}>
-                  Match
-                </Button>
-              </div>
-            </Section>
+            {can("settlement:manage") && (
+              <Section title="Upload a settlement file" subtitle="Paste rows from the bank or card-machine report: date, amount (₹), reference (approval code / UTR).">
+                <div className="space-y-3 p-4">
+                  {error && <Alert>{error}</Alert>}
+                  {result && <Alert tone="info">{result}</Alert>}
+                  <Select label="Payments of" value={mode} onChange={(e) => setMode(e.target.value as "CARD" | "UPI")} wrapperClassName="max-w-[200px]">
+                    <option value="CARD">Card</option>
+                    <option value="UPI">UPI</option>
+                  </Select>
+                  <Textarea label="Rows" rows={6} placeholder={"2026-11-01, 1250.00, AB12CD\n2026-11-01, 380, 998877"} value={text} onChange={(e) => setText(e.target.value)} />
+                  <Button icon={<UploadSimple size={20} />} loading={busy} disabled={!text.trim()} onClick={() => void upload()}>
+                    Match
+                  </Button>
+                </div>
+              </Section>
+            )}
             <Section title="Not settled yet">
               {r.pending.length === 0 ? (
                 <EmptyState title="Everything in this period is settled" />

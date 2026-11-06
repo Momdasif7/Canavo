@@ -4,7 +4,7 @@ import type { Op } from "./openapi";
 export const ops: Op[] = [
   // Settings → Channels (channel:manage)
   ["get", "/channels/connection", "The outlet's hub connection (secrets masked) + dead-lettered status pushes", "Channels"],
-  ["put", "/channels/connection", "Create / update the connection; provider HUB | URBANPIPER. Body: channelConnectionSchema", "Channels"],
+  ["put", "/channels/connection", "Create / update the connection; provider HUB | URBANPIPER. The hub URL must be https to a public host in production, never a metadata / link-local address. Body: channelConnectionSchema", "Channels"],
   ["post", "/channels/connection/test", "Ping the hub with the saved credentials → { ok, error? }", "Channels"],
   ["post", "/channels/connection/store", "Open / close the store on every channel. Body: { open }", "Channels"],
   ["post", "/channels/connection/menu-sync", "Push the menu now (hidden left out, out of stock → unavailable)", "Channels"],

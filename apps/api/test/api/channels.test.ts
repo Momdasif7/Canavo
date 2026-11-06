@@ -178,9 +178,11 @@ describe("connection", () => {
   // QA finding (not fixed: needs a product decision — allowed hub hosts): the hub base URL can point at
   // any host, including loopback / link-local / private addresses, and the hub's error text is shown
   // back to the manager (test connection), so the API can be used to probe internal services.
-  it.skip("refuses hub URLs on loopback / private / link-local addresses (SSRF)", async () => {
-    for (const baseUrl of ["http://169.254.169.254/latest", "http://127.0.0.1:5432", "http://10.0.0.1", "http://localhost:3100"]) {
-      expect((await manager.call("PUT", "/channels/connection", { baseUrl, externalStoreId: "QA-1" })).status).toBe(400);
+  it("refuses cloud-metadata / link-local hub URLs and credentials in the URL (SSRF, BUG-048)", async () => {
+    // Loopback / private hosts are allowed outside production (local fake hub); production rules: lib/safe-url.test.ts.
+    for (const baseUrl of ["http://169.254.169.254/latest", "http://[fe80::1]/", "http://[::ffff:169.254.169.254]/", "http://metadata.google.internal/", "https://user:pw@hub.example.com", "ftp://hub.example.com"]) {
+      const r = await manager.call("PUT", "/channels/connection", { baseUrl, externalStoreId: "QA-1" });
+      expect(r.status, baseUrl).toBe(400);
     }
   });
 });

@@ -3730,10 +3730,11 @@
                 "data:export",
                 "approval:grant",
                 "canteen:manage",
-                "channel:manage"
+                "channel:manage",
+                "settlement:manage"
               ]
             },
-            "maxItems": 36
+            "maxItems": 37
           }
         },
         "required": [
@@ -3803,10 +3804,11 @@
                 "data:export",
                 "approval:grant",
                 "canteen:manage",
-                "channel:manage"
+                "channel:manage",
+                "settlement:manage"
               ]
             },
-            "maxItems": 36
+            "maxItems": 37
           }
         }
       },
@@ -14273,7 +14275,7 @@
         }
       },
       "put": {
-        "summary": "Create / update the connection; provider HUB | URBANPIPER. Body: channelConnectionSchema",
+        "summary": "Create / update the connection; provider HUB | URBANPIPER. The hub URL must be https to a public host in production, never a metadata / link-local address. Body: channelConnectionSchema",
         "tags": [
           "Channels"
         ],
@@ -19225,7 +19227,7 @@
     },
     "/settlements": {
       "post": {
-        "summary": "Record a bank / gateway settlement. Body: settlementUploadSchema",
+        "summary": "Record a bank / gateway settlement (settlement:manage). Body: settlementUploadSchema",
         "tags": [
           "Settlements"
         ],

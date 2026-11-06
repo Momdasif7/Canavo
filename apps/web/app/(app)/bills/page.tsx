@@ -633,7 +633,11 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
             onClose={() => setCancelOpen(false)}
             size="sm"
             title={`Cancel ${o.invoiceNumber}?`}
-            description={o.status === "PAID" ? "This bill is already paid. To give money back, use Refund instead: it issues a credit note and keeps the bill." : undefined}
+            description={
+              o.status === "PAID"
+                ? "This bill is already paid. Cancelling voids it: hand the cash back — the drawer's expected cash goes down by the cash paid. To give back only part of it, or keep the bill, use Refund (credit note)."
+                : undefined
+            }
             footer={
               <>
                 <Button variant="ghost" onClick={() => setCancelOpen(false)}>

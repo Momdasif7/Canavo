@@ -493,8 +493,12 @@ export async function onPaymentsRecorded(
     where: { id: orderId },
     select: { id: true, outletId: true, invoiceNumber: true, customerId: true, customerPhone: true, customerName: true },
   });
-  const customer = await ensureOrderCustomer(tx, order);
-  if (!customer) throw badRequest("Khata (credit) needs a customer phone number on the bill");
+  const found = await ensureOrderCustomer(tx, order);
+  if (!found) throw badRequest("Khata (credit) needs a customer phone number on the bill");
+  // Lock the customer and re-read the balance, so two bills put on credit at the same moment
+  // can't both pass the limit check (QA BUG-049).
+  await tx.$queryRaw`SELECT id FROM "Customer" WHERE id = ${found.id} FOR UPDATE`;
+  const customer = await tx.customer.findUniqueOrThrow({ where: { id: found.id } });
   if (customer.blocked) throw badRequest("Customer is blocked");
   if (customer.khataLimit > 0 && customer.khataBalance + khata > customer.khataLimit) {
     throw badRequest(

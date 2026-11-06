@@ -10052,7 +10052,7 @@
           "name": "PUT /channels/connection",
           "request": {
             "method": "PUT",
-            "description": "Create / update the connection; provider HUB | URBANPIPER. Body: channelConnectionSchema",
+            "description": "Create / update the connection; provider HUB | URBANPIPER. The hub URL must be https to a public host in production, never a metadata / link-local address. Body: channelConnectionSchema",
             "header": [
               {
                 "key": "Authorization",
@@ -12193,7 +12193,7 @@
           "name": "POST /settlements",
           "request": {
             "method": "POST",
-            "description": "Record a bank / gateway settlement. Body: settlementUploadSchema",
+            "description": "Record a bank / gateway settlement (settlement:manage). Body: settlementUploadSchema",
             "header": [
               {
                 "key": "Authorization",

@@ -31,6 +31,8 @@ interface Summary {
   deliveryCashHandedOver: number;
   refunds: Record<string, { count: number; amount: number }>;
   cashRefunds: number;
+  /** Cash handed back on paid bills voided in this shift (older API: absent) */
+  voidCashReturned?: number;
   payIns: number;
   payOuts: number;
   expectedCash: number;
@@ -311,6 +313,7 @@ function SummaryTable({ summary: m }: { summary: Summary }) {
       {m.payIns > 0 && <Row label="+ Pay-ins" value={formatINR(m.payIns)} />}
       {m.payOuts > 0 && <Row label="− Pay-outs" value={formatINR(m.payOuts)} />}
       {m.cashRefunds > 0 && <Row label="− Cash refunds" value={formatINR(m.cashRefunds)} />}
+      {(m.voidCashReturned ?? 0) > 0 && <Row label="− Cash returned on voided bills" value={formatINR(m.voidCashReturned!)} />}
       <Row label="Expected in drawer" value={formatINR(m.expectedCash)} strong />
     </dl>
   );

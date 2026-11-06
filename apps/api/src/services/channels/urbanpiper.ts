@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { hubErrorMessage, hubFetch } from "../../lib/safe-url";
 import { z } from "zod";
 import type { ChannelPushStatus, OrderChannel } from "@canavo/shared";
 import { WebhookError, type ChannelAdapter, type ChannelMenuItem, type ChannelOrderRef, type InboundEvent, type InboundNewOrder, type InboundRiderStatus } from "./adapter";
@@ -304,7 +305,7 @@ export class UrbanPiperAdapter implements ChannelAdapter {
     const url = `${this.cfg.baseUrl.replace(/\/+$/, "")}${path}`;
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await hubFetch(url, {
         method,
         headers: { authorization: `apikey ${this.cfg.apiKey}`, ...(body !== undefined && { "content-type": "application/json" }) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -314,14 +315,8 @@ export class UrbanPiperAdapter implements ChannelAdapter {
       throw new Error(`UrbanPiper not reachable: ${e instanceof Error ? e.message : String(e)}`);
     }
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      let msg = text.slice(0, 200);
-      try {
-        const j = JSON.parse(text) as { message?: string; error?: string; status?: string };
-        msg = j.message ?? j.error ?? msg;
-      } catch {
-        /* plain text */
-      }
+      // Only the hub's own JSON message, never its raw body (QA BUG-048).
+      const msg = await hubErrorMessage(res);
       throw new Error(`UrbanPiper said ${res.status}${msg ? `: ${msg}` : ""}`);
     }
   }

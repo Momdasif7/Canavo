@@ -25,7 +25,7 @@ export const hhmmToMinutes = (t: string) => {
 /** Midnight UTC of a YYYY-MM-DD calendar date; "2026-13-45" (Invalid Date) or "2026-02-30" (rolls into March) is a 400, not a 500 / a wrong day. */
 function utcMidnight(ymd: string): Date {
   const d = new Date(`${ymd}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== ymd) {
+  if (!isCalendarDay(d, ymd)) {
     // A client error (400 via the error handler's `expose` branch). No import of ./http: this module
     // is also used by scripts (seed) that must not load the server env.
     throw Object.assign(new Error(`Invalid date ${ymd}`), { status: 400, expose: true });
@@ -50,7 +50,10 @@ export function addDays(ymd: string, days: number): string {
 
 /** A real calendar date in YYYY-MM-DD (rejects 2026-02-30, 2026-13-01, years before 2000 / after 2099). */
 export function isValidYmd(s: string): boolean {
-  if (!/^(20\d\d)-\d{2}-\d{2}$/.test(s)) return false;
-  const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  return /^(20\d\d)-\d{2}-\d{2}$/.test(s) && isCalendarDay(new Date(`${s}T00:00:00Z`), s);
+}
+
+/** The parsed date is the same calendar day as written (not Invalid Date, not rolled over). */
+function isCalendarDay(d: Date, ymd: string) {
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === ymd;
 }

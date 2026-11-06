@@ -102,7 +102,7 @@ export const ops: Op[] = [
   ["get", "/gift-cards/code/{code}", "Balance and history by code (the cashier checks a card before taking it).", "Gift cards"],
   ["get", "/gift-cards", "Gift cards sold by the business", "Gift cards"],
   ["post", "/gift-cards/{id}/active", "Owner: block / unblock a lost or stolen card.", "Gift cards"],
-  ["post", "/settlements", "Record a bank / gateway settlement. Body: settlementUploadSchema", "Settlements"],
+  ["post", "/settlements", "Record a bank / gateway settlement (settlement:manage). Body: settlementUploadSchema", "Settlements"],
   ["get", "/settlements", "Expected vs settled per mode, and the payments still waiting for the bank.", "Settlements"],
   ["post", "/storefront/requests/{id}/cancel", "Cancel an accepted online order before the kitchen started on it (a UPI payment is refunded). Body: channelRejectSchema", "Storefront"],
   ["get", "/canteen/accounts", "Corporate accounts", "Canteen"],

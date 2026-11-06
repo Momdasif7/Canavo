@@ -6,19 +6,19 @@ Branch `qa/full-testing`, started from the latest product code (`feat/market-lea
 
 | Suite | Command | Result |
 |---|---|---|
-| API suite (new) | `npm run test:api -w @canavo/api` | **711 passed, 1 skipped** (22 files, about 2 min) |
+| API suite (new) | `npm run test:api -w @canavo/api` | **717 passed** (23 files, about 2 min) |
 | Integration (existing) | `npm run test:integration -w @canavo/api` | 207 / 207 |
-| Unit | `npm test` | shared 51, api 156 |
+| Unit | `npm test` | shared 51, api 160 |
 | Smoke (running stack) | `npm run test:smoke -w @canavo/api` | 17 / 17 |
 | Typecheck and lint | api, web | clean |
 
-**43 defects found (BUG-006 to BUG-048): 42 fixed and verified, 1 open.**
+**46 defects found (BUG-006 to BUG-051): all fixed and verified.** BUG-049 to BUG-051 came from the follow-up decisions below.
 
 | Severity | Found | Fixed |
 |---|---|---|
 | P0 (money wrong, data leak, security) | 8 | 8 |
-| P1 (feature broken) | 11 | 11 |
-| P2 | 20 | 19 |
+| P1 (feature broken) | 12 | 12 |
+| P2 | 22 | 22 |
 | P3 | 4 | 4 |
 
 Every fix has a test that failed before the fix and passes after it. The full list is in [BUGS.csv](BUGS.csv).
@@ -116,15 +116,24 @@ Each endpoint was tested on:
 - [docs/api/openapi.json](../api/openapi.json): 387 operations, with 117 request schemas generated from the code;
 - [docs/api/canavo.postman_collection.json](../api/canavo.postman_collection.json): one folder per area, with `{{baseUrl}}`, `{{accessToken}}` and `{{outletId}}` variables.
 
-## Open item and decisions for the product owner
+## Follow-up decisions (2026-11-06)
 
-1. **BUG-048 (open, P2 security): channel hub address.** A manager can set the hub address to an internal address. The "test connection" button then shows part of that server's reply. Fixing it needs a decision: allow only known hub hosts, or block private and loopback addresses (which also blocks the local fake hub used in development).
-2. **Khata limit across two bills at once:** not locked per customer, so two simultaneous khata payments for the same customer could together go over the limit. Not yet tested.
-3. **Voiding a cash-paid bill** doesn't change the cash shift's expected cash. What should the rule be?
-4. **Accountants can upload settlement files**, which mark payments as settled. This follows the permission table (`report:view`). Should they be allowed to?
-5. **Behaviour change from the BUG-009 fix (refresh race):** if an app sends two refreshes at once, the second is treated as a stolen token and that session is ended. This is the same as an ordinary token replay.
+The product owner asked for the best-practice answer to each open point.
+
+1. **BUG-048, channel hub address (fixed).**
+   - In production the hub URL must be `https` to a public host. Cloud-metadata and link-local addresses are refused in every environment. Local and private hosts stay allowed in development, for the fake hub.
+   - Before every call, the hub's name is resolved and refused if it points at an internal address (DNS rebinding). Redirects are not followed.
+   - Errors show only the hub's own short JSON message, never its raw reply.
+   - Remaining risk: the address is resolved again between the check and the call. Fully closing that needs a pinned-address HTTP agent; it is noted for Phase 8 (security).
+2. **BUG-049, khata limit at the same moment (fixed).** The customer is locked and the balance re-read before the limit check.
+3. **BUG-050, voided cash bill (fixed).** Voiding a paid bill means handing the cash back. The shift's expected cash goes down by the counter cash of bills voided in that shift, shown on its own line, "Cash returned on voided bills". The cancel dialog tells the cashier to hand the cash back, and to use Refund to return only part of it.
+4. **BUG-051, settlement upload (fixed).** Uploading marks payments as settled, which is a write, so it no longer depends on a read permission.
+   - New permission `settlement:manage`: owner, manager and accountant. Reconciling is part of the accountant's job.
+   - Reading stays on `report:view`, so auditors can read but not upload. Custom roles can remove the permission.
+   - The upload box is hidden without it.
+5. **Refresh race (BUG-009):** kept as is. Two simultaneous refreshes of one token are treated as a replay and end that session. This is standard rotation with reuse detection; the apps send one refresh at a time.
 6. **Contract changes for app developers:**
-   - A duplicate customer phone now returns 409, not 400.
+   - A duplicate customer phone now returns 409.
    - Report, inventory and attendance dates must be real dates between 2000 and 2099.
 
 ## Noted, not changed (low risk)

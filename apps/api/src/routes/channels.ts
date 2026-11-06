@@ -1,4 +1,5 @@
 import express, { Router } from "express";
+import { hubUrlError } from "../lib/safe-url";
 import { z } from "zod";
 import { CHANNEL_PUSH_STATUSES, channelBoardSettingsSchema, channelConnectionSchema, channelHandoverSchema } from "@canavo/shared";
 import { prisma } from "../db";
@@ -43,6 +44,8 @@ channelsRouter.get("/connection", async (req, res) => {
 
 channelsRouter.put("/connection", async (req, res) => {
   const input = parse(channelConnectionSchema, req.body);
+  const urlError = hubUrlError(input.baseUrl);
+  if (urlError) throw badRequest(urlError);
   const existing = await getConn(req.outletId!);
   if (!existing && (!input.apiKey || !input.webhookSecret)) throw badRequest("Enter the hub's API key and webhook secret");
   const data = {
