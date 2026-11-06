@@ -1,0 +1,27 @@
+-- report-customers-lookup-ids
+-- calls during capture: 4; server-side max 13.5 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Customer"."id", "Customer"."name", "Customer"."phone", "Customer"."tier"::text, "Customer"."points", "Customer"."khataBalance" FROM "Customer" WHERE ("Customer"."id" IN ($…) AND "Customer"."businessId" = $1077) OFFSET $1078
+-- params: $1 = 'cus29', $2 = 'cus188', $3 = 'cus242', $4 = 'cus687', $5 = 'cus1102', $6 = 'cus1220', $7 = 'cus1558', $8 = 'cus2420', $9 = 'cus2522', $10 = 'cus2939', $11 = 'cus3141', $12 = 'cus3941', $13 = 'cus4132', $14 = 'cus4270', $15 = 'cus4493', $16 = 'cus4926', $17 = 'cus5625', $18 = 'cus5655', $19 = 'c
+
+==== BEFORE (6.388 ms, median of 3)
+Index Scan using "Customer_businessId_idx" on "Customer"  (cost=2.98..1720.18 rows=275 width=73) (actual time=0.080..6.312 rows=1076 loops=1)
+  Index Cond: ("businessId" = 'biz1'::text)
+  Filter: ((id = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[])) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''
+  Rows Removed by Filter: 28924
+  Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=237
+Planning Time: 0.662 ms
+Execution Time: 6.388 ms
+
+==== AFTER (4.870 ms, median of 3)
+Index Scan using "Customer_businessId_idx" on "Customer"  (cost=2.98..1720.18 rows=275 width=73) (actual time=0.129..4.780 rows=1076 loops=1)
+  Index Cond: ("businessId" = 'biz1'::text)
+  Filter: ((id = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[])) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''
+  Rows Removed by Filter: 28924
+  Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=237
+Planning Time: 1.689 ms
+Execution Time: 4.870 ms

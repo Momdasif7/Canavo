@@ -1,0 +1,69 @@
+-- report-items-orderitem-join
+-- calls during capture: 8; server-side max 55.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "OrderItem"."id", "OrderItem"."menuItemId", "OrderItem"."quantity", "OrderItem"."total", "OrderItem"."cgst", "OrderItem"."sgst", "OrderItem"."igst", "OrderItem"."cess", "OrderItem"."otherTaxes" FROM "OrderItem" LEFT JOIN "Order" AS "j0" ON ("j0"."id") = ("OrderItem"."orderId") WHERE ("j0"."outletId" = $1 AND "j0"."createdAt" >= $2 AND "j0"."createdAt" < $3 AND "j0"."status" = CAST($4::text AS "OrderStatus") AND ("j0"."id" IS NOT NULL)) OFFSET $5
+-- params: $1 = 'out1', $2 = '2026-10-06 18:30:00', $3 = '2026-11-06 18:30:00', $4 = 'PAID', $5 = '0'
+
+==== BEFORE (24.728 ms, median of 3)
+Nested Loop  (cost=124.74..40954.65 rows=1087 width=45) (actual time=0.577..24.422 rows=9660 loops=1)
+  Buffers: shared hit=52339
+  InitPlan 5 (returns $4)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.150..0.150 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Heap Scan on "Order" j0  (cost=124.05..7610.79 rows=618 width=9) (actual time=0.526..2.961 rows=2763 loops=1)
+        Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Filter: ((id IS NOT NULL) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($4))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+        Rows Removed by Filter: 96
+        Heap Blocks: exact=2431
+        Buffers: shared hit=2519
+        ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..123.90 rows=2838 width=0) (actual time=0.235..0.236 rows=2859 loops=1)
+              Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+              Buffers: shared hit=22
+  ->  Index Scan using "OrderItem_orderId_idx" on "OrderItem"  (cost=0.43..53.93 rows=2 width=54) (actual time=0.004..0.007 rows=3 loops=2763)
+        Index Cond: ("orderId" = j0.id)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (SubPlan 2))
+        Buffers: shared hit=49820
+        SubPlan 2
+          ->  Index Scan using "Order_pkey" on "Order" parent  (cost=0.68..8.72 rows=1 width=0) (actual time=0.001..0.001 rows=1 loops=9660)
+                Index Cond: (id = "OrderItem"."orderId")
+                Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+                Buffers: shared hit=38641
+                InitPlan 1 (returns $1)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.036..0.036 rows=1 loops=1)
+                        Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=526
+Planning Time: 1.350 ms
+Execution Time: 24.728 ms
+
+==== AFTER (21.413 ms, median of 3)
+Nested Loop  (cost=125.10..41327.14 rows=1097 width=45) (actual time=0.705..21.140 rows=9660 loops=1)
+  Buffers: shared hit=52339
+  InitPlan 5 (returns $4)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.176..0.177 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Heap Scan on "Order" j0  (cost=124.42..7667.83 rows=624 width=9) (actual time=0.635..3.010 rows=2763 loops=1)
+        Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Filter: ((id IS NOT NULL) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($4))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+        Rows Removed by Filter: 96
+        Heap Blocks: exact=2431
+        Buffers: shared hit=2519
+        ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..124.26 rows=2867 width=0) (actual time=0.291..0.291 rows=2859 loops=1)
+              Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+              Buffers: shared hit=22
+  ->  Index Scan using "OrderItem_orderId_idx" on "OrderItem"  (cost=0.43..53.92 rows=2 width=54) (actual time=0.003..0.006 rows=3 loops=2763)
+        Index Cond: ("orderId" = j0.id)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (SubPlan 2))
+        Buffers: shared hit=49820
+        SubPlan 2
+          ->  Index Scan using "Order_pkey" on "Order" parent  (cost=0.68..8.72 rows=1 width=0) (actual time=0.001..0.001 rows=1 loops=9660)
+                Index Cond: (id = "OrderItem"."orderId")
+                Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+                Buffers: shared hit=38641
+                InitPlan 1 (returns $1)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.043..0.043 rows=1 loops=1)
+                        Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=542
+Planning Time: 1.227 ms
+Execution Time: 21.413 ms

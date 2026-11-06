@@ -89,6 +89,18 @@ export function makeCtx(outlet: Outlet, from: string, to: string, q: Record<stri
 }
 
 const window = (ctx: ReportCtx) => ({ outletId: ctx.outlet.id, createdAt: { gte: ctx.start, lt: ctx.end } });
+
+/**
+ * PostgreSQL takes at most 32,767 bind values per statement and Prisma sends `in: ids` (and a
+ * filtered relation load) as one `IN ($1 … $n)`: a busy outlet's year holds more bills than that.
+ * Run the query per slice of the id list instead (QA Phase 7).
+ */
+const IN_CHUNK = 10_000;
+async function inChunks<T>(ids: string[], run: (slice: string[]) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) out.push(...(await run(ids.slice(i, i + IN_CHUNK))));
+  return out;
+}
 const subtitle = (ctx: ReportCtx, extra?: string) =>
   [`${ctx.outlet.name}`, `${ctx.from} to ${ctx.to}`, extra].filter(Boolean).join(" · ");
 
@@ -107,7 +119,8 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
     select: {
       status: true, createdAt: true, orderType: true, channel: true, grandTotal: true, discount: true, promoDiscount: true,
       extraCharges: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
-      payments: { where: { status: "SUCCESS" }, select: { mode: true, amount: true } },
+      // Filtered in code: a `where` here overflows the bind-value cap on >32k bills (QA Phase 7)
+      payments: { select: { mode: true, amount: true, status: true } },
     },
   });
 
@@ -160,6 +173,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
     ch.net += o.grandTotal - taxOf(o) - o.roundOff;
     byChannel.set(o.channel, ch);
     for (const p of o.payments) {
+      if (p.status !== "SUCCESS") continue;
       const m = byMode.get(p.mode) ?? { mode: p.mode, count: 0, amount: 0 };
       m.count++;
       m.amount += p.amount;
@@ -876,9 +890,9 @@ async function customersReport(ctx: ReportCtx): Promise<BuiltReport> {
   const ids = [...per.keys()];
   const orderIds = orders.map((o) => o.id);
   const [firsts, customers, loyalty, khata, khataCustomers] = await Promise.all([
-    prisma.order.groupBy({ by: ["customerId"], where: { outletId: ctx.outlet.id, status: "PAID", customerId: { in: ids } }, _min: { createdAt: true } }),
-    prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, phone: true, tier: true, points: true, khataBalance: true } }),
-    prisma.loyaltyTransaction.groupBy({ by: ["type"], where: { createdAt: { gte: ctx.start, lt: ctx.end }, orderId: { in: orderIds } }, _sum: { points: true }, _count: true }),
+    inChunks(ids, (slice) => prisma.order.groupBy({ by: ["customerId"], where: { outletId: ctx.outlet.id, status: "PAID", customerId: { in: slice } }, _min: { createdAt: true } })),
+    inChunks(ids, (slice) => prisma.customer.findMany({ where: { id: { in: slice } }, select: { id: true, name: true, phone: true, tier: true, points: true, khataBalance: true } })),
+    inChunks(orderIds, (slice) => prisma.loyaltyTransaction.groupBy({ by: ["type"], where: { createdAt: { gte: ctx.start, lt: ctx.end }, orderId: { in: slice } }, _sum: { points: true }, _count: true })),
     prisma.khataTransaction.groupBy({ by: ["type"], where: window(ctx), _sum: { amount: true }, _count: true }),
     prisma.customer.findMany({ where: { khataBalance: { gt: 0 }, khataTxns: { some: { outletId: ctx.outlet.id } } }, select: { khataBalance: true } }),
   ]);
@@ -895,7 +909,7 @@ async function customersReport(ctx: ReportCtx): Promise<BuiltReport> {
       const c = byId.get(id);
       return { customerId: id, name: c?.name ?? "", phone: c?.phone ?? "", tier: c?.tier ?? "", orders: p.orders, spend: p.spend, avgOrder: avg(p.spend, p.orders), points: c?.points ?? 0 };
     });
-  const pts = (t: string) => Math.abs(loyalty.find((l) => l.type === t)?._sum.points ?? 0);
+  const pts = (t: string) => Math.abs(loyalty.filter((l) => l.type === t).reduce((sum, l) => sum + (l._sum.points ?? 0), 0));
   const kh = (t: string) => khata.find((k) => k.type === t)?._sum.amount ?? 0;
   const summary = {
     uniqueCustomers: ids.length,
@@ -1254,7 +1268,7 @@ async function canteenReport(ctx: ReportCtx): Promise<BuiltReport> {
       where: { ...w, status: "PAID", customer: { canteenMember: true } },
       select: {
         grandTotal: true,
-        payments: { where: { status: "SUCCESS" }, select: { mode: true, amount: true, tokens: true } },
+        payments: { select: { mode: true, amount: true, tokens: true, status: true } }, // SUCCESS filtered below (bind-value cap)
         customer: { select: { department: true, corporateAccount: { select: { name: true } } } },
       },
     }),
@@ -1270,7 +1284,8 @@ async function canteenReport(ctx: ReportCtx): Promise<BuiltReport> {
   const byDept = new Map<string, Row>();
   const total = blank("Total");
   for (const o of orders) {
-    const sum = (mode: string) => o.payments.filter((p) => p.mode === mode).reduce((s, p) => s + p.amount, 0);
+    const payments = o.payments.filter((p) => p.status === "SUCCESS");
+    const sum = (mode: string) => payments.filter((p) => p.mode === mode).reduce((s, p) => s + p.amount, 0);
     const employer = sum("CORPORATE");
     const add = (r: Row) => {
       r.meals += 1;
@@ -1278,7 +1293,7 @@ async function canteenReport(ctx: ReportCtx): Promise<BuiltReport> {
       r.employerShare += employer;
       r.employeeShare += o.grandTotal - employer;
       r.walletSpend += sum("WALLET");
-      r.tokensRedeemed += o.payments.filter((p) => p.mode === "MEAL_TOKEN").reduce((s, p) => s + (p.tokens ?? 1), 0);
+      r.tokensRedeemed += payments.filter((p) => p.mode === "MEAL_TOKEN").reduce((s, p) => s + (p.tokens ?? 1), 0);
       r.tokenValue += sum("MEAL_TOKEN");
     };
     const account = o.customer?.corporateAccount?.name ?? "No company";

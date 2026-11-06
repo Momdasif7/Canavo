@@ -1,0 +1,99 @@
+-- customer-detail-recent-orders-count-items
+-- calls during capture: 4; server-side max 433.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Order"."id", "Order"."invoiceNumber", "Order"."outletId", "Order"."createdAt", "Order"."status"::text, "Order"."orderType"::text, "Order"."grandTotal", "Order"."promoDiscount", "Order"."couponCode", "Order"."pointsRedeemed", COALESCE("aggr_selection_0_OrderItem"."_aggr_count_items", 0) AS "_aggr_count_items" FROM "Order" LEFT JOIN (SELECT "OrderItem"."orderId", COUNT(*) AS "_aggr_count_items" FROM "OrderItem" WHERE 1=1 GROUP BY "OrderItem"."orderId") AS "aggr_selection_0_OrderItem" ON ("Order"."id" = "aggr_selection_0_OrderItem"."orderId") WHERE "Order"."customerId" = $1 ORDER BY "Order"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'cus12345', $2 = '10', $3 = '0'
+
+==== BEFORE (397.787 ms, median of 3)
+Limit  (cost=9232026.35..9232026.36 rows=2 width=148) (actual time=368.000..368.003 rows=1 loops=1)
+  Buffers: shared hit=15310 read=19985
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=1.872..1.872 rows=1 loops=1)
+          Buffers: shared hit=505 read=2
+  ->  Sort  (cost=9232026.09..9232026.10 rows=2 width=148) (actual time=204.669..204.672 rows=1 loops=1)
+        Sort Key: "Order"."createdAt" DESC
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=15310 read=19985
+        ->  Nested Loop Left Join  (cost=0.43..9232026.08 rows=2 width=148) (actual time=195.815..204.190 rows=1 loops=1)
+              Join Filter: ("Order".id = "aggr_selection_0_OrderItem"."orderId")
+              Rows Removed by Join Filter: 41306
+              Buffers: shared hit=15112 read=19982
+              ->  Seq Scan on "Order"  (cost=0.00..25765.00 rows=2 width=84) (actual time=23.197..31.567 rows=1 loops=1)
+                    Filter: (("customerId" = 'cus12345'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+                    Rows Removed by Filter: 299999
+                    Buffers: shared hit=7641 read=9631
+              ->  Materialize  (cost=0.43..9198583.65 rows=230124 width=17) (actual time=102.993..170.597 rows=41307 loops=1)
+                    Buffers: shared hit=7260 read=10351
+                    ->  Subquery Scan on "aggr_selection_0_OrderItem"  (cost=0.43..9196084.03 rows=230124 width=17) (actual time=102.992..164.839 rows=41307 loops=1)
+                          Buffers: shared hit=7260 read=10351
+                          ->  GroupAggregate  (cost=0.43..9193782.79 rows=230124 width=17) (actual time=102.990..162.887 rows=41307 loops=1)
+                                Group Key: "OrderItem"."orderId"
+                                Buffers: shared hit=7260 read=10351
+                                ->  Index Only Scan using "OrderItem_orderId_idx" on "OrderItem"  (cost=0.43..9188843.43 rows=527625 width=9) (actual time=102.979..154.364 rows=144687 loops=1)
+                                      Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 5))
+                                      Rows Removed by Filter: 97783
+                                      Heap Fetches: 0
+                                      Buffers: shared hit=7260 read=10351
+                                      SubPlan 5
+                                        ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=8.126..66.001 rows=179981 loops=1)
+                                              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($4)))
+                                              Rows Removed by Filter: 120019
+                                              Buffers: shared hit=7254 read=9512
+                                              InitPlan 4 (returns $4)
+                                                ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.087..0.087 rows=1 loops=1)
+                                                      Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=404 read=3
+Planning Time: 3.066 ms
+JIT:
+  Functions: 29
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 1.101 ms, Inlining 48.491 ms, Optimization 60.426 ms, Emission 67.201 ms, Total 177.218 ms
+Execution Time: 397.787 ms
+
+==== AFTER (363.465 ms, median of 3)
+Limit  (cost=9232026.35..9232026.36 rows=2 width=148) (actual time=352.569..352.571 rows=1 loops=1)
+  Buffers: shared hit=17859 read=16588
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.349..0.350 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Sort  (cost=9232026.09..9232026.10 rows=2 width=148) (actual time=199.739..199.741 rows=1 loops=1)
+        Sort Key: "Order"."createdAt" DESC
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=17859 read=16588
+        ->  Nested Loop Left Join  (cost=0.43..9232026.08 rows=2 width=148) (actual time=192.019..199.689 rows=1 loops=1)
+              Join Filter: ("Order".id = "aggr_selection_0_OrderItem"."orderId")
+              Rows Removed by Join Filter: 41306
+              Buffers: shared hit=17856 read=16588
+              ->  Seq Scan on "Order"  (cost=0.00..25765.00 rows=2 width=84) (actual time=21.399..29.067 rows=1 loops=1)
+                    Filter: (("customerId" = 'cus12345'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+                    Rows Removed by Filter: 299999
+                    Buffers: shared hit=8519 read=8310
+              ->  Materialize  (cost=0.43..9198583.65 rows=230124 width=17) (actual time=111.039..169.070 rows=41307 loops=1)
+                    Buffers: shared hit=9332 read=8278
+                    ->  Subquery Scan on "aggr_selection_0_OrderItem"  (cost=0.43..9196084.03 rows=230124 width=17) (actual time=111.038..160.110 rows=41307 loops=1)
+                          Buffers: shared hit=9332 read=8278
+                          ->  GroupAggregate  (cost=0.43..9193782.79 rows=230124 width=17) (actual time=111.036..158.271 rows=41307 loops=1)
+                                Group Key: "OrderItem"."orderId"
+                                Buffers: shared hit=9332 read=8278
+                                ->  Index Only Scan using "OrderItem_orderId_idx" on "OrderItem"  (cost=0.43..9188843.43 rows=527625 width=9) (actual time=111.022..149.896 rows=144687 loops=1)
+                                      Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 5))
+                                      Rows Removed by Filter: 97783
+                                      Heap Fetches: 0
+                                      Buffers: shared hit=9332 read=8278
+                                      SubPlan 5
+                                        ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=7.820..69.384 rows=179981 loops=1)
+                                              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($4)))
+                                              Rows Removed by Filter: 120019
+                                              Buffers: shared hit=8488 read=8278
+                                              InitPlan 4 (returns $4)
+                                                ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.107..0.107 rows=1 loops=1)
+                                                      Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=404
+Planning Time: 1.176 ms
+JIT:
+  Functions: 29
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 0.973 ms, Inlining 57.283 ms, Optimization 50.336 ms, Emission 56.692 ms, Total 165.283 ms
+Execution Time: 363.465 ms

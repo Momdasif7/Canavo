@@ -1,0 +1,53 @@
+-- bills-search-ilike
+-- calls during capture: 4; server-side max 154.2 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Order"."id", "Order"."clientOrderId", "Order"."outletId", "Order"."cashierId", "Order"."invoiceNumber", "Order"."documentType"::text, "Order"."orderType"::text, "Order"."status"::text, "Order"."tableLabel", "Order"."customerName", "Order"."customerPhone", "Order"."interState", "Order"."notes", "Order"."subtotal", "Order"."discount", "Order"."taxableValue", "Order"."serviceCharge", "Order"."cgst", "Order"."sgst", "Order"."igst", "Order"."cess", "Order"."otherTaxes", "Order"."taxDetails", "Order"."roundOff", "Order"."grandTotal", "Order"."taxBreakup", "Order"."paidAt", "Order"."cancelledAt", "Order"."cancelReason", "Order"."syncedOffline", "Order"."customerId", "Order"."scheduledFor", "Order"."tableSessionId", "Order"."promoDiscount", "Order"."couponCode", "Order"."pointsRedeemed", "Order"."appliedOffers", "Order"."extraCharges", "Order"."chargesBreakup", "Order"."createdAt", "Order"."updatedAt", "Order"."refundedAmount", "Order"."mealSlotId", "Order"."servedAt", "Order"."channel", "Order"."channelOrderId" FROM "Order" WHERE ("Order"."outletId" = $1 AND ("Order"."invoiceNumber" ILIKE $2 OR "Order"."customerPhone"::text LIKE $3 OR "Order"."customerName" ILIKE $4)) ORDER BY "Order"."createdAt" DESC LIMIT $5 OFFSET $6
+-- params: $1 = 'out1', $2 = '%INV-1234%', $3 = '%INV-1234%', $4 = '%INV-1234%', $5 = '50', $6 = '0'
+
+==== BEFORE (21.817 ms, median of 3)
+Limit  (cost=18615.03..18615.04 rows=4 width=516) (actual time=21.738..21.740 rows=12 loops=1)
+  Buffers: shared hit=8444
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.212..0.213 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Sort  (cost=18614.77..18614.78 rows=4 width=516) (actual time=21.737..21.738 rows=12 loops=1)
+        Sort Key: "Order"."createdAt" DESC
+        Sort Method: quicksort  Memory: 28kB
+        Buffers: shared hit=8444
+        ->  Bitmap Heap Scan on "Order"  (cost=505.30..18614.73 rows=4 width=516) (actual time=3.237..21.714 rows=12 loops=1)
+              Recheck Cond: ("outletId" = 'out1'::text)
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (("invoiceNumber" ~~* '%INV-1234%'::text) OR ("customerPhone" ~~ '%INV-1234%'::text) OR ("customerName" ~~* '%INV-1234%'::t
+              Rows Removed by Filter: 36122
+              Heap Blocks: exact=8312
+              Buffers: shared hit=8441
+              ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.30 rows=35850 width=0) (actual time=1.010..1.010 rows=36134 loops=1)
+                    Index Cond: ("outletId" = 'out1'::text)
+                    Buffers: shared hit=52
+Planning:
+  Buffers: shared hit=464
+Planning Time: 0.919 ms
+Execution Time: 21.817 ms
+
+==== AFTER (22.244 ms, median of 3)
+Limit  (cost=18569.38..18569.39 rows=4 width=516) (actual time=22.171..22.173 rows=12 loops=1)
+  Buffers: shared hit=8220 read=209
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.206..0.206 rows=1 loops=1)
+          Buffers: shared hit=62 read=4
+  ->  Sort  (cost=18569.12..18569.13 rows=4 width=516) (actual time=22.170..22.171 rows=12 loops=1)
+        Sort Key: "Order"."createdAt" DESC
+        Sort Method: quicksort  Memory: 28kB
+        Buffers: shared hit=8220 read=209
+        ->  Bitmap Heap Scan on "Order"  (cost=421.02..18569.08 rows=4 width=516) (actual time=3.241..22.152 rows=12 loops=1)
+              Recheck Cond: ("outletId" = 'out1'::text)
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (("invoiceNumber" ~~* '%INV-1234%'::text) OR ("customerPhone" ~~ '%INV-1234%'::text) OR ("customerName" ~~* '%INV-1234%'::t
+              Rows Removed by Filter: 36122
+              Heap Blocks: exact=8312
+              Buffers: shared hit=8217 read=209
+              ->  Bitmap Index Scan on "Order_outletId_cancelledAt_idx"  (cost=0.00..421.02 rows=36880 width=0) (actual time=1.069..1.069 rows=36134 loops=1)
+                    Index Cond: ("outletId" = 'out1'::text)
+                    Buffers: shared read=37
+Planning:
+  Buffers: shared hit=444 read=36
+Planning Time: 1.382 ms
+Execution Time: 22.244 ms

@@ -1,0 +1,36 @@
+-- daily-voids-by-cancelledAt
+-- calls during capture: 20; server-side max 26.6 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Order"."id", "Order"."invoiceNumber", "Order"."grandTotal" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."cancelledAt" >= $2 AND "Order"."cancelledAt" < $3) OFFSET $4
+-- params: $1 = 'out4', $2 = '2026-11-05 18:30:00', $3 = '2026-11-06 17:21:50.406', $4 = '0'
+
+==== BEFORE (12.148 ms, median of 3)
+Bitmap Heap Scan on "Order"  (cost=496.76..18494.11 rows=1 width=23) (actual time=7.525..12.078 rows=4 loops=1)
+  Recheck Cond: ("outletId" = 'out4'::text)
+  Filter: (("cancelledAt" >= '2026-11-05 18:30:00'::timestamp without time zone) AND ("cancelledAt" < '2026-11-06 17:21:50.406'::timestamp without time zone) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" =
+  Rows Removed by Filter: 35861
+  Heap Blocks: exact=8330
+  Buffers: shared hit=8450
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.229..0.229 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..496.50 rows=35210 width=0) (actual time=1.153..1.153 rows=35865 loops=1)
+        Index Cond: ("outletId" = 'out4'::text)
+        Buffers: shared hit=54
+Planning:
+  Buffers: shared hit=329
+Planning Time: 0.904 ms
+Execution Time: 12.148 ms
+
+==== AFTER (0.413 ms, median of 3)
+Index Scan using "Order_outletId_cancelledAt_idx" on "Order"  (cost=0.68..8.72 rows=1 width=23) (actual time=0.356..0.381 rows=4 loops=1)
+  Index Cond: (("outletId" = 'out4'::text) AND ("cancelledAt" >= '2026-11-05 18:30:00'::timestamp without time zone) AND ("cancelledAt" < '2026-11-06 17:21:50.406'::timestamp without time zone))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+  Buffers: shared hit=68 read=5
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.265..0.266 rows=1 loops=1)
+          Buffers: shared hit=66
+Planning:
+  Buffers: shared hit=345
+Planning Time: 0.995 ms
+Execution Time: 0.413 ms

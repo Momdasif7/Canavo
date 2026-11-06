@@ -1,0 +1,39 @@
+-- report-gstr1-orders
+-- calls during capture: 4; server-side max 9.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Order"."id", "Order"."invoiceNumber", "Order"."status"::text, "Order"."documentType"::text, "Order"."interState" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."createdAt" >= $2 AND "Order"."createdAt" < $3) OFFSET $4
+-- params: $1 = 'out1', $2 = '2026-09-30 18:30:00', $3 = '2026-10-31 18:30:00', $4 = '0'
+
+==== BEFORE (5.676 ms, median of 3)
+Bitmap Heap Scan on "Order"  (cost=124.13..7532.98 rows=1828 width=84) (actual time=1.017..5.544 rows=2858 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-09-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-10-31 18:30:00'::timestamp without time zone))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+  Heap Blocks: exact=2443
+  Buffers: shared hit=2537
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.314..0.314 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..123.41 rows=2799 width=0) (actual time=0.359..0.359 rows=2858 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-09-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-10-31 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=339
+Planning Time: 0.580 ms
+Execution Time: 5.676 ms
+
+==== AFTER (4.539 ms, median of 3)
+Bitmap Heap Scan on "Order"  (cost=129.79..7789.88 rows=1913 width=84) (actual time=0.682..4.445 rows=2858 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-09-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-10-31 18:30:00'::timestamp without time zone))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+  Heap Blocks: exact=2443
+  Buffers: shared hit=2537
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.188..0.188 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..129.05 rows=2930 width=0) (actual time=0.293..0.293 rows=2858 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-09-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-10-31 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=355
+Planning Time: 0.837 ms
+Execution Time: 4.539 ms

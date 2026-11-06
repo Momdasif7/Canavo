@@ -1,0 +1,49 @@
+-- report-sales-payments-relation-load
+-- calls during capture: 4; server-side max 87.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Payment"."id", "Payment"."mode"::text, "Payment"."amount", "Payment"."orderId" FROM "Payment" WHERE ("Payment"."status" = CAST($1::text AS "PaymentStatus") AND "Payment"."orderId" IN ($…)) OFFSET $2842
+-- params: $1 = 'SUCCESS', $2 = 'ord28', $3 = 'ord36', $4 = 'ord187', $5 = 'ord241', $6 = 'ord282', $7 = 'ord325', $8 = 'ord490', $9 = 'ord622', $10 = 'ord686', $11 = 'ord687', $12 = 'ord839', $13 = 'ord841', $14 = 'ord1024', $15 = 'ord1100', $16 = 'ord1101', $17 = 'ord1170', $18 = 'ord1219', $19 = 'ord1327', 
+
+==== BEFORE (80.257 ms, median of 3)
+Bitmap Heap Scan on "Payment"  (cost=7776.69..38471.91 rows=1561 width=54) (actual time=77.345..79.041 rows=2928 loops=1)
+  Recheck Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 4)) AND (status = ('SUCCESS'::cstring)::"PaymentStatus"))
+  Heap Blocks: exact=2009
+  Buffers: shared hit=19013 read=8354
+  ->  Bitmap Index Scan on "Payment_orderId_idx"  (cost=0.00..7769.20 rows=3107 width=0) (actual time=4.413..4.413 rows=2928 loops=1)
+        Index Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+        Buffers: shared hit=8520
+  SubPlan 4
+    ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=0.268..53.260 rows=179981 loops=1)
+          Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3)))
+          Rows Removed by Filter: 120019
+          Buffers: shared hit=8477 read=8354
+          InitPlan 3 (returns $3)
+            ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.184..0.184 rows=1 loops=1)
+                  Buffers: shared hit=66
+Planning:
+  Buffers: shared hit=421
+Planning Time: 1.448 ms
+Execution Time: 80.257 ms
+
+==== AFTER (102.893 ms, median of 3)
+Bitmap Heap Scan on "Payment"  (cost=7776.69..38471.91 rows=1561 width=54) (actual time=99.428..101.551 rows=2928 loops=1)
+  Recheck Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 4)) AND (status = ('SUCCESS'::cstring)::"PaymentStatus"))
+  Heap Blocks: exact=2009
+  Buffers: shared hit=18899 read=8468
+  ->  Bitmap Index Scan on "Payment_orderId_idx"  (cost=0.00..7769.20 rows=3107 width=0) (actual time=4.316..4.316 rows=2928 loops=1)
+        Index Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+        Buffers: shared hit=8520
+  SubPlan 4
+    ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=0.387..67.147 rows=179981 loops=1)
+          Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3)))
+          Rows Removed by Filter: 120019
+          Buffers: shared hit=8378 read=8453
+          InitPlan 3 (returns $3)
+            ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.299..0.299 rows=1 loops=1)
+                  Buffers: shared hit=66
+Planning:
+  Buffers: shared hit=426 read=11
+Planning Time: 1.875 ms
+Execution Time: 102.893 ms

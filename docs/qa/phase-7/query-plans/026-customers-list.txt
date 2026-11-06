@@ -1,0 +1,37 @@
+-- customers-list
+-- calls during capture: 4; server-side max 12.7 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Customer"."id", "Customer"."businessId", "Customer"."phone", "Customer"."name", "Customer"."email", "Customer"."birthday", "Customer"."anniversary", "Customer"."totalSpend", "Customer"."visitCount", "Customer"."lastVisitAt", "Customer"."points", "Customer"."tier"::text, "Customer"."khataBalance", "Customer"."khataLimit", "Customer"."blocked", "Customer"."notes", "Customer"."createdAt", "Customer"."updatedAt", "Customer"."canteenMember", "Customer"."corporateAccountId", "Customer"."employeeCode", "Customer"."department", "Customer"."cardUid", "Customer"."memberActive", "Customer"."walletBalance" FROM "Customer" WHERE "Customer"."businessId" = $1 ORDER BY "Customer"."lastVisitAt"DESC NULLS LAST, "Customer"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'biz1', $2 = '50', $3 = '0'
+
+==== BEFORE (19.317 ms, median of 3)
+Limit  (cost=2150.68..2150.80 rows=50 width=377) (actual time=19.256..19.272 rows=50 loops=1)
+  Buffers: shared hit=576
+  ->  Sort  (cost=2150.68..2189.00 rows=15328 width=377) (actual time=19.255..19.268 rows=50 loops=1)
+        Sort Key: "lastVisitAt" DESC NULLS LAST, "createdAt" DESC
+        Sort Method: top-N heapsort  Memory: 36kB
+        Buffers: shared hit=576
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1641.49 rows=15328 width=377) (actual time=0.040..12.620 rows=30000 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)))
+              Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=249
+Planning Time: 0.409 ms
+Execution Time: 19.317 ms
+
+==== AFTER (17.079 ms, median of 3)
+Limit  (cost=2150.68..2150.80 rows=50 width=377) (actual time=17.043..17.047 rows=50 loops=1)
+  Buffers: shared hit=576
+  ->  Sort  (cost=2150.68..2189.00 rows=15328 width=377) (actual time=17.042..17.044 rows=50 loops=1)
+        Sort Key: "lastVisitAt" DESC NULLS LAST, "createdAt" DESC
+        Sort Method: top-N heapsort  Memory: 36kB
+        Buffers: shared hit=576
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1641.49 rows=15328 width=377) (actual time=0.026..11.230 rows=30000 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)))
+              Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=249
+Planning Time: 0.457 ms
+Execution Time: 17.079 ms

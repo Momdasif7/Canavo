@@ -31,12 +31,31 @@ export function isTransactionConflict(err: unknown) {
   return (err instanceof Prisma.PrismaClientUnknownRequestError || err instanceof Prisma.PrismaClientKnownRequestError) && /\b40P01\b|\b40001\b|deadlock detected/.test(err.message);
 }
 
+/** Prisma codes for "can't reach / lost the database / no free pooled connection". */
+const DB_UNAVAILABLE_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+export function isDatabaseUnavailable(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) return DB_UNAVAILABLE_CODES.has(err.code);
+  if (err instanceof Prisma.PrismaClientInitializationError) return true;
+  if (err instanceof Prisma.PrismaClientUnknownRequestError) {
+    // e.g. "Error in PostgreSQL connection: Error { kind: Closed }", "terminating connection due to administrator command" (57P01)
+    return /PostgreSQL connection|kind: Closed|connection (?:closed|reset|refused)|terminating connection|\b57P0[123]\b/i.test(err.message);
+  }
+  return false;
+}
+
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });
   }
   if (err instanceof ZodError) {
     return res.status(400).json({ error: "Validation failed", details: err.flatten() });
+  }
+  // The database is momentarily out of reach — pool exhausted (P2024), server gone or connection
+  // killed (failover, idle kill) — a retryable 503, not a 500 (QA Phase 7). Still reported.
+  if (isDatabaseUnavailable(err)) {
+    reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+    res.setHeader("Retry-After", "2");
+    return res.status(503).json({ error: "The server is busy. Please try again in a moment.", requestId: req.id });
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002") return res.status(409).json({ error: "Already exists", details: err.meta });

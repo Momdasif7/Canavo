@@ -1,0 +1,91 @@
+-- bills-summary-payments-by-mode-365d
+-- calls during capture: 12; server-side max 155.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT SUM("Payment"."amount") AS "_sum$amount", COUNT(*) AS "_count$_all", "Payment"."mode"::text FROM "Payment" LEFT JOIN "Order" AS "j0" ON ("j0"."id") = ("Payment"."orderId") WHERE ("Payment"."status" = CAST($1::text AS "PaymentStatus") AND ("j0"."outletId" = $2 AND "j0"."createdAt" >= $3 AND "j0"."createdAt" < $4 AND "j0"."status" <> CAST($5::text AS "OrderStatus") AND ("j0"."id" IS NOT NULL))) GROUP BY "Payment"."mode" OFFSET $6
+-- params: $1 = 'SUCCESS', $2 = 'out1', $3 = '2025-11-05 18:30:00', $4 = '2026-11-06 18:30:00', $5 = 'CANCELLED', $6 = '0'
+
+==== BEFORE (134.993 ms, median of 3)
+GroupAggregate  (cost=171752.41..171825.37 rows=3 width=52) (actual time=121.938..123.416 rows=3 loops=1)
+  Group Key: "Payment".mode
+  Buffers: shared hit=265432 read=7556 written=1
+  InitPlan 5 (returns $4)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.244..0.244 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Sort  (cost=171752.15..171770.38 rows=7292 width=8) (actual time=121.307..122.041 rows=33656 loops=1)
+        Sort Key: "Payment".mode
+        Sort Method: quicksort  Memory: 2588kB
+        Buffers: shared hit=265425 read=7556 written=1
+        ->  Nested Loop  (cost=509.29..171284.29 rows=7292 width=8) (actual time=10.505..119.061 rows=33656 loops=1)
+              Buffers: shared hit=265420 read=7556 written=1
+              ->  Bitmap Heap Scan on "Order" j0  (cost=508.86..18797.49 rows=14260 width=9) (actual time=10.434..44.639 rows=32089 loops=1)
+                    Recheck Cond: ("outletId" = 'out1'::text)
+                    Filter: ((id IS NOT NULL) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text)
+                    Rows Removed by Filter: 4045
+                    Heap Blocks: exact=8312
+                    Buffers: shared hit=876 read=7552 written=1
+                    ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.30 rows=35850 width=0) (actual time=1.162..1.163 rows=36134 loops=1)
+                          Index Cond: ("outletId" = 'out1'::text)
+                          Buffers: shared read=52
+              ->  Index Scan using "Payment_orderId_idx" on "Payment"  (cost=0.42..10.68 rows=1 width=17) (actual time=0.002..0.002 rows=1 loops=32089)
+                    Index Cond: ("orderId" = j0.id)
+                    Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (SubPlan 2)) AND (status = ('SUCCESS'::cstring)::"PaymentStatus"))
+                    Buffers: shared hit=264544 read=4
+                    SubPlan 2
+                      ->  Index Scan using "Order_pkey" on "Order" parent  (cost=0.68..8.72 rows=1 width=0) (actual time=0.001..0.001 rows=1 loops=33656)
+                            Index Cond: (id = "Payment"."orderId")
+                            Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+                            Buffers: shared hit=134625
+                            InitPlan 1 (returns $1)
+                              ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.041..0.041 rows=1 loops=1)
+                                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=533 read=16
+Planning Time: 1.456 ms
+JIT:
+  Functions: 30
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.791 ms, Inlining 0.000 ms, Optimization 0.440 ms, Emission 8.013 ms, Total 9.244 ms
+Execution Time: 134.993 ms
+
+==== AFTER (180.244 ms, median of 3)
+GroupAggregate  (cost=175546.04..175621.13 rows=3 width=52) (actual time=165.907..167.518 rows=3 loops=1)
+  Group Key: "Payment".mode
+  Buffers: shared hit=264617 read=8356 written=5
+  InitPlan 5 (returns $4)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.282..0.282 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Sort  (cost=175545.78..175564.54 rows=7504 width=8) (actual time=165.175..165.987 rows=33656 loops=1)
+        Sort Key: "Payment".mode
+        Sort Method: quicksort  Memory: 2588kB
+        Buffers: shared hit=264611 read=8355 written=5
+        ->  Nested Loop  (cost=425.11..175062.77 rows=7504 width=8) (actual time=11.876..162.334 rows=33656 loops=1)
+              Buffers: shared hit=264606 read=8355 written=5
+              ->  Bitmap Heap Scan on "Order" j0  (cost=424.69..18757.09 rows=14676 width=9) (actual time=11.797..73.016 rows=32089 loops=1)
+                    Recheck Cond: ("outletId" = 'out1'::text)
+                    Filter: ((id IS NOT NULL) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text)
+                    Rows Removed by Filter: 4045
+                    Heap Blocks: exact=8312
+                    Buffers: shared hit=64 read=8349 written=5
+                    ->  Bitmap Index Scan on "Order_outletId_cancelledAt_idx"  (cost=0.00..421.02 rows=36880 width=0) (actual time=1.151..1.151 rows=36134 loops=1)
+                          Index Cond: ("outletId" = 'out1'::text)
+                          Buffers: shared read=37
+              ->  Index Scan using "Payment_orderId_idx" on "Payment"  (cost=0.42..10.64 rows=1 width=17) (actual time=0.002..0.003 rows=1 loops=32089)
+                    Index Cond: ("orderId" = j0.id)
+                    Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (SubPlan 2)) AND (status = ('SUCCESS'::cstring)::"PaymentStatus"))
+                    Buffers: shared hit=264542 read=6
+                    SubPlan 2
+                      ->  Index Scan using "Order_pkey" on "Order" parent  (cost=0.68..8.72 rows=1 width=0) (actual time=0.001..0.001 rows=1 loops=33656)
+                            Index Cond: (id = "Payment"."orderId")
+                            Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+                            Buffers: shared hit=134625
+                            InitPlan 1 (returns $1)
+                              ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.041..0.041 rows=1 loops=1)
+                                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=542 read=23
+Planning Time: 1.535 ms
+JIT:
+  Functions: 30
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.943 ms, Inlining 0.000 ms, Optimization 0.516 ms, Emission 9.323 ms, Total 10.783 ms
+Execution Time: 180.244 ms

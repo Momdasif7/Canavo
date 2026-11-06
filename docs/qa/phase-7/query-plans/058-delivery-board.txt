@@ -1,0 +1,35 @@
+-- delivery-board
+-- calls during capture: 4; server-side max 1.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Delivery"."id", "Delivery"."orderId", "Delivery"."outletId", "Delivery"."agentId", "Delivery"."status"::text, "Delivery"."source", "Delivery"."cod", "Delivery"."customerName", "Delivery"."customerPhone", "Delivery"."address", "Delivery"."landmark", "Delivery"."latitude", "Delivery"."longitude", "Delivery"."distanceKm", "Delivery"."zoneId", "Delivery"."etaAt", "Delivery"."overdueNotifiedAt", "Delivery"."assignedAt", "Delivery"."acceptedAt", "Delivery"."pickedAt", "Delivery"."deliveredAt", "Delivery"."cashSettledAt", "Delivery"."cashSettledById", "Delivery"."notes", "Delivery"."createdAt", "Delivery"."updatedAt" FROM "Delivery" WHERE "Delivery"."outletId" = $1 ORDER BY "Delivery"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'out1', $2 = '200', $3 = '0'
+
+==== BEFORE (1.554 ms, median of 3)
+Limit  (cost=0.68..175.77 rows=200 width=312) (actual time=0.454..1.486 rows=200 loops=1)
+  Buffers: shared hit=278
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.376..0.376 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Index Scan Backward using "Delivery_outletId_createdAt_idx" on "Delivery"  (cost=0.41..4121.37 rows=4707 width=312) (actual time=0.453..1.471 rows=200 loops=1)
+        Index Cond: ("outletId" = 'out1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Buffers: shared hit=278
+Planning:
+  Buffers: shared hit=348
+Planning Time: 1.478 ms
+Execution Time: 1.554 ms
+
+==== AFTER (0.843 ms, median of 3)
+Limit  (cost=0.68..175.77 rows=200 width=312) (actual time=0.332..0.769 rows=200 loops=1)
+  Buffers: shared hit=278
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.280..0.280 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Index Scan Backward using "Delivery_outletId_createdAt_idx" on "Delivery"  (cost=0.41..4121.37 rows=4707 width=312) (actual time=0.331..0.756 rows=200 loops=1)
+        Index Cond: ("outletId" = 'out1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Buffers: shared hit=278
+Planning:
+  Buffers: shared hit=348
+Planning Time: 0.956 ms
+Execution Time: 0.843 ms

@@ -181,9 +181,11 @@ customersRouter.get("/:id", requirePermission("customer:view"), async (req, res)
       select: {
         id: true, invoiceNumber: true, outletId: true, createdAt: true, status: true, orderType: true,
         grandTotal: true, promoDiscount: true, couponCode: true, pointsRedeemed: true,
-        _count: { select: { items: true } },
+        // Not `_count`: Prisma counts a relation by grouping the WHOLE OrderItem table (~0.4 s at 1M
+        // lines, QA Phase 7); loading the 10 bills' line ids is an index lookup.
+        items: { select: { id: true } },
       },
-    }),
+    }).then((rows) => rows.map(({ items, ...o }) => ({ ...o, _count: { items: items.length } }))),
     prisma.order.groupBy({ by: ["status"], where: { customerId: c.id }, _count: true, _sum: { grandTotal: true } }),
     prisma.loyaltyTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.khataTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "desc" }, take: 30 }),

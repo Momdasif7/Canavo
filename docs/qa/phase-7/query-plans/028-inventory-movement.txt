@@ -1,0 +1,41 @@
+-- inventory-movement
+-- calls during capture: 4; server-side max 10.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "InventoryTransaction"."id", "InventoryTransaction"."inventoryItemId", "InventoryTransaction"."type"::text, "InventoryTransaction"."quantity", "InventoryTransaction"."unitCost", "InventoryTransaction"."createdAt" FROM "InventoryTransaction" WHERE ("InventoryTransaction"."outletId" = $1 AND "InventoryTransaction"."type" IN (CAST($2::text AS "InventoryTxnType"),CAST($3::text AS "InventoryTxnType"),CAST($4::text AS "InventoryTxnType")) AND "InventoryTransaction"."createdAt" >= $5 AND "InventoryTransaction"."createdAt" < $6) OFFSET $7
+-- params: $1 = 'out1', $2 = 'SALE', $3 = 'SALE_REVERSAL', $4 = 'WASTAGE', $5 = '2026-10-06 18:30:00', $6 = '2026-11-06 18:30:00', $7 = '0'
+
+==== BEFORE (3.053 ms, median of 3)
+Bitmap Heap Scan on "InventoryTransaction"  (cost=51.57..2487.30 rows=974 width=69) (actual time=0.419..2.985 rows=1369 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (type = ANY (ARRAY[('SALE'::cstring)::"InventoryTxnType", ('SALE_REVERSAL'::cstring)::"InventoryTxnType", ('WASTAGE'::cstring)::"Invent
+  Rows Removed by Filter: 136
+  Heap Blocks: exact=1151
+  Buffers: shared hit=1234
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.195..0.195 rows=1 loops=1)
+          Buffers: shared hit=67
+  ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..51.07 rows=1492 width=0) (actual time=0.144..0.144 rows=1505 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=11
+Planning:
+  Buffers: shared hit=303
+Planning Time: 0.595 ms
+Execution Time: 3.053 ms
+
+==== AFTER (7.034 ms, median of 3)
+Bitmap Heap Scan on "InventoryTransaction"  (cost=51.57..2487.30 rows=974 width=69) (actual time=0.969..6.912 rows=1369 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (type = ANY (ARRAY[('SALE'::cstring)::"InventoryTxnType", ('SALE_REVERSAL'::cstring)::"InventoryTxnType", ('WASTAGE'::cstring)::"Invent
+  Rows Removed by Filter: 136
+  Heap Blocks: exact=1151
+  Buffers: shared hit=1233
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.477..0.477 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..51.07 rows=1492 width=0) (actual time=0.328..0.328 rows=1505 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=11
+Planning:
+  Buffers: shared hit=308
+Planning Time: 1.926 ms
+Execution Time: 7.034 ms

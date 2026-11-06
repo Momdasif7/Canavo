@@ -1,0 +1,39 @@
+-- canteen-member-lookup
+-- calls during capture: 4; server-side max 3.8 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Customer"."id", "Customer"."businessId", "Customer"."phone", "Customer"."name", "Customer"."email", "Customer"."birthday", "Customer"."anniversary", "Customer"."totalSpend", "Customer"."visitCount", "Customer"."lastVisitAt", "Customer"."points", "Customer"."tier"::text, "Customer"."khataBalance", "Customer"."khataLimit", "Customer"."blocked", "Customer"."notes", "Customer"."createdAt", "Customer"."updatedAt", "Customer"."canteenMember", "Customer"."corporateAccountId", "Customer"."employeeCode", "Customer"."department", "Customer"."cardUid", "Customer"."memberActive", "Customer"."walletBalance" FROM "Customer" WHERE ("Customer"."canteenMember" = $1 AND "Customer"."employeeCode" ILIKE $2 AND "Customer"."businessId" = $3) ORDER BY "Customer"."id" ASC LIMIT $4 OFFSET $5
+-- params: $1 = 't', $2 = '8000012345', $3 = 'biz1', $4 = '2', $5 = '0'
+
+==== BEFORE (6.555 ms, median of 3)
+Limit  (cost=1640.50..1640.50 rows=1 width=377) (actual time=6.475..6.476 rows=0 loops=1)
+  Buffers: shared hit=573
+  ->  Sort  (cost=1640.50..1640.50 rows=1 width=377) (actual time=6.454..6.454 rows=0 loops=1)
+        Sort Key: id
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=573
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1640.49 rows=1 width=377) (actual time=6.422..6.422 rows=0 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: ("canteenMember" AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ("employeeCode" ~~* '8000012345'::text))
+              Rows Removed by Filter: 30000
+              Buffers: shared hit=570
+Planning:
+  Buffers: shared hit=237
+Planning Time: 1.212 ms
+Execution Time: 6.555 ms
+
+==== AFTER (7.400 ms, median of 3)
+Limit  (cost=1640.50..1640.50 rows=1 width=377) (actual time=7.319..7.319 rows=0 loops=1)
+  Buffers: shared hit=573
+  ->  Sort  (cost=1640.50..1640.50 rows=1 width=377) (actual time=7.317..7.318 rows=0 loops=1)
+        Sort Key: id
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=573
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1640.49 rows=1 width=377) (actual time=7.273..7.274 rows=0 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: ("canteenMember" AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ("employeeCode" ~~* '8000012345'::text))
+              Rows Removed by Filter: 30000
+              Buffers: shared hit=570
+Planning:
+  Buffers: shared hit=237
+Planning Time: 1.200 ms
+Execution Time: 7.400 ms

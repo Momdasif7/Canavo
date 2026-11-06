@@ -1,0 +1,43 @@
+-- bills-summary-refunds-365d
+-- calls during capture: 12; server-side max 17.7 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all", SUM("refundedAmount") AS "_sum$refundedAmount" FROM (SELECT "Order"."id", "Order"."refundedAmount" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."createdAt" >= $2 AND "Order"."createdAt" < $3 AND "Order"."refundedAmount" > $4) OFFSET $5) AS "sub"
+-- params: $1 = 'out1', $2 = '2025-11-05 18:30:00', $3 = '2026-11-06 18:30:00', $4 = '0', $5 = '0'
+
+==== BEFORE (14.165 ms, median of 3)
+Aggregate  (cost=18614.95..18614.96 rows=1 width=16) (actual time=14.080..14.081 rows=1 loops=1)
+  Buffers: shared hit=8364
+  ->  Bitmap Heap Scan on "Order"  (cost=505.56..18614.93 rows=1 width=36) (actual time=14.078..14.079 rows=0 loops=1)
+        Recheck Cond: ("outletId" = 'out1'::text)
+        Filter: (("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ("refundedAmount" > 0) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on
+        Rows Removed by Filter: 36134
+        Heap Blocks: exact=8312
+        Buffers: shared hit=8364
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.30 rows=35850 width=0) (actual time=1.355..1.355 rows=36134 loops=1)
+              Index Cond: ("outletId" = 'out1'::text)
+              Buffers: shared hit=52
+Planning:
+  Buffers: shared hit=328
+Planning Time: 0.884 ms
+Execution Time: 14.165 ms
+
+==== AFTER (14.215 ms, median of 3)
+Aggregate  (cost=18569.30..18569.31 rows=1 width=16) (actual time=14.159..14.159 rows=1 loops=1)
+  Buffers: shared hit=8349
+  ->  Bitmap Heap Scan on "Order"  (cost=421.28..18569.28 rows=1 width=36) (actual time=14.156..14.157 rows=0 loops=1)
+        Recheck Cond: ("outletId" = 'out1'::text)
+        Filter: (("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ("refundedAmount" > 0) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on
+        Rows Removed by Filter: 36134
+        Heap Blocks: exact=8312
+        Buffers: shared hit=8349
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        ->  Bitmap Index Scan on "Order_outletId_cancelledAt_idx"  (cost=0.00..421.02 rows=36880 width=0) (actual time=1.013..1.013 rows=36134 loops=1)
+              Index Cond: ("outletId" = 'out1'::text)
+              Buffers: shared hit=37
+Planning:
+  Buffers: shared hit=344
+Planning Time: 1.015 ms
+Execution Time: 14.215 ms
