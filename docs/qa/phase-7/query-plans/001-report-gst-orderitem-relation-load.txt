@@ -1,0 +1,57 @@
+-- report-gst-orderitem-relation-load
+-- calls during capture: 4; server-side max 190.5 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "OrderItem"."id", "OrderItem"."menuItemId", "OrderItem"."variantId", "OrderItem"."quantity", "OrderItem"."total", "OrderItem"."cgst", "OrderItem"."sgst", "OrderItem"."igst", "OrderItem"."cess", "OrderItem"."otherTaxes", "OrderItem"."orderId" FROM "OrderItem" WHERE "OrderItem"."orderId" IN ($…) OFFSET $2764
+-- params: $1 = 'ord28', $2 = 'ord36', $3 = 'ord187', $4 = 'ord241', $5 = 'ord282', $6 = 'ord325', $7 = 'ord490', $8 = 'ord622', $9 = 'ord686', $10 = 'ord687', $11 = 'ord839', $12 = 'ord841', $13 = 'ord1024', $14 = 'ord1100', $15 = 'ord1101', $16 = 'ord1170', $17 = 'ord1219', $18 = 'ord1541', $19 = 'ord1557', 
+
+==== BEFORE (107.881 ms, median of 3)
+Bitmap Heap Scan on "OrderItem"  (cost=9272.49..131691.81 rows=6029 width=86) (actual time=94.623..98.129 rows=9660 loops=1)
+  Recheck Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 4))
+  Heap Blocks: exact=2697
+  Buffers: shared hit=18231 read=9586
+  ->  Bitmap Index Scan on "OrderItem_orderId_idx"  (cost=0.00..9264.07 rows=11999 width=0) (actual time=5.085..5.086 rows=9660 loops=1)
+        Index Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+        Buffers: shared hit=8220 read=69
+  SubPlan 4
+    ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=0.367..62.665 rows=179981 loops=1)
+          Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3)))
+          Rows Removed by Filter: 120019
+          Buffers: shared hit=7314 read=9517
+          InitPlan 3 (returns $3)
+            ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.227..0.228 rows=1 loops=1)
+                  Buffers: shared hit=66
+Planning:
+  Buffers: shared hit=390
+Planning Time: 1.360 ms
+JIT:
+  Functions: 21
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.513 ms, Inlining 0.000 ms, Optimization 0.267 ms, Emission 5.525 ms, Total 6.305 ms
+Execution Time: 107.881 ms
+
+==== AFTER (105.854 ms, median of 3)
+Bitmap Heap Scan on "OrderItem"  (cost=9272.49..131691.81 rows=6029 width=86) (actual time=92.581..96.252 rows=9660 loops=1)
+  Recheck Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 4))
+  Heap Blocks: exact=2697
+  Buffers: shared hit=19627 read=8190
+  ->  Bitmap Index Scan on "OrderItem_orderId_idx"  (cost=0.00..9264.07 rows=11999 width=0) (actual time=3.985..3.985 rows=9660 loops=1)
+        Index Cond: ("orderId" = ANY ('{ord28,ord36,ord187,ord241,ord282,ord325,ord490,ord622,ord686…}'::text[]))
+        Buffers: shared hit=8289
+  SubPlan 4
+    ->  Seq Scan on "Order" parent  (cost=0.26..25015.26 rows=195919 width=9) (actual time=0.400..59.230 rows=179981 loops=1)
+          Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3)))
+          Rows Removed by Filter: 120019
+          Buffers: shared hit=8641 read=8190
+          InitPlan 3 (returns $3)
+            ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.271..0.271 rows=1 loops=1)
+                  Buffers: shared hit=66
+Planning:
+  Buffers: shared hit=406
+Planning Time: 1.483 ms
+JIT:
+  Functions: 21
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.555 ms, Inlining 0.000 ms, Optimization 0.270 ms, Emission 5.559 ms, Total 6.385 ms
+Execution Time: 105.854 ms

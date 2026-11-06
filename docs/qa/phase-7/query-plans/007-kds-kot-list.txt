@@ -1,0 +1,74 @@
+-- kds-kot-list
+-- calls during capture: 4; server-side max 70.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "KotTicket"."id", "KotTicket"."orderId", "KotTicket"."sessionId", "KotTicket"."releaseAt", "KotTicket"."outletId", "KotTicket"."kotNumber", "KotTicket"."station", "KotTicket"."status"::text, "KotTicket"."items", "KotTicket"."printedAt", "KotTicket"."preparingAt", "KotTicket"."readyAt", "KotTicket"."servedAt", "KotTicket"."createdAt", "KotTicket"."updatedAt" FROM "KotTicket" LEFT JOIN "Order" AS "j0" ON ("j0"."id") = ("KotTicket"."orderId") WHERE ("KotTicket"."outletId" = $1 AND (("KotTicket"."releaseAt" IS NULL AND "KotTicket"."createdAt" >= $2) OR ("KotTicket"."releaseAt" <= $3 AND "KotTicket"."releaseAt" >= $4)) AND "KotTicket"."status" <> CAST($5::text AS "KotStatus") AND ("KotTicket"."orderId" IS NULL OR ("j0"."status" <> CAST($6::text AS "OrderStatus") AND ("j0"."id" IS NOT NULL)))) ORDER BY "KotTicket"."createdAt" ASC OFFSET $7
+-- params: $1 = 'out1', $2 = '2026-11-05 17:21:50.581', $3 = '2026-11-06 17:21:50.581', $4 = '2026-11-05 17:21:50.581', $5 = 'SERVED', $6 = 'CANCELLED', $7 = '0'
+
+==== BEFORE (7.975 ms, median of 3)
+Sort  (cost=5026.11..5026.17 rows=23 width=157) (actual time=7.895..7.898 rows=51 loops=1)
+  Sort Key: "KotTicket"."createdAt"
+  Sort Method: quicksort  Memory: 30kB
+  Buffers: shared hit=3421
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.239..0.240 rows=1 loops=1)
+          Buffers: shared hit=66
+  InitPlan 2 (returns $1)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.044..0.044 rows=1 loops=1)
+          Buffers: shared hit=1
+  ->  Nested Loop Left Join  (cost=318.08..5025.07 rows=23 width=157) (actual time=1.146..7.858 rows=51 loops=1)
+        Filter: (("KotTicket"."orderId" IS NULL) OR ((j0.status <> ('CANCELLED'::cstring)::"OrderStatus") AND (j0.id IS NOT NULL)))
+        Buffers: shared hit=3418
+        ->  Bitmap Heap Scan on "KotTicket"  (cost=317.66..4736.81 rows=34 width=129) (actual time=1.074..7.385 rows=51 loops=1)
+              Recheck Cond: ("outletId" = 'out1'::text)
+              Filter: (((("releaseAt" IS NULL) AND ("createdAt" >= '2026-11-05 17:21:50.581'::timestamp without time zone)) OR (("releaseAt" <= '2026-11-06 17:21:50.581'::timestamp without time zone) AND ("releaseAt" >= '2026-11-05 17:21:50.581'::timestamp wit
+              Rows Removed by Filter: 28866
+              Heap Blocks: exact=3115
+              Buffers: shared hit=3206
+              ->  Bitmap Index Scan on "KotTicket_outletId_status_idx"  (cost=0.00..317.65 rows=28981 width=0) (actual time=0.512..0.512 rows=28917 loops=1)
+                    Index Cond: ("outletId" = 'out1'::text)
+                    Buffers: shared hit=25
+        ->  Index Scan using "Order_pkey" on "Order" j0  (cost=0.42..8.46 rows=1 width=13) (actual time=0.008..0.008 rows=1 loops=51)
+              Index Cond: (id = "KotTicket"."orderId")
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+              Buffers: shared hit=205
+Planning:
+  Buffers: shared hit=576 read=4
+Planning Time: 1.582 ms
+Execution Time: 7.975 ms
+
+==== AFTER (1.017 ms, median of 3)
+Sort  (cost=596.24..596.30 rows=25 width=157) (actual time=0.944..0.946 rows=51 loops=1)
+  Sort Key: "KotTicket"."createdAt"
+  Sort Method: quicksort  Memory: 30kB
+  Buffers: shared hit=354
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.220..0.220 rows=1 loops=1)
+          Buffers: shared hit=66
+  InitPlan 2 (returns $1)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.048..0.048 rows=1 loops=1)
+          Buffers: shared hit=1
+  ->  Nested Loop Left Join  (cost=10.05..595.14 rows=25 width=157) (actual time=0.333..0.912 rows=51 loops=1)
+        Filter: (("KotTicket"."orderId" IS NULL) OR ((j0.status <> ('CANCELLED'::cstring)::"OrderStatus") AND (j0.id IS NOT NULL)))
+        Buffers: shared hit=351
+        ->  Bitmap Heap Scan on "KotTicket"  (cost=9.63..281.44 rows=37 width=129) (actual time=0.249..0.361 rows=51 loops=1)
+              Recheck Cond: ((("outletId" = 'out1'::text) AND ("createdAt" >= '2026-11-05 17:21:50.581'::timestamp without time zone)) OR (("outletId" = 'out1'::text) AND ("releaseAt" <= '2026-11-06 17:21:50.581'::timestamp without time zone) AND ("releaseAt" 
+              Filter: (((("releaseAt" IS NULL) AND ("createdAt" >= '2026-11-05 17:21:50.581'::timestamp without time zone)) OR (("releaseAt" <= '2026-11-06 17:21:50.581'::timestamp without time zone) AND ("releaseAt" >= '2026-11-05 17:21:50.581'::timestamp wit
+              Rows Removed by Filter: 16
+              Heap Blocks: exact=67
+              Buffers: shared hit=139
+              ->  BitmapOr  (cost=9.63..9.63 rows=76 width=0) (actual time=0.016..0.017 rows=0 loops=1)
+                    Buffers: shared hit=6
+                    ->  Bitmap Index Scan on "KotTicket_outletId_createdAt_idx"  (cost=0.00..5.18 rows=76 width=0) (actual time=0.011..0.011 rows=67 loops=1)
+                          Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-11-05 17:21:50.581'::timestamp without time zone))
+                          Buffers: shared hit=3
+                    ->  Bitmap Index Scan on "KotTicket_outletId_releaseAt_idx"  (cost=0.00..4.43 rows=1 width=0) (actual time=0.005..0.005 rows=0 loops=1)
+                          Index Cond: (("outletId" = 'out1'::text) AND ("releaseAt" <= '2026-11-06 17:21:50.581'::timestamp without time zone) AND ("releaseAt" >= '2026-11-05 17:21:50.581'::timestamp without time zone))
+                          Buffers: shared hit=3
+        ->  Index Scan using "Order_pkey" on "Order" j0  (cost=0.42..8.46 rows=1 width=13) (actual time=0.010..0.010 rows=1 loops=51)
+              Index Cond: (id = "KotTicket"."orderId")
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1)))
+              Buffers: shared hit=205
+Planning:
+  Buffers: shared hit=616
+Planning Time: 1.488 ms
+Execution Time: 1.017 ms

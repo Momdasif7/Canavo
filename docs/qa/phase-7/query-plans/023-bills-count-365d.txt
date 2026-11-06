@@ -1,0 +1,37 @@
+-- bills-count-365d
+-- calls during capture: 12; server-side max 13.8 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all" FROM (SELECT "Order"."id" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."createdAt" >= $2 AND "Order"."createdAt" < $3) OFFSET $4) AS "sub"
+-- params: $1 = 'out1', $2 = '2025-11-05 18:30:00', $3 = '2026-11-06 18:30:00', $4 = '0'
+
+==== BEFORE (8.260 ms, median of 3)
+Aggregate  (cost=2582.18..2582.19 rows=1 width=8) (actual time=8.210..8.210 rows=1 loops=1)
+  Buffers: shared hit=302
+  ->  Index Only Scan using "Order_outletId_createdAt_idx" on "Order"  (cost=0.68..2314.80 rows=21390 width=32) (actual time=0.333..6.898 rows=33104 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Heap Fetches: 0
+        Buffers: shared hit=302
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.294..0.294 rows=1 loops=1)
+                Buffers: shared hit=64
+Planning:
+  Buffers: shared hit=322
+Planning Time: 1.191 ms
+Execution Time: 8.260 ms
+
+==== AFTER (10.970 ms, median of 3)
+Aggregate  (cost=2660.17..2660.18 rows=1 width=8) (actual time=10.912..10.913 rows=1 loops=1)
+  Buffers: shared hit=86 read=216
+  ->  Index Only Scan using "Order_outletId_createdAt_idx" on "Order"  (cost=0.68..2385.00 rows=22013 width=32) (actual time=0.366..9.698 rows=33104 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Heap Fetches: 0
+        Buffers: shared hit=86 read=216
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.283..0.283 rows=1 loops=1)
+                Buffers: shared hit=64
+Planning:
+  Buffers: shared hit=338
+Planning Time: 1.173 ms
+Execution Time: 10.970 ms

@@ -289,6 +289,8 @@ model StaffAttendance {
 
   @@index([userId, workDate])
   @@index([outletId, workDate])
+  // Who is clocked in now (clockOutAt IS NULL) without scanning the outlet's whole attendance history. QA Phase 7
+  @@index([outletId, clockOutAt])
 }
 
 enum LeaveType {
@@ -523,6 +525,11 @@ model Order {
   @@index([outletId, channel, createdAt])
   @@index([customerId])
   @@index([outletId, status, createdAt])
+  // Voids in a period (daily close, exceptions report) without scanning every bill the outlet ever made. QA Phase 7
+  @@index([outletId, cancelledAt])
+  // Staff report: "anyone who billed here in the period" is checked per staff member; without it
+  // each check scanned the outlet's bills (4.7 s -> 0.09 s for a year on the perf dataset). QA Phase 7
+  @@index([cashierId, createdAt])
 }
 
 model OrderItem {
@@ -592,6 +599,8 @@ model KotTicket {
   @@index([orderId])
   @@index([sessionId])
   @@index([outletId, createdAt])
+  // Kitchen display: released pre-orders, OR'd with recent tickets (bitmap OR with outletId+createdAt). QA Phase 7
+  @@index([outletId, releaseAt])
 }
 
 enum PaymentMode {

@@ -1,0 +1,47 @@
+-- inventory-report-opening-groupby
+-- calls during capture: 8; server-side max 28.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT SUM("InventoryTransaction"."quantity") AS "_sum$quantity", "InventoryTransaction"."inventoryItemId" FROM "InventoryTransaction" WHERE ("InventoryTransaction"."outletId" = $1 AND "InventoryTransaction"."createdAt" < $2) GROUP BY "InventoryTransaction"."inventoryItemId" OFFSET $3
+-- params: $1 = 'out1', $2 = '2026-10-06 18:30:00', $3 = '0'
+
+==== BEFORE (9.718 ms, median of 3)
+HashAggregate  (cost=3876.42..3880.92 rows=450 width=16) (actual time=9.620..9.632 rows=150 loops=1)
+  Group Key: "InventoryTransaction"."inventoryItemId"
+  Batches: 1  Memory Usage: 45kB
+  Buffers: shared hit=2829
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.255..0.255 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Bitmap Heap Scan on "InventoryTransaction"  (cost=564.03..3817.17 rows=11798 width=16) (actual time=1.703..7.743 rows=18303 loops=1)
+        Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" < '2026-10-06 18:30:00'::timestamp without time zone))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Heap Blocks: exact=2663
+        Buffers: shared hit=2829
+        ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..561.08 rows=18066 width=0) (actual time=1.200..1.200 rows=18303 loops=1)
+              Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" < '2026-10-06 18:30:00'::timestamp without time zone))
+              Buffers: shared hit=102
+Planning:
+  Buffers: shared hit=211
+Planning Time: 0.623 ms
+Execution Time: 9.718 ms
+
+==== AFTER (11.492 ms, median of 3)
+HashAggregate  (cost=3876.42..3880.92 rows=450 width=16) (actual time=11.388..11.398 rows=150 loops=1)
+  Group Key: "InventoryTransaction"."inventoryItemId"
+  Batches: 1  Memory Usage: 45kB
+  Buffers: shared hit=2829
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.272..0.272 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Bitmap Heap Scan on "InventoryTransaction"  (cost=564.03..3817.17 rows=11798 width=16) (actual time=1.696..9.468 rows=18303 loops=1)
+        Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" < '2026-10-06 18:30:00'::timestamp without time zone))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Heap Blocks: exact=2663
+        Buffers: shared hit=2829
+        ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..561.08 rows=18066 width=0) (actual time=1.189..1.189 rows=18303 loops=1)
+              Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" < '2026-10-06 18:30:00'::timestamp without time zone))
+              Buffers: shared hit=102
+Planning:
+  Buffers: shared hit=211
+Planning Time: 0.783 ms
+Execution Time: 11.492 ms

@@ -1,0 +1,64 @@
+-- report-staff-365d-users
+SELECT "User"."id", "User"."name", "User"."role"::text, "User"."salaryType"::text, "User"."salaryAmount" FROM "User" WHERE (((EXISTS(SELECT "t0"."userId" FROM "UserOutlet" AS "t0" WHERE ("t0"."outletId" = $1 AND ("User"."id") = ("t0"."userId") AND "t0"."userId" IS NOT NULL)) AND "User"."role" <> CAST($2::text AS "Role")) OR EXISTS(SELECT "t1"."cashierId" FROM "Order" AS "t1" WHERE ("t1"."outletId" = $3 AND "t1"."createdAt" >= $4 AND "t1"."createdAt" < $5 AND ("User"."id") = ("t1"."cashierId") AND "t1"."cashierId" IS NOT NULL))) AND "User"."businessId" = $6) ORDER BY "User"."name" ASC OFFSET $7
+-- params: $1 = 'out1', $2 = 'SUPER_ADMIN', $3 = 'out1', $4 = '2025-11-05 18:30:00', $5 = '2026-11-06 18:30:00', $6 = 'biz1', $7 = '0'
+
+==== BEFORE (4680.675 ms)
+Sort  (cost=9407.28..9407.37 rows=35 width=85) (actual time=4680.464..4680.472 rows=20 loops=1)
+  Sort Key: "User".name
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=681042 read=660244
+  ->  Index Scan using "User_businessId_idx" on "User"  (cost=0.14..9406.39 rows=35 width=85) (actual time=0.811..4680.390 rows=20 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::tex
+        Rows Removed by Filter: 80
+        Buffers: shared hit=681039 read=660244
+        SubPlan 4
+          ->  Seq Scan on "UserOutlet" t0  (cost=0.26..8.26 rows=13 width=7) (actual time=0.549..0.584 rows=20 loops=1)
+                Filter: (("userId" IS NOT NULL) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3))))
+                Rows Removed by Filter: 180
+                Buffers: shared hit=65 read=3
+                InitPlan 3 (returns $3)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.527..0.527 rows=1 loops=1)
+                        Buffers: shared hit=63 read=3
+        SubPlan 6
+          ->  Seq Scan on "Order" t1  (cost=0.26..28015.26 rows=314 width=0) (actual time=58.475..58.475 rows=0 loops=80)
+                Filter: (("cashierId" IS NOT NULL) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ("outletId" = 'out1'::text) AND ("User".id = "cashierId") AND 
+                Rows Removed by Filter: 300000
+                Buffers: shared hit=680960 read=660240
+                InitPlan 5 (returns $5)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+Planning:
+  Buffers: shared hit=388 read=30
+Planning Time: 3.805 ms
+Execution Time: 4680.675 ms
+
+==== AFTER (94.483 ms)
+Sort  (cost=5023.95..5024.04 rows=35 width=85) (actual time=94.338..94.342 rows=20 loops=1)
+  Sort Key: "User".name
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=132367
+  ->  Index Scan using "User_businessId_idx" on "User"  (cost=0.14..5023.06 rows=35 width=85) (actual time=0.640..94.294 rows=20 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::tex
+        Rows Removed by Filter: 80
+        Buffers: shared hit=132364
+        SubPlan 4
+          ->  Seq Scan on "UserOutlet" t0  (cost=0.26..8.26 rows=13 width=7) (actual time=0.555..0.571 rows=20 loops=1)
+                Filter: (("userId" IS NOT NULL) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($3))))
+                Rows Removed by Filter: 180
+                Buffers: shared hit=68
+                InitPlan 3 (returns $3)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.543..0.543 rows=1 loops=1)
+                        Buffers: shared hit=66
+        SubPlan 6
+          ->  Index Scan using "Order_cashierId_createdAt_idx" on "Order" t1  (cost=0.68..14299.22 rows=318 width=0) (actual time=1.166..1.166 rows=0 loops=80)
+                Index Cond: (("cashierId" IS NOT NULL) AND ("cashierId" = "User".id) AND ("createdAt" >= '2025-11-05 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+                Filter: (("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($5))))
+                Rows Removed by Filter: 1644
+                Buffers: shared hit=132281
+                InitPlan 5 (returns $5)
+                  ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+Planning:
+  Buffers: shared hit=435
+Planning Time: 2.913 ms
+Execution Time: 94.483 ms

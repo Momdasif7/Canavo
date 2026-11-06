@@ -1,0 +1,37 @@
+-- storefront-requests
+-- calls during capture: 4; server-side max 0.1 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "ChannelRequest"."id", "ChannelRequest"."outletId", "ChannelRequest"."channel", "ChannelRequest"."status", "ChannelRequest"."tableId", "ChannelRequest"."sessionId", "ChannelRequest"."orderId", "ChannelRequest"."items", "ChannelRequest"."kotIds", "ChannelRequest"."customerName", "ChannelRequest"."customerPhone", "ChannelRequest"."notes", "ChannelRequest"."total", "ChannelRequest"."publicToken", "ChannelRequest"."payment", "ChannelRequest"."ip", "ChannelRequest"."rejectReason", "ChannelRequest"."decidedById", "ChannelRequest"."decidedAt", "ChannelRequest"."refundStatus", "ChannelRequest"."refundRef", "ChannelRequest"."refundAmount", "ChannelRequest"."creditNoteId", "ChannelRequest"."refundError", "ChannelRequest"."createdAt" FROM "ChannelRequest" WHERE ("ChannelRequest"."outletId" = $1 AND "ChannelRequest"."status" = $2) ORDER BY "ChannelRequest"."createdAt" ASC LIMIT $3 OFFSET $4
+-- params: $1 = 'out1', $2 = 'PENDING', $3 = '100', $4 = '0'
+
+==== BEFORE (0.137 ms, median of 3)
+Limit  (cost=0.27..0.28 rows=1 width=696) (actual time=0.058..0.059 rows=0 loops=1)
+  Buffers: shared hit=3
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  Sort  (cost=0.01..0.02 rows=1 width=696) (actual time=0.057..0.057 rows=0 loops=1)
+        Sort Key: "ChannelRequest"."createdAt"
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=3
+        ->  Seq Scan on "ChannelRequest"  (cost=0.00..0.00 rows=1 width=696) (actual time=0.007..0.007 rows=0 loops=1)
+              Filter: (("outletId" = 'out1'::text) AND (status = 'PENDING'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+Planning:
+  Buffers: shared hit=300 read=5
+Planning Time: 1.814 ms
+Execution Time: 0.137 ms
+
+==== AFTER (0.093 ms, median of 3)
+Limit  (cost=0.27..0.28 rows=1 width=696) (actual time=0.032..0.032 rows=0 loops=1)
+  Buffers: shared hit=3
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  Sort  (cost=0.01..0.02 rows=1 width=696) (actual time=0.031..0.031 rows=0 loops=1)
+        Sort Key: "ChannelRequest"."createdAt"
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=3
+        ->  Seq Scan on "ChannelRequest"  (cost=0.00..0.00 rows=1 width=696) (actual time=0.001..0.002 rows=0 loops=1)
+              Filter: (("outletId" = 'out1'::text) AND (status = 'PENDING'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+Planning:
+  Buffers: shared hit=305
+Planning Time: 0.784 ms
+Execution Time: 0.093 ms

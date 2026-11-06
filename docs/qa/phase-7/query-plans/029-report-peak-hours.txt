@@ -1,0 +1,41 @@
+-- report-peak-hours
+-- calls during capture: 4; server-side max 10.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Order"."id", "Order"."grandTotal", "Order"."cgst", "Order"."sgst", "Order"."igst", "Order"."cess", "Order"."otherTaxes", "Order"."roundOff" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."createdAt" >= $2 AND "Order"."createdAt" < $3 AND "Order"."status" = CAST($4::text AS "OrderStatus")) OFFSET $5
+-- params: $1 = 'out1', $2 = '2026-10-06 18:30:00', $3 = '2026-11-06 18:30:00', $4 = 'PAID', $5 = '0'
+
+==== BEFORE (5.155 ms, median of 3)
+Bitmap Heap Scan on "Order"  (cost=124.31..7611.05 rows=618 width=37) (actual time=0.846..5.038 rows=2763 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+  Rows Removed by Filter: 96
+  Heap Blocks: exact=2431
+  Buffers: shared hit=2519
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.228..0.228 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..123.90 rows=2838 width=0) (actual time=0.391..0.391 rows=2859 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=22
+Planning:
+  Buffers: shared hit=360
+Planning Time: 0.687 ms
+Execution Time: 5.155 ms
+
+==== AFTER (5.175 ms, median of 3)
+Bitmap Heap Scan on "Order"  (cost=124.68..7668.09 rows=624 width=37) (actual time=0.756..5.030 rows=2763 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+  Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+  Rows Removed by Filter: 96
+  Heap Blocks: exact=2431
+  Buffers: shared hit=2519
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.174..0.174 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "Order_outletId_createdAt_idx"  (cost=0.00..124.26 rows=2867 width=0) (actual time=0.425..0.425 rows=2859 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+        Buffers: shared hit=22
+Planning:
+  Buffers: shared hit=376
+Planning Time: 1.316 ms
+Execution Time: 5.175 ms

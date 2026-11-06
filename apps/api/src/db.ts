@@ -87,6 +87,16 @@ type AnyClient = { $executeRaw: PrismaClient["$executeRaw"]; $transaction: Prism
 const setConfig = (c: AnyClient, s: RlsSettings) =>
   c.$executeRaw`SELECT set_config('app.business_id', ${s.business}, true), set_config('app.platform', ${s.platform}, true), set_config('app.bypass_rls', ${s.bypass}, true)`;
 
+const READ_OPS = new Set(["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]);
+/** Bounded: each dead pooled connection fails at once (nothing was sent), so a pool's worth of retries is cheap. */
+const STALE_CONNECTION_RETRIES = 10;
+/**
+ * P1017: the pooled connection was already closed by the server (failover, restart, idle kill). The
+ * pool replaces it, but every stale connection would fail one request (QA Phase 7) — reads are
+ * retried on the next connection; writes are not (the client gets a 503 and retries itself).
+ */
+const isStaleConnection = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P1017";
+
 /**
  * Build a client whose single queries run as `[set_config, query]` batches, whose
  * interactive transactions set the config first, and whose raw queries carry it too.
@@ -95,9 +105,15 @@ function withRls<C extends object>(inner: C & AnyClient, settings: () => RlsSett
   const rls = (inner as unknown as PrismaClient).$extends({
     query: {
       $allModels: {
-        async $allOperations({ args, query }) {
-          const [, result] = await inner.$transaction([setConfig(inner, settings()), query(args)] as Prisma.PrismaPromise<unknown>[]);
-          return result;
+        async $allOperations({ operation, args, query }) {
+          for (let attempt = 1; ; attempt++) {
+            try {
+              const [, result] = await inner.$transaction([setConfig(inner, settings()), query(args)] as Prisma.PrismaPromise<unknown>[]);
+              return result;
+            } catch (e) {
+              if (!READ_OPS.has(operation) || !isStaleConnection(e) || attempt >= STALE_CONNECTION_RETRIES) throw e;
+            }
+          }
         },
       },
     },

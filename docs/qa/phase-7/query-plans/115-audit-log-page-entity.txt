@@ -1,0 +1,29 @@
+-- audit-log-page-entity
+-- calls during capture: 4; server-side max 0.1 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "AuditLog"."id", "AuditLog"."businessId", "AuditLog"."userId", "AuditLog"."outletId", "AuditLog"."action", "AuditLog"."entity", "AuditLog"."entityId", "AuditLog"."meta", "AuditLog"."ip", "AuditLog"."createdAt" FROM "AuditLog" WHERE ("AuditLog"."entity" = $1 AND "AuditLog"."businessId" = $2) ORDER BY "AuditLog"."createdAt" DESC LIMIT $3 OFFSET $4
+-- params: $1 = 'Order', $2 = 'biz1', $3 = '50', $4 = '0'
+
+==== BEFORE (0.358 ms, median of 3)
+Limit  (cost=0.42..15.66 rows=50 width=123) (actual time=0.053..0.315 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan Backward using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..22923.91 rows=75215 width=123) (actual time=0.051..0.310 rows=50 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((entity = 'Order'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(curren
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=182
+Planning Time: 1.037 ms
+Execution Time: 0.358 ms
+
+==== AFTER (0.133 ms, median of 3)
+Limit  (cost=0.42..15.66 rows=50 width=123) (actual time=0.026..0.099 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan Backward using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..22923.91 rows=75215 width=123) (actual time=0.025..0.096 rows=50 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((entity = 'Order'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(curren
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=182
+Planning Time: 0.486 ms
+Execution Time: 0.133 ms

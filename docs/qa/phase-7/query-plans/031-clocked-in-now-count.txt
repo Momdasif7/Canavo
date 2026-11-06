@@ -1,0 +1,39 @@
+-- clocked-in-now-count
+-- calls during capture: 20; server-side max 8.5 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all" FROM (SELECT "StaffAttendance"."id" FROM "StaffAttendance" WHERE ("StaffAttendance"."outletId" = $1 AND "StaffAttendance"."clockOutAt" IS NULL) OFFSET $2) AS "sub"
+-- params: $1 = 'out5', $2 = '0'
+
+==== BEFORE (2.206 ms, median of 3)
+Aggregate  (cost=1551.84..1551.85 rows=1 width=8) (actual time=2.130..2.131 rows=1 loops=1)
+  Buffers: shared hit=542
+  ->  Bitmap Heap Scan on "StaffAttendance"  (cost=107.81..1551.83 rows=1 width=32) (actual time=2.126..2.127 rows=0 loops=1)
+        Recheck Cond: ("outletId" = 'out5'::text)
+        Filter: (("clockOutAt" IS NULL) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+        Rows Removed by Filter: 6845
+        Heap Blocks: exact=527
+        Buffers: shared hit=542
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        ->  Bitmap Index Scan on "StaffAttendance_outletId_workDate_idx"  (cost=0.00..107.55 rows=6834 width=0) (actual time=0.228..0.228 rows=6845 loops=1)
+              Index Cond: ("outletId" = 'out5'::text)
+              Buffers: shared hit=15
+Planning:
+  Buffers: shared hit=219
+Planning Time: 1.182 ms
+Execution Time: 2.206 ms
+
+==== AFTER (0.075 ms, median of 3)
+Aggregate  (cost=4.60..4.61 rows=1 width=8) (actual time=0.023..0.023 rows=1 loops=1)
+  Buffers: shared hit=2
+  ->  Index Only Scan using "StaffAttendance_outletId_clockOutAt_idx" on "StaffAttendance"  (cost=0.55..4.59 rows=1 width=32) (actual time=0.020..0.020 rows=0 loops=1)
+        Index Cond: (("outletId" = 'out5'::text) AND ("clockOutAt" IS NULL))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Heap Fetches: 0
+        Buffers: shared hit=2
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+Planning:
+  Buffers: shared hit=241
+Planning Time: 1.233 ms
+Execution Time: 0.075 ms

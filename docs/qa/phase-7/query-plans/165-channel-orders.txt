@@ -1,0 +1,37 @@
+-- channel-orders
+-- calls during capture: 4; server-side max 0.0 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "ChannelOrder"."id", "ChannelOrder"."outletId", "ChannelOrder"."connectionId", "ChannelOrder"."sourceChannel", "ChannelOrder"."channelOrderId", "ChannelOrder"."orderId", "ChannelOrder"."status", "ChannelOrder"."pushedStatus", "ChannelOrder"."pushError", "ChannelOrder"."riderStatus", "ChannelOrder"."rider", "ChannelOrder"."foodReadyQueuedAt", "ChannelOrder"."channelTotal", "ChannelOrder"."ourTotal", "ChannelOrder"."mismatch", "ChannelOrder"."error", "ChannelOrder"."createdAt", "ChannelOrder"."updatedAt" FROM "ChannelOrder" WHERE "ChannelOrder"."outletId" = $1 ORDER BY "ChannelOrder"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'out1', $2 = '50', $3 = '0'
+
+==== BEFORE (0.077 ms, median of 3)
+Limit  (cost=0.27..0.28 rows=1 width=417) (actual time=0.028..0.028 rows=0 loops=1)
+  Buffers: shared hit=3
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  Sort  (cost=0.01..0.02 rows=1 width=417) (actual time=0.027..0.027 rows=0 loops=1)
+        Sort Key: "ChannelOrder"."createdAt" DESC
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=3
+        ->  Seq Scan on "ChannelOrder"  (cost=0.00..0.00 rows=1 width=417) (actual time=0.004..0.004 rows=0 loops=1)
+              Filter: (("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+Planning:
+  Buffers: shared hit=278
+Planning Time: 1.286 ms
+Execution Time: 0.077 ms
+
+==== AFTER (0.054 ms, median of 3)
+Limit  (cost=0.27..0.28 rows=1 width=417) (actual time=0.024..0.025 rows=0 loops=1)
+  Buffers: shared hit=3
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  Sort  (cost=0.01..0.02 rows=1 width=417) (actual time=0.023..0.023 rows=0 loops=1)
+        Sort Key: "ChannelOrder"."createdAt" DESC
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=3
+        ->  Seq Scan on "ChannelOrder"  (cost=0.00..0.00 rows=1 width=417) (actual time=0.003..0.003 rows=0 loops=1)
+              Filter: (("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+Planning:
+  Buffers: shared hit=278
+Planning Time: 1.073 ms
+Execution Time: 0.054 ms

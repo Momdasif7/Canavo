@@ -1,0 +1,65 @@
+-- report-customers-first-order
+-- calls during capture: 4; server-side max 23.9 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT MIN("Order"."createdAt") AS "_min$createdAt", "Order"."customerId" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."status" = CAST($2::text AS "OrderStatus") AND "Order"."customerId" IN ($…)) GROUP BY "Order"."customerId" OFFSET $1079
+-- params: $1 = 'out1', $2 = 'PAID', $3 = 'cus29', $4 = 'cus188', $5 = 'cus242', $6 = 'cus687', $7 = 'cus1102', $8 = 'cus1220', $9 = 'cus1558', $10 = 'cus2420', $11 = 'cus2522', $12 = 'cus2939', $13 = 'cus3141', $14 = 'cus3941', $15 = 'cus4132', $16 = 'cus4270', $17 = 'cus4493', $18 = 'cus4926', $19 = 'cus5625
+
+==== BEFORE (7.629 ms, median of 3)
+GroupAggregate  (cost=4944.00..4945.40 rows=80 width=16) (actual time=7.047..7.305 rows=1076 loops=1)
+  Group Key: "Order"."customerId"
+  Buffers: shared hit=4742
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.210..0.211 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Sort  (cost=4943.74..4943.94 rows=80 width=16) (actual time=7.044..7.089 rows=1514 loops=1)
+        Sort Key: "Order"."customerId"
+        Sort Method: quicksort  Memory: 115kB
+        Buffers: shared hit=4742
+        ->  Bitmap Heap Scan on "Order"  (cost=3627.10..4941.21 rows=80 width=16) (actual time=3.735..6.365 rows=1514 loops=1)
+              Recheck Cond: (("outletId" = 'out1'::text) AND ("customerId" = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[])))
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+              Rows Removed by Filter: 13
+              Heap Blocks: exact=1395
+              Buffers: shared hit=4739
+              ->  BitmapAnd  (cost=3624.41..3624.41 rows=369 width=0) (actual time=3.374..3.374 rows=0 loops=1)
+                    Buffers: shared hit=3280
+                    ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.30 rows=35850 width=0) (actual time=1.236..1.236 rows=36134 loops=1)
+                          Index Cond: ("outletId" = 'out1'::text)
+                          Buffers: shared hit=52
+                    ->  Bitmap Index Scan on "Order_customerId_idx"  (cost=0.00..3118.82 rows=3085 width=0) (actual time=1.811..1.811 rows=3393 loops=1)
+                          Index Cond: ("customerId" = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[]))
+                          Buffers: shared hit=3228
+Planning:
+  Buffers: shared hit=296
+Planning Time: 1.299 ms
+Execution Time: 7.629 ms
+
+==== AFTER (7.763 ms, median of 3)
+GroupAggregate  (cost=4876.65..4878.06 rows=81 width=16) (actual time=7.034..7.263 rows=1076 loops=1)
+  Group Key: "Order"."customerId"
+  Buffers: shared hit=4727
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.185..0.185 rows=1 loops=1)
+          Buffers: shared hit=64
+  ->  Sort  (cost=4876.39..4876.59 rows=81 width=16) (actual time=7.032..7.074 rows=1514 loops=1)
+        Sort Key: "Order"."customerId"
+        Sort Method: quicksort  Memory: 115kB
+        Buffers: shared hit=4727
+        ->  Bitmap Heap Scan on "Order"  (cost=3542.82..4873.82 rows=81 width=16) (actual time=3.647..6.366 rows=1514 loops=1)
+              Recheck Cond: (("outletId" = 'out1'::text) AND ("customerId" = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[])))
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('PAID'::cstring)::"OrderStatus"))
+              Rows Removed by Filter: 13
+              Heap Blocks: exact=1395
+              Buffers: shared hit=4724
+              ->  BitmapAnd  (cost=3540.13..3540.13 rows=374 width=0) (actual time=3.359..3.359 rows=0 loops=1)
+                    Buffers: shared hit=3265
+                    ->  Bitmap Index Scan on "Order_outletId_cancelledAt_idx"  (cost=0.00..421.02 rows=36880 width=0) (actual time=1.292..1.292 rows=36134 loops=1)
+                          Index Cond: ("outletId" = 'out1'::text)
+                          Buffers: shared hit=37
+                    ->  Bitmap Index Scan on "Order_customerId_idx"  (cost=0.00..3118.82 rows=3045 width=0) (actual time=1.845..1.845 rows=3393 loops=1)
+                          Index Cond: ("customerId" = ANY ('{cus29,cus188,cus242,cus687,cus1102,cus1220,cus1558,cus2420,c…}'::text[]))
+                          Buffers: shared hit=3228
+Planning:
+  Buffers: shared hit=312
+Planning Time: 1.241 ms
+Execution Time: 7.763 ms

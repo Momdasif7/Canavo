@@ -1,0 +1,29 @@
+-- audit-log-page
+-- calls during capture: 4; server-side max 0.5 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "AuditLog"."id", "AuditLog"."businessId", "AuditLog"."userId", "AuditLog"."outletId", "AuditLog"."action", "AuditLog"."entity", "AuditLog"."entityId", "AuditLog"."meta", "AuditLog"."ip", "AuditLog"."createdAt" FROM "AuditLog" WHERE "AuditLog"."businessId" = $1 ORDER BY "AuditLog"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'biz1', $2 = '50', $3 = '0'
+
+==== BEFORE (0.353 ms, median of 3)
+Limit  (cost=0.42..15.41 rows=50 width=123) (actual time=0.049..0.313 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan Backward using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..22549.31 rows=75215 width=123) (actual time=0.048..0.308 rows=50 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::text
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=182
+Planning Time: 0.953 ms
+Execution Time: 0.353 ms
+
+==== AFTER (0.292 ms, median of 3)
+Limit  (cost=0.42..15.41 rows=50 width=123) (actual time=0.048..0.224 rows=50 loops=1)
+  Buffers: shared hit=53
+  ->  Index Scan Backward using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..22549.31 rows=75215 width=123) (actual time=0.047..0.219 rows=50 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::text
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=182
+Planning Time: 0.912 ms
+Execution Time: 0.292 ms

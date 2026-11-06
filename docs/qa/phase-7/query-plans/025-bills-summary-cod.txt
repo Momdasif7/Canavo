@@ -1,0 +1,47 @@
+-- bills-summary-cod
+-- calls during capture: 12; server-side max 13.5 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all", SUM("grandTotal") AS "_sum$grandTotal" FROM (SELECT "Order"."id", "Order"."grandTotal" FROM "Order" LEFT JOIN "Delivery" AS "j0" ON ("j0"."orderId") = ("Order"."id") WHERE ("Order"."outletId" = $1 AND "Order"."createdAt" >= $2 AND "Order"."createdAt" < $3 AND "Order"."status" <> CAST($4::text AS "OrderStatus") AND ("j0"."cod" = $5 AND ("j0"."id" IS NOT NULL))) OFFSET $6) AS "sub"
+-- params: $1 = 'out1', $2 = '2026-10-06 18:30:00', $3 = '2026-11-06 18:30:00', $4 = 'CANCELLED', $5 = 't', $6 = '0'
+
+==== BEFORE (6.285 ms, median of 3)
+Aggregate  (cost=2603.33..2603.34 rows=1 width=16) (actual time=6.248..6.249 rows=1 loops=1)
+  Buffers: shared hit=931
+  ->  Nested Loop  (cost=0.94..2603.32 rows=1 width=36) (actual time=6.247..6.247 rows=0 loops=1)
+        Buffers: shared hit=931
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        InitPlan 2 (returns $1)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        ->  Seq Scan on "Delivery" j0  (cost=0.00..2594.31 rows=1 width=9) (actual time=6.246..6.246 rows=0 loops=1)
+              Filter: (cod AND (id IS NOT NULL) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1))))
+              Rows Removed by Filter: 60484
+              Buffers: shared hit=931
+        ->  Index Scan using "Order_pkey" on "Order"  (cost=0.42..8.47 rows=1 width=13) (never executed)
+              Index Cond: (id = j0."orderId")
+              Filter: (("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::
+Planning:
+  Buffers: shared hit=558
+Planning Time: 1.828 ms
+Execution Time: 6.285 ms
+
+==== AFTER (5.127 ms, median of 3)
+Aggregate  (cost=2603.33..2603.34 rows=1 width=16) (actual time=5.069..5.069 rows=1 loops=1)
+  Buffers: shared hit=931
+  ->  Nested Loop  (cost=0.94..2603.32 rows=1 width=36) (actual time=5.067..5.067 rows=0 loops=1)
+        Buffers: shared hit=931
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        InitPlan 2 (returns $1)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+        ->  Seq Scan on "Delivery" j0  (cost=0.00..2594.31 rows=1 width=9) (actual time=5.066..5.066 rows=0 loops=1)
+              Filter: (cod AND (id IS NOT NULL) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($1))))
+              Rows Removed by Filter: 60484
+              Buffers: shared hit=931
+        ->  Index Scan using "Order_pkey" on "Order"  (cost=0.42..8.47 rows=1 width=13) (never executed)
+              Index Cond: (id = j0."orderId")
+              Filter: (("createdAt" >= '2026-10-06 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::
+Planning:
+  Buffers: shared hit=574
+Planning Time: 1.863 ms
+Execution Time: 5.127 ms
