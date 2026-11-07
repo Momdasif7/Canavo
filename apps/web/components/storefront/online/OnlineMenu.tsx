@@ -69,6 +69,9 @@ export function OnlineMenu({ menu, brand, cart, canOrder }: { menu: PublicMenu; 
 
   // Scroll-spy: the category section nearest the top (under the sticky bar) is the active tab.
   useEffect(() => {
+    setActive((cur) => (cur && groups.some((g) => g.id === cur) ? cur : (groups[0]?.id ?? null)));
+  }, [groups]);
+  useEffect(() => {
     const sections = groups.map((g) => document.getElementById(`cat-${g.id}`)).filter((x): x is HTMLElement => Boolean(x));
     if (!sections.length) return;
     const seen = new Map<string, boolean>();

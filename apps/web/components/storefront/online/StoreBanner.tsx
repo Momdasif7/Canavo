@@ -80,7 +80,7 @@ export function StoreBanner({ page }: { page: OutletPage }) {
         <ThemeToggle />
       </div>
       <div className="mx-auto max-w-6xl px-4">
-        <div className="relative -mt-12 rounded-3xl border border-line bg-surface p-4 shadow-lg sm:-mt-16 sm:p-5">
+        <div className="relative -mt-10 rounded-3xl border border-line bg-surface p-4 shadow-lg sm:-mt-16 sm:p-5">
           <div className="flex items-start gap-3 sm:gap-4">
             <StoreLogo brand={brand} />
             <div className="min-w-0 flex-1">
