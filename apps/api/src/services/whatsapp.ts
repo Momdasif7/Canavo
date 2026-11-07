@@ -37,6 +37,8 @@ export interface StoredWaConfig {
   meta?: { phoneNumberId: string; accessTokenEnc?: string; language?: string };
   wati?: { apiUrl: string; tokenEnc?: string };
   templates?: Partial<Record<WaPurpose, string>>;
+  /** Language of each approved template when it differs from meta.language (Meta needs the exact code) */
+  templateLanguages?: Partial<Record<WaPurpose, string>>;
   /** Send delivery status updates to customers automatically */
   autoDeliveryUpdates?: boolean;
   /** Allow staff alerts on WhatsApp (each person still opts in under notification preferences) */
@@ -49,6 +51,8 @@ export interface WaConfig {
   meta?: { phoneNumberId: string; accessToken: string; language: string; baseUrl?: string };
   wati?: { apiUrl: string; token: string };
   templates: Record<WaPurpose, string>;
+  /** Per-purpose template language (Meta); missing = meta.language */
+  templateLanguages?: Partial<Record<WaPurpose, string>>;
   autoDeliveryUpdates: boolean;
   staffAlerts: boolean;
   /** Config comes from server env (WATI_*) because the business has none */
@@ -81,6 +85,7 @@ export async function getWaConfig(businessId = currentBusinessId()): Promise<WaC
       meta: stored.meta ? { phoneNumberId: stored.meta.phoneNumberId, accessToken: decryptSecret(stored.meta.accessTokenEnc), language: stored.meta.language || "en" } : undefined,
       wati: stored.wati ? { apiUrl: stored.wati.apiUrl.replace(/\/$/, ""), token: decryptSecret(stored.wati.tokenEnc) } : undefined,
       templates,
+      templateLanguages: stored.templateLanguages ?? {},
       autoDeliveryUpdates: stored.autoDeliveryUpdates ?? false,
       staffAlerts: stored.staffAlerts ?? false,
       fromEnv: false,
@@ -89,7 +94,7 @@ export async function getWaConfig(businessId = currentBusinessId()): Promise<WaC
   if (!stored && env.WATI_API_URL && env.WATI_API_TOKEN) {
     return { provider: "WATI", wati: { apiUrl: env.WATI_API_URL.replace(/\/$/, ""), token: env.WATI_API_TOKEN }, templates, autoDeliveryUpdates: false, staffAlerts: false, fromEnv: true };
   }
-  return { provider: "NONE", templates, autoDeliveryUpdates: stored?.autoDeliveryUpdates ?? false, staffAlerts: stored?.staffAlerts ?? false, fromEnv: false };
+  return { provider: "NONE", templates, templateLanguages: stored?.templateLanguages ?? {}, autoDeliveryUpdates: stored?.autoDeliveryUpdates ?? false, staffAlerts: stored?.staffAlerts ?? false, fromEnv: false };
 }
 
 /** Indian mobile → WhatsApp id: 10 digits get the 91 prefix; anything else is sent as digits. */
@@ -160,7 +165,7 @@ export async function sendWhatsApp(msg: WaMessage, cfg?: WaConfig): Promise<WaSe
       const res = await fetch(url, {
         method: "POST",
         headers: { authorization: `Bearer ${config.meta.accessToken}`, "content-type": "application/json" },
-        body: JSON.stringify(metaTemplateBody(to, template, config.meta.language, params)),
+        body: JSON.stringify(metaTemplateBody(to, template, config.templateLanguages?.[msg.purpose] || config.meta.language, params)),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       const body = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string; code?: number } };

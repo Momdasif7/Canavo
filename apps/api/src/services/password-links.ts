@@ -7,6 +7,7 @@ import { badRequest } from "../lib/http";
 import { forceLogout, sha256 } from "../lib/tokens";
 import { sendMail, smtpConfigured } from "./mailer";
 import { sendSms } from "./sms";
+import { smsFor } from "./integrations";
 
 /**
  * One-time password links (Phase 2.2). The platform and owners never type or see a
@@ -35,7 +36,8 @@ export interface LinkDelivery {
   expiresAt: Date;
 }
 
-export const smsConfigured = () => Boolean(env.MSG91_AUTH_KEY && env.MSG91_ALERT_TEMPLATE_ID);
+/** SMS alerts set up for this business (its own MSG91 account, else the platform's). */
+export const smsConfigured = async (businessId?: string) => Boolean(await smsFor("alert", businessId));
 
 export async function createPasswordLink(userId: string, purpose: PasswordLinkPurpose, requestedBy?: string) {
   const raw = crypto.randomBytes(32).toString("base64url");
@@ -48,12 +50,18 @@ export async function createPasswordLink(userId: string, purpose: PasswordLinkPu
   return { url, expiresAt };
 }
 
-/** Email if the user has an address and SMTP is set up, otherwise SMS; in development the link is logged and returned. */
+/**
+ * Email if the user has an address and email is set up, otherwise SMS; in development the link is
+ * logged and returned. A hotel's staff get it through the hotel's own email / SMS account when it
+ * connected one (Settings → Integrations), else through the platform's; platform users always
+ * through the platform's.
+ */
 export async function sendPasswordLink(user: LinkUser, purpose: PasswordLinkPurpose, requestedBy?: string): Promise<LinkDelivery> {
   const { url, expiresAt } = await createPasswordLink(user.id, purpose, requestedBy);
   const invite = purpose === "INVITE";
   const validFor = invite ? "72 hours" : "30 minutes";
-  if (user.email && smtpConfigured()) {
+  const businessId = (await db.user.findUnique({ where: { id: user.id }, select: { businessId: true } }))?.businessId ?? undefined;
+  if (user.email && (await smtpConfigured(businessId))) {
     await sendMail({
       to: user.email,
       subject: invite ? "Set your CANAVO password" : "Reset your CANAVO password",
@@ -62,11 +70,11 @@ export async function sendPasswordLink(user: LinkUser, purpose: PasswordLinkPurp
         `<p>${invite ? "Your CANAVO account is ready. Set your password to sign in:" : "Use this link to set a new CANAVO password:"}</p>` +
         `<p><a href="${url}">${invite ? "Set my password" : "Reset my password"}</a></p>` +
         `<p>The link works once and expires in ${validFor}. If you didn't ask for this, ignore this email; your password stays the same.</p>`,
-    });
+    }, businessId);
     return { channel: "email", expiresAt };
   }
-  if (smsConfigured()) {
-    await sendSms(user.phone, `CANAVO: ${invite ? "set" : "reset"} your password (valid ${validFor}, one use): ${url}`);
+  if (await smsConfigured(businessId)) {
+    await sendSms(user.phone, `CANAVO: ${invite ? "set" : "reset"} your password (valid ${validFor}, one use): ${url}`, businessId);
     return { channel: "sms", expiresAt };
   }
   if (isProd) {

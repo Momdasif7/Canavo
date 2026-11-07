@@ -23,7 +23,8 @@ import { addItemsToSession, findOpenSession, openSession } from "../routes/table
 import { getOrder } from "./billing";
 import { createChannelOrder, systemRequest } from "./channel-orders";
 import { notify, outletManagers, outletStaff } from "./notify";
-import { createUpiQr, refundPayment, type GatewayRefund } from "./razorpay";
+import { createUpiQr, refundPayment, upiAvailable, type GatewayRefund } from "./razorpay";
+import { RAZORPAY_NOT_CONNECTED_CUSTOMER } from "./integrations";
 import { createCreditNote } from "./credit-notes";
 import { onOrderCancelledService, selectZone } from "./service-context";
 import { phoneTokenValid } from "./storefront-otp";
@@ -572,6 +573,8 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
       (input.payment === "COD" && delivery && settings.cashOnDelivery) ||
       (input.payment === "UPI" && settings.upiPrepaid);
     if (!payOk) throw badRequest("Choose another way to pay");
+    // Online UPI goes through the store's own Razorpay only (no platform account): refuse before creating the order.
+    if (input.payment === "UPI" && !(await upiAvailable())) throw conflict(RAZORPAY_NOT_CONNECTED_CUSTOMER);
 
     const lines = checkCart(await publicMenu(outlet.id, outlet.timezone), input.items);
     if (cartTotal(lines) < settings.minOrder) throw badRequest(`Minimum order is ${formatINR(settings.minOrder)}`);

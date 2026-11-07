@@ -27,9 +27,17 @@ const schema = z.object({
   RECEIPT_LINK_SECRET: z.string().min(32),
   MSG91_AUTH_KEY: z.string().optional(),
   MSG91_TEMPLATE_ID: z.string().optional(),
-  RAZORPAY_KEY_ID: z.string().optional(),
-  RAZORPAY_KEY_SECRET: z.string().optional(),
+  /**
+   * Razorpay keys are per store (Settings → Integrations); there is NO platform payment account.
+   * Only the legacy platform webhook secret remains, for /webhooks/razorpay (QRs created before
+   * stores had their own keys). Each store's webhook uses its own URL and secret.
+   */
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * Development / test only: a store without Razorpay gets mock UPI QRs (confirmed by hand or
+   * /dev-simulate). Default on outside production; always off in production.
+   */
+  PAYMENTS_DEV_MOCK: z.preprocess((v) => (v === undefined || v === "" ? undefined : v === "true" || v === "1" || v === true), z.boolean().optional()),
   /** Razorpay API base (tests point it at a fake server) */
   RAZORPAY_BASE_URL: z.string().url().default("https://api.razorpay.com"),
   WATI_API_URL: z.string().optional(),

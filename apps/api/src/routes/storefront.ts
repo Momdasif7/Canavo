@@ -6,7 +6,7 @@ import { audit } from "../lib/audit";
 import { conflict, notFound, param, parse } from "../lib/http";
 import { authenticate, requireAnyPermission, requireModule, requireOutlet, requirePermission } from "../middleware/auth";
 import { moduleEnabled } from "../lib/tenant";
-import { razorpayEnabled } from "../services/razorpay";
+import { upiAvailable } from "../services/razorpay";
 import { acceptRequest, cancelAcceptedOnline, newPublicToken, readSettings, rejectRequest } from "../services/storefront";
 import { emitTables } from "./tables";
 
@@ -38,7 +38,7 @@ async function settingsView(outletId: string) {
     outletName: outlet.name,
     deliveryAvailable: moduleEnabled("DELIVERY") && outlet.deliveryEnabled,
     tablesAvailable: moduleEnabled("TABLES"),
-    upiReady: razorpayEnabled() || Boolean(outlet.upiVpa),
+    upiReady: await upiAvailable(),
   };
 }
 

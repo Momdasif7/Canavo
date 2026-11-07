@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { env } from "../env";
 import { conflict, param, parse, publicApiUrl } from "../lib/http";
 import { runForOutlet } from "../lib/tenant";
+import { upiAvailable } from "../services/razorpay";
 import { receiptToken } from "./orders";
 import {
   acceptingNow,
@@ -112,7 +113,7 @@ storefrontPublicRouter.get("/public/o/:slug", async (req, res) => {
     payments: {
       COUNTER: settings.payAtCounter,
       COD: settings.cashOnDelivery && data.delivery,
-      UPI: settings.upiPrepaid,
+      UPI: settings.upiPrepaid && (await upiAvailable(outlet.businessId)),
     },
     needsConfirmation: settings.onlineNeedsConfirmation,
     verifyPhone: settings.verifyPhoneOtp,

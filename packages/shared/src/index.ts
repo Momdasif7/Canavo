@@ -18,3 +18,4 @@ export * from "./schemas-meals";
 export * from "./schemas-storefront";
 export * from "./packing-slip";
 export * from "./appearance";
+export * from "./integrations";

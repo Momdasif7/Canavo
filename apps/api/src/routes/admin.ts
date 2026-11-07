@@ -14,6 +14,10 @@ import {
   SETTING_KEYS,
   SETTING_SCHEMAS,
   type SettingKey,
+  maskSecret,
+  WA_TEMPLATE_CATALOG,
+  waLanguageCode,
+  waSamplePreview,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
@@ -25,6 +29,8 @@ import { authenticate, requireBusiness, requireOutlet, requirePermission, userCa
 import { ipAllowed, normalizeIp, superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { sendSchedule } from "../services/report-schedules";
 import { DEFAULT_TEMPLATES, encryptSecret, getStoredConfig, getWaConfig, sendWhatsApp, WA_PURPOSES, WA_SETTING_KEY, type StoredWaConfig, type WaPurpose } from "../services/whatsapp";
+import { isInternalHost } from "../lib/safe-url";
+import { integrationTestLimiter } from "./integrations";
 import { assertBackupExists, createBackup, listBackups, restoreBackup, streamExport, tableCounts } from "../services/backup";
 
 export const adminRouter = Router();
@@ -366,10 +372,14 @@ adminRouter.post("/aadhaar/reduce-to-last4", requirePermission("outlet:manage"),
 });
 
 // =====================================================================
-// WhatsApp (per business): provider, keys (encrypted), templates, test send
+// WhatsApp (per business): provider, keys (encrypted), templates, test send.
+// Part of Settings → Integrations: owner only, like the other integrations.
 // =====================================================================
 
 const waTemplatesSchema = z.object(Object.fromEntries(WA_PURPOSES.map((p) => [p, z.string().trim().max(512).optional()])) as Record<WaPurpose, z.ZodOptional<z.ZodString>>);
+const waLanguagesSchema = z
+  .object(Object.fromEntries(WA_PURPOSES.map((p) => [p, z.union([waLanguageCode, z.literal("")]).optional()])) as unknown as Record<WaPurpose, z.ZodOptional<z.ZodTypeAny>>)
+  .strict();
 const waConfigSchema = z.object({
   provider: z.enum(["NONE", "META", "WATI"]),
   meta: z
@@ -382,34 +392,47 @@ const waConfigSchema = z.object({
     .optional(),
   wati: z
     .object({
-      apiUrl: z.string().trim().url().refine((u) => u.startsWith("https://"), "WATI API URL must start with https://"),
+      apiUrl: z
+        .string()
+        .trim()
+        .url()
+        .refine((u) => u.startsWith("https://"), "WATI API URL must start with https://")
+        // The test button posts to this URL from our server: never an internal address (SSRF).
+        .refine((u) => !isInternalHost(new URL(u).hostname), "WATI API URL must be WATI's public address"),
       token: z.string().trim().min(10).max(2048).optional(),
     })
     .optional(),
   templates: waTemplatesSchema.optional(),
+  templateLanguages: waLanguagesSchema.optional(),
   autoDeliveryUpdates: z.boolean().default(false),
   staffAlerts: z.boolean().default(false),
 });
 
-const last4 = (s: string) => (s ? `••••${s.slice(-4)}` : null);
+function noSupportView(req: Request, _res: Response, next: NextFunction) {
+  noSupport(req);
+  next();
+}
+/** WhatsApp is an integration: the owner only (no managers, no support views). */
+const waAccess = [requirePermission("outlet:manage"), requireBusiness, noSupportView];
 
 /** Masked view of the business's WhatsApp setup (tokens are never returned). */
-adminRouter.get("/whatsapp", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
+adminRouter.get("/whatsapp", ...waAccess, async (req, res) => {
   const stored = await getStoredConfig(req.businessId!);
   const cfg = await getWaConfig(req.businessId!);
   res.json({
     provider: stored?.provider ?? (cfg.fromEnv ? "WATI" : "NONE"),
     fromEnv: cfg.fromEnv,
-    meta: stored?.meta ? { phoneNumberId: stored.meta.phoneNumberId, language: stored.meta.language ?? "en", token: last4(cfg.meta?.accessToken ?? "") } : null,
-    wati: stored?.wati ? { apiUrl: stored.wati.apiUrl, token: last4(cfg.wati?.token ?? "") } : null,
+    meta: stored?.meta ? { phoneNumberId: stored.meta.phoneNumberId, language: stored.meta.language ?? "en", token: maskSecret(cfg.meta?.accessToken) } : null,
+    wati: stored?.wati ? { apiUrl: stored.wati.apiUrl, token: maskSecret(cfg.wati?.token) } : null,
     templates: cfg.templates,
+    templateLanguages: cfg.templateLanguages ?? {},
     defaultTemplates: DEFAULT_TEMPLATES,
     autoDeliveryUpdates: cfg.autoDeliveryUpdates,
     staffAlerts: cfg.staffAlerts,
   });
 });
 
-adminRouter.put("/whatsapp", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
+adminRouter.put("/whatsapp", ...waAccess, async (req, res) => {
   const data = parse(waConfigSchema, req.body);
   const prev = await getStoredConfig(req.businessId!);
   if (data.provider === "META") {
@@ -421,6 +444,7 @@ adminRouter.put("/whatsapp", requirePermission("settings:outlet"), requireBusine
     if (!data.wati.token && !prev?.wati?.tokenEnc) throw badRequest("Enter the WATI API token");
   }
   const templates = Object.fromEntries(Object.entries(data.templates ?? {}).filter(([, v]) => v)) as Partial<Record<WaPurpose, string>>;
+  const templateLanguages = Object.fromEntries(Object.entries(data.templateLanguages ?? {}).filter(([, v]) => v)) as Partial<Record<WaPurpose, string>>;
   const value: StoredWaConfig = {
     provider: data.provider,
     meta: data.meta
@@ -428,6 +452,7 @@ adminRouter.put("/whatsapp", requirePermission("settings:outlet"), requireBusine
       : prev?.meta,
     wati: data.wati ? { apiUrl: data.wati.apiUrl, tokenEnc: data.wati.token ? encryptSecret(data.wati.token) : prev?.wati?.tokenEnc } : prev?.wati,
     templates,
+    templateLanguages,
     autoDeliveryUpdates: data.autoDeliveryUpdates,
     staffAlerts: data.staffAlerts,
   };
@@ -440,15 +465,19 @@ adminRouter.put("/whatsapp", requirePermission("settings:outlet"), requireBusine
   await audit(req, "whatsapp.config", "Setting", WA_SETTING_KEY, {
     provider: data.provider,
     tokenChanged: Boolean(data.meta?.accessToken || data.wati?.token),
+    templates,
+    templateLanguages,
     autoDeliveryUpdates: data.autoDeliveryUpdates,
     staffAlerts: data.staffAlerts,
   });
   res.json({ ok: true });
 });
 
+const waPhone = z.object({ phone: z.string().trim().regex(/^(\+?91)?[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number") });
+
 /** Send a test message through the saved provider (uses the "test" template, default hello_world). */
-adminRouter.post("/whatsapp/test", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
-  const { phone } = parse(z.object({ phone: z.string().trim().regex(/^(\+?91)?[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number") }), req.body);
+adminRouter.post("/whatsapp/test", ...waAccess, integrationTestLimiter("whatsapp"), async (req, res) => {
+  const { phone } = parse(waPhone, req.body);
   const result = await sendWhatsApp({
     to: phone.slice(-10),
     text: "Test message from CANAVO: WhatsApp is connected.",
@@ -459,3 +488,29 @@ adminRouter.post("/whatsapp/test", requirePermission("settings:outlet"), require
   await audit(req, "whatsapp.test", "Setting", WA_SETTING_KEY, { provider: result.provider, method: result.method, error: result.error });
   res.json(result);
 });
+
+/**
+ * Test one message type's template: sends the saved template name / language with the type's
+ * sample values, so the owner sees what Meta / WATI actually delivers for it.
+ */
+adminRouter.post("/whatsapp/templates/:purpose/test", ...waAccess, integrationTestLimiter("whatsapp"), async (req, res) => {
+  const purpose = param(req, "purpose") as WaPurpose;
+  if (!(WA_PURPOSES as readonly string[]).includes(purpose)) throw badRequest(`Unknown message type. Allowed: ${WA_PURPOSES.join(", ")}`);
+  const { phone } = parse(waPhone, req.body);
+  const cfg = await getWaConfig(req.businessId!);
+  const result = await sendWhatsApp(
+    {
+      to: phone.slice(-10),
+      text: waSamplePreview(purpose),
+      purpose,
+      tag: `canavo_test_${purpose}`,
+      params: WA_TEMPLATE_CATALOG[purpose].variables.map((v) => ({ name: v.name, value: v.sample })),
+    },
+    cfg,
+  );
+  const template = cfg.templates[purpose];
+  const language = cfg.templateLanguages?.[purpose] || cfg.meta?.language || null;
+  await audit(req, "whatsapp.template_test", "Setting", WA_SETTING_KEY, { purpose, template, provider: result.provider, method: result.method, error: result.error ?? null });
+  res.json({ ...result, template, language });
+});
+
