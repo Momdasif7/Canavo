@@ -5,7 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useClock } from "../attendance/useClock";
 import { useSignedIn } from "../auth/AuthContext";
+import { BusinessBrandRow } from "../components/BusinessBrand";
 import { PinPad } from "../components/PinPad";
+import { SelfieCapture } from "../attendance/SelfieCapture";
 import { Screen } from "../components/Screen";
 import { AppText, Button, Card, Loading, Notice, Row, Segmented } from "../components/ui";
 import { endpoints, errorMessage } from "../lib/api";
@@ -101,6 +103,7 @@ export function DeliveryHome() {
         <View style={{ flex: 1, gap: 2 }}>
           <AppText variant="muted">Hi,</AppText>
           <AppText variant="title">{me.name.split(" ")[0]}</AppText>
+          <BusinessBrandRow />
           <AppText variant="small">Delivery partner{outlet ? ` · ${outlet.name}` : ""}</AppText>
         </View>
         <Pressable
@@ -295,6 +298,7 @@ export function DeliveryHome() {
         onSubmit={c.submitPin}
         onClose={c.cancelPin}
       />
+      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
     </Screen>
   );
 }

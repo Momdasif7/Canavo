@@ -6,14 +6,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Accent scale backed by CSS variables (globals.css; set at runtime from the business brand or the
+        // user's own accent — see primaryScale in @canavo/shared). `fg` is readable text on a solid accent.
         primary: {
-          DEFAULT: "#FF6B35",
-          50: "#FFF3EE",
-          100: "#FFE3D6",
-          200: "#FFC4AA",
-          500: "#FF6B35",
-          600: "#E8541F",
-          700: "#C24215",
+          DEFAULT: "rgb(var(--primary) / <alpha-value>)",
+          50: "rgb(var(--primary-50) / <alpha-value>)",
+          100: "rgb(var(--primary-100) / <alpha-value>)",
+          200: "rgb(var(--primary-200) / <alpha-value>)",
+          500: "rgb(var(--primary-500) / <alpha-value>)",
+          600: "rgb(var(--primary-600) / <alpha-value>)",
+          700: "rgb(var(--primary-700) / <alpha-value>)",
+          fg: "rgb(var(--primary-fg) / <alpha-value>)",
         },
         secondary: {
           DEFAULT: "#2D6A4F",
@@ -38,8 +41,19 @@ const config: Config = {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
-      minHeight: { tap: "48px" },
-      minWidth: { tap: "48px" },
+      // Touch target; 40px in the compact density (globals.css)
+      minHeight: { tap: "var(--tap)" },
+      minWidth: { tap: "var(--tap)" },
+      // Corner radii as variables so the business's "square" corner style can tighten them all at once.
+      borderRadius: {
+        sm: "var(--radius-sm)",
+        DEFAULT: "var(--radius)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-xl)",
+        "2xl": "var(--radius-2xl)",
+        "3xl": "var(--radius-3xl)",
+      },
       keyframes: {
         "draw-check": { from: { strokeDashoffset: "48" }, to: { strokeDashoffset: "0" } },
         "pop-in": { "0%": { transform: "scale(0.6)", opacity: "0" }, "100%": { transform: "scale(1)", opacity: "1" } },

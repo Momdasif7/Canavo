@@ -34,6 +34,12 @@ describe("report-export helpers", () => {
     expect(excelValue({ a: 1 })).toBe('{"a":1}');
   });
 
+  it("keeps formula-looking text inert (CSV / formula injection)", () => {
+    for (const s of ["=1+1", "+cmd|' /C calc'!A0", "-2+3", "@SUM(A1)", "\t=x", "\r=x"]) expect(excelValue(s)).toBe(`'${s}`);
+    expect(excelValue("Masala chai")).toBe("Masala chai");
+    expect(excelValue(-5, "int")).toBe(-5);
+  });
+
   it("sums only numeric columns and labels the first text column", () => {
     expect(computeTotals(table.columns, table.rows)).toEqual({ period: "Total", orders: 15, gross: 203456 });
     expect(resolveTotals({ ...table, totals: { period: "All", gross: 1 } })).toEqual({ period: "All", gross: 1 });

@@ -83,21 +83,23 @@ Super Admin (platform operator)   — /platform console: onboard businesses, pic
      ├─ Business Owner             — every outlet, staff and setting of that business; creates managers and staff; exports its data
      └─ Outlet
          ├─ Outlet Manager         — the outlet, including GST & tax settings; creates cashier/kitchen/delivery/inventory staff
-         └─ Cashier · Kitchen · Delivery · Inventory staff
+         └─ Cashier · Waiter / Captain · Kitchen · Delivery · Inventory staff · Accountant · Auditor (read-only)
+                (owners can also define custom roles that narrow a built-in role)
 ```
 
-- **Privacy:** the Super Admin can't open any hotel.
+- **Privacy:** the Super Admin can't open any hotel, unless its owner grants read-only support access (Settings → Support access). That access is time-limited and can be ended any time, and every screen viewed is shown to the owner.
   - It has only `platform:manage`, `admin:backup` and `audit:view`, no outlets, and no business context. `X-Outlet-Id` and `X-Business-Id` are refused or ignored for it.
   - In the platform console it sees account information only: hotel name and contact, status, modules, outlet names and owner accounts. It never sees sales, bills, staff, customers, Aadhaar or reports.
   - Its audit log shows platform actions only.
 - **Who creates whom:**
-  - The Super Admin creates owners and resets their passwords; a reset signs the owner out.
+  - The Super Admin creates owners. Each owner gets a link to set their own password, and the Super Admin can send a reset link. The platform never sets or sees a password.
   - The Owner creates managers and staff, but not another owner.
   - A Manager creates cashier, kitchen, delivery and inventory staff, but not managers or owners.
 - **Staff Aadhaar:**
+  - By default, only the last 4 digits are kept, with the staff member's recorded consent. A hotel can opt in to keeping full numbers, encrypted.
   - The Owner can view and reveal Aadhaar for anyone in the business.
   - A Manager can do so only for staff below them in their own outlets.
-  - Every reveal is audited, and the Super Admin can't see it.
+  - Every reveal is audited, and the Super Admin can't see Aadhaar, not even in a support view.
 - **Backups and export:**
   - The Super Admin creates and restores whole-platform backups for disaster recovery. Backups can't be downloaded from the app.
   - Each Owner downloads its own business's data under Admin → Export data, as JSON or CSV. Passwords and Aadhaar are left out.
@@ -176,6 +178,17 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
   - Invoice numbers follow the financial year (`INV-2026-00234`, ≤ 16 characters).
   - The server always recomputes the bill.
 - **Promotions** are evaluated server-side in a fixed order: item offers by priority (a unit is never discounted twice), then the best bill offer, the coupon, and points. The POS shows the exact server preview before charging.
+- **Bills** (Billing & orders → Bills):
+  - Today / Yesterday / Last 7 days / This month / custom range, and Previous day / Next day.
+  - Filters for payment mode (Cash, UPI, Card, Khata, COD), order type and status, plus search.
+  - A summary strip shows collected money per mode, counting only successful payments. Export to Excel with the same filters.
+  - Filters are kept in the URL.
+- **Hotel branding:** for hotel users the sidebar shows the hotel's uploaded logo (Settings → logo) and business name, with initials when there's no logo. The platform console keeps the CANAVO branding.
+- **WhatsApp** (Settings → WhatsApp, per hotel):
+  - Choose the Meta WhatsApp Cloud API, WATI or none. Tokens are stored encrypted, masked when read back, and never logged.
+  - Approved template names are set per message type (receipt, khata reminder, birthday, anniversary, delivery update, staff alert, test), and there's a test-message button.
+  - Optional automatic delivery updates to customers and staff alerts.
+  - Every send falls back to a wa.me click-to-chat link when no provider is set or the provider fails.
 - **Menu bulk upload** (Menu → Bulk upload):
   - Download the Excel template. It includes your GST rates, categories and stock items.
   - Fill in one row per item and upload it (.xlsx or .csv). A per-row preview shows New / Update / Error before anything is saved.
@@ -193,7 +206,10 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
   - Every sale deducts recipe ingredients; a variant's recipe overrides the item's. Cancelling a bill restores them.
   - Set the ingredients in the menu item form, in Inventory → Recipes (amounts per size), or in the bulk-upload sheet.
   - Inventory staff see stock reports (consumption, movement, valuation, wastage, purchases) only. Sales, profit, GST reports, the dashboard and food cost / margins are for the Owner and Manager only.
-  - Stock may go negative (billing never blocks) and raises low-stock alerts.
+  - **Automatic out of stock:** when an ingredient at an outlet can't cover one portion, the menu items (or just the sizes) that use it show "Out of stock · <ingredient> ran out" on the POS and can't be billed.
+    - They come back by themselves when stock is added (purchase, transfer, adjustment, audit, or a cancelled bill). Managers are notified both ways.
+    - A manager's own "out of stock" switch is never undone by restocking.
+    - Bills synced from offline devices are still accepted, because the sale already happened, so stock can still go negative and raises low-stock alerts.
   - Purchases update a weighted-average cost.
 - **Dine-in tabs:** each round fires KOTs immediately and items are billed at the end. When the last bill is paid, the tab closes itself and its tickets leave the kitchen display.
 - **Offline billing:** queued bills carry a client UUID, so syncing is idempotent.
@@ -203,18 +219,38 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
 
 | Command | What it does |
 |---|---|
-| `npm run build` / `typecheck` / `test` | Turbo across shared, api and web (99 unit tests) |
+| `npm run build` / `typecheck` / `lint` / `test` | Turbo across shared, api and web (168 unit tests) |
+| `npm run test:integration -w @canavo/api` | Real-Postgres integration suite (77 tests). Covers row-level security, atomic tab split, idempotency, outbox, jobs, Redis adapter, observability, delivery guards, password links, two-step login, support access, Aadhaar, clock-in and cookie sessions. Needs `IT_DATABASE_URL` (owner) or the local Docker DB; Redis tests use `IT_REDIS_URL`. |
+| `npm run test:smoke -w @canavo/api` | API smoke suite against a running server (`SMOKE_API_URL`) |
+| `npm run worker -w @canavo/api` | Run the background jobs in their own process (with `JOBS_MODE=worker` on the API) |
+| `npm run backup:drill -w @canavo/api` | Backup → restore into a scratch DB → compare counts and money (staging only) |
 | `npm run seed -w @canavo/api` | Seed demo data; each module's seed is idempotent |
 | `docker build -f apps/api/Dockerfile -t canavo-api .` | Production API image (runs `prisma migrate deploy` on start) |
 
 CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
+## Engineering notes
+
+- **Tenant isolation, two layers:** the Prisma filter adds `businessId`, and PostgreSQL row-level security on 48 tables refuses other hotels' rows even if a query forgets its filter. See [ADR 0001](docs/build/adr/0001-row-level-security.md).
+- **Events after a change** (KOTs, live updates, alerts) are written to an outbox in the same transaction and then delivered. A crash can't lose them. See [ADR 0003](docs/build/adr/0003-transactional-outbox.md).
+- **Retries are safe:** the web and mobile apps send an `Idempotency-Key` on every change. A repeated request returns the first result.
+- **Accounts:** two-step login (authenticator app and recovery codes), signed-in devices with per-device sign-out, and one-time password links. Nobody sets or sees another person's password. Account → Security.
+- **Money integrity:** refunds are GST credit notes (own series), voids and refunds can require a manager's PIN, cash drawer shifts produce a Z-report, and Reports → Exceptions lists voids, refunds, big discounts and approvals.
+- **Support access:** the CANAVO team sees no hotel data unless the owner allows it. Then it's read-only, time-limited and every screen is logged ([ADR 0005](docs/build/adr/0005-consented-support-access.md)).
+- **New behaviour ships behind per-hotel feature flags,** OFF for existing hotels: [FEATURE_FLAGS.md](docs/build/FEATURE_FLAGS.md).
+- **Build programme status:** [docs/build/ROADMAP_STATUS.md](docs/build/ROADMAP_STATUS.md).
+
 ## Deployment
 
-- **API + database:** [render.yaml](render.yaml) is a Render blueprint (Docker API, managed Postgres, a persistent disk for uploads/backups).
-  - Set `CORS_ORIGINS`, `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
-  - Background jobs run in-process, so run a **single** API instance, or move the jobs to a worker before scaling out.
-- **Web:** Vercel with root `apps/web` and `NEXT_PUBLIC_API_URL`.
+The frontend, backend and database deploy separately. The step-by-step guide is [docs/deployment/DEPLOYMENT.md](docs/deployment/DEPLOYMENT.md).
+
+- **Frontend:** Vercel with root `apps/web` ([vercel.json](apps/web/vercel.json)) and `NEXT_PUBLIC_API_URL` set to the API's URL.
+- **Backend:** Render Docker web service ([render.yaml](render.yaml), [apps/api/Dockerfile](apps/api/Dockerfile)). Migrations run on start; the health check is `/ready`.
+  - Set `CORS_ORIGINS` (wildcards like `https://*.vercel.app` work), `PUBLIC_API_URL` and `DATA_ENCRYPTION_KEY`.
+  - Background jobs run on pg-boss in the separate **canavo-worker** service (`JOBS_MODE=worker`), or inside the API with `JOBS_MODE=embedded`. Several instances never double-run a job. Set `REDIS_URL` before running more than one API instance.
+  - Connect as a normal (non-superuser) database role, so row-level security is enforced.
+  - Create the first Super Admin with `npm run create-admin -w @canavo/api`. The demo seed refuses to run in production.
+- **Database:** Render Postgres 16 (or Neon / Supabase / RDS via `DATABASE_URL`).
 - **Mobile:** `eas build -p android --profile production`, then `eas submit`. Store listing steps are in [apps/mobile/STORE_RELEASE.md](apps/mobile/STORE_RELEASE.md). Publishing needs your Google Play and Apple developer accounts.
 
 ## Known limitations
@@ -223,5 +259,5 @@ CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - **Agent live location** is in memory only and uses foreground GPS only.
 - **GSTR-1** covers B2CS, HSN and the document summary. B2B, B2CL and credit notes aren't generated, because buyer GSTINs aren't captured.
 - **Face-recognition clock-in** isn't implemented; PIN and biometric are.
-- **Flat coupons and points** reduce the pre-tax value, so "₹50 off" saves the customer about ₹52.50 including 5% GST.
-- **Splitting a tab into several bills** isn't atomic across the bills. If one fails, the others stay and the tab refreshes.
+- **₹ discounts** (flat coupons, flat offers, points, flat manual discounts) reduce the pre-tax value by default, so "₹50 off" saves the customer about ₹52.50 including 5% GST. An outlet can switch to GST-inclusive ₹ discounts under Settings → Money controls (confirm with your CA).
+- **GSTR-1 credit notes** reduce B2CS/HSN for B2C bills. CDNR/CDNUR sections and the credit-note line in the document summary come with buyer GSTIN capture (Phase 8.4).

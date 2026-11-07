@@ -1,11 +1,14 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { ROLE_LABELS, staffCreateSchema, staffUpdateSchema, type Role } from "@canavo/shared";
+import { z } from "zod";
+import { customRoleSchema, customRoleUpdateSchema, PERMISSION_LABELS, ROLE_LABELS, ROLE_PERMISSIONS, staffCreateSchema, staffUpdateSchema, type Permission, type Role } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { forbidden, notFound, param, parse } from "../lib/http";
+import { badRequest, conflict, forbidden, notFound, param, parse } from "../lib/http";
 import { forceLogout } from "../lib/tokens";
-import { authenticate, requireOutlet, requirePermission } from "../middleware/auth";
+import { disableTwoFactor } from "../services/two-factor";
+import { sendPasswordLink } from "../services/password-links";
+import { authenticate, requireAnyPermission, requireOutlet, requirePermission } from "../middleware/auth";
 import { startOfLocalDay, addDays } from "../lib/time";
 
 export const staffRouter = Router();
@@ -23,6 +26,8 @@ const publicFields = {
   salaryAmount: true,
   shiftId: true,
   createdAt: true,
+  totpEnabledAt: true,
+  customRoleId: true,
   outlets: { select: { outletId: true } },
 } as const;
 
@@ -39,13 +44,18 @@ const RANK: Record<Role, number> = {
   KITCHEN: 3,
   DELIVERY: 3,
   INVENTORY_MANAGER: 3,
+  WAITER: 3,
+  // Business-wide outsiders (CA, auditor): the owner adds them, not managers.
+  ACCOUNTANT: 2,
+  AUDITOR: 2,
+  PLATFORM_SUPPORT: 0,
 };
 const isBusinessWide = (r: Role) => r === "SUPER_ADMIN" || r === "BUSINESS_OWNER";
 
 function assertCanAssign(req: Express.Request, role?: Role, outletIds?: string[]) {
   const me = req.user!.role;
   // Platform super admins are created from the platform screens, never inside a business.
-  if (role === "SUPER_ADMIN") throw forbidden("Super admins are managed from the platform console");
+  if (role === "SUPER_ADMIN" || role === "PLATFORM_SUPPORT") throw forbidden("Platform accounts are managed from the platform console");
   if (role) {
     if (role === "BUSINESS_OWNER" && me !== "SUPER_ADMIN") throw forbidden("Owner accounts are created by the CANAVO platform admin");
     if (!(RANK[role] > RANK[me])) throw forbidden(`An ${ROLE_LABELS[me]} can't create or change ${ROLE_LABELS[role]} accounts`);
@@ -54,6 +64,72 @@ function assertCanAssign(req: Express.Request, role?: Role, outletIds?: string[]
     throw forbidden("You can only assign staff to your own outlets");
   }
 }
+
+/** A shift given to a staff member must be one of their outlets' shifts (the FK alone would accept any hotel's). */
+async function assertShift(shiftId: string | undefined, outletIds: string[]) {
+  if (!shiftId) return;
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId }, select: { outletId: true } });
+  if (!shift || (outletIds.length && !outletIds.includes(shift.outletId))) throw badRequest("Shift not found in this staff member's outlets");
+}
+
+/** A custom role given to a staff member must be this business's and based on their role. */
+async function assertCustomRole(customRoleId: string | null | undefined, role: Role) {
+  if (!customRoleId) return;
+  const cr = await prisma.customRole.findUnique({ where: { id: customRoleId }, select: { baseRole: true } });
+  if (!cr) throw badRequest("Custom role not found");
+  if (cr.baseRole !== role) throw badRequest(`That custom role is based on ${ROLE_LABELS[cr.baseRole]}, not ${ROLE_LABELS[role]}`);
+}
+
+/** A custom role can only remove permissions from its base role, never add them. */
+function assertSubset(baseRole: Role, permissions: Permission[]) {
+  const extra = permissions.filter((p) => !ROLE_PERMISSIONS[baseRole].includes(p));
+  if (extra.length) {
+    throw badRequest(`A custom role can only remove permissions from ${ROLE_LABELS[baseRole]}. Not part of it: ${extra.map((p) => PERMISSION_LABELS[p]).join(", ")}`);
+  }
+}
+
+// =====================================================================
+// Custom roles (Phase 4.2): owners name a subset of a built-in role
+// =====================================================================
+
+/** Managers see the list too, so they can pick a custom role when adding staff. */
+staffRouter.get("/roles", requireAnyPermission("staff:manage", "outlet:manage"), async (_req, res) => {
+  const roles = await prisma.customRole.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { users: true } } } });
+  res.json(roles.map(({ _count, ...r }) => ({ ...r, staffCount: _count.users })));
+});
+
+staffRouter.post("/roles", requirePermission("outlet:manage"), async (req, res) => {
+  const data = parse(customRoleSchema, req.body);
+  assertSubset(data.baseRole, data.permissions);
+  const role = await prisma.customRole.create({ data: { ...data, permissions: [...new Set(data.permissions)], businessId: req.businessId! } });
+  await audit(req, "staff.role.create", "CustomRole", role.id, { name: role.name, baseRole: role.baseRole, permissions: role.permissions });
+  res.status(201).json(role);
+});
+
+staffRouter.patch("/roles/:id", requirePermission("outlet:manage"), async (req, res) => {
+  const id = param(req, "id");
+  const data = parse(customRoleUpdateSchema, req.body);
+  const existing = await prisma.customRole.findUnique({ where: { id }, include: { _count: { select: { users: true } } } });
+  if (!existing) throw notFound("Custom role");
+  const baseRole = data.baseRole ?? existing.baseRole;
+  if (baseRole !== existing.baseRole && existing._count.users) throw conflict("Staff use this role. Move them to another role before changing its base role.");
+  const permissions = data.permissions ? [...new Set(data.permissions)] : data.baseRole ? existing.permissions.filter((p) => ROLE_PERMISSIONS[baseRole].includes(p as Permission)) : undefined;
+  if (data.permissions) assertSubset(baseRole, data.permissions);
+  const role = await prisma.customRole.update({ where: { id }, data: { name: data.name, baseRole: data.baseRole, permissions } });
+  await audit(req, "staff.role.update", "CustomRole", id, { fields: Object.keys(data), permissions: role.permissions });
+  res.json(role);
+});
+
+/** Deleting a role in use would quietly give its staff the full base role: refuse instead. */
+staffRouter.delete("/roles/:id", requirePermission("outlet:manage"), async (req, res) => {
+  const id = param(req, "id");
+  const existing = await prisma.customRole.findUnique({ where: { id }, include: { _count: { select: { users: true } } } });
+  if (!existing) throw notFound("Custom role");
+  if (existing._count.users) throw conflict(`${existing._count.users} staff member(s) use this role. Move them to another role first.`);
+  await prisma.customRole.delete({ where: { id } });
+  await audit(req, "staff.role.delete", "CustomRole", id, { name: existing.name });
+  res.status(204).end();
+});
 
 /** Owners and super admins see everyone in the business; managers only staff of the current outlet. */
 async function loadStaff(req: Express.Request, id: string) {
@@ -80,8 +156,11 @@ staffRouter.get("/", requirePermission("staff:view"), async (req, res) => {
 staffRouter.post("/", requirePermission("staff:manage"), async (req, res) => {
   const data = parse(staffCreateSchema, req.body);
   assertCanAssign(req, data.role, data.outletIds);
+  await assertCustomRole(data.customRoleId, data.role);
+  await assertShift(data.shiftId, data.outletIds);
   const user = await prisma.user.create({
     data: {
+      customRoleId: data.customRoleId ?? null,
       name: data.name,
       phone: data.phone,
       email: data.email?.toLowerCase(),
@@ -106,7 +185,17 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   // You can only edit people below you (and yourself for name/PIN/password).
   if (id !== req.user!.id) assertCanAssign(req, existing.role);
   assertCanAssign(req, data.role, data.outletIds);
-  if (id === req.user!.id && (data.role || data.status || data.outletIds)) throw forbidden("You cannot change your own role, status or outlets");
+  if (id === req.user!.id && (data.role || data.status || data.outletIds || data.customRoleId !== undefined)) throw forbidden("You cannot change your own role, status or outlets");
+  // A role change drops a custom role based on the old role unless a matching one is given.
+  const nextRole = data.role ?? existing.role;
+  let customRoleId = data.customRoleId;
+  if (customRoleId === undefined && data.role && data.role !== existing.role && existing.customRoleId) customRoleId = null;
+  await assertCustomRole(customRoleId, nextRole);
+  // A manager's outlet list only covers their own outlets: assignments elsewhere (outlets they don't run) stay.
+  const outletIds = data.outletIds && [
+    ...new Set([...data.outletIds, ...(isBusinessWide(req.user!.role) ? [] : existing.outlets.map((o) => o.outletId).filter((o) => !req.user!.outletIds.includes(o)))]),
+  ];
+  await assertShift(data.shiftId, outletIds ?? existing.outlets.map((o) => o.outletId));
 
   const user = await prisma.user.update({
     where: { id },
@@ -119,10 +208,11 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
       salaryType: data.salaryType,
       salaryAmount: data.salaryAmount,
       shiftId: data.shiftId,
+      customRoleId,
       ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
       ...(data.pin && { pinHash: await bcrypt.hash(data.pin, 10) }),
-      ...(data.outletIds && {
-        outlets: { deleteMany: {}, create: data.outletIds.map((outletId) => ({ outletId })) },
+      ...(outletIds && {
+        outlets: { deleteMany: {}, create: outletIds.map((outletId) => ({ outletId })) },
       }),
     },
     select: publicFields,
@@ -135,11 +225,34 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   res.json(user);
 });
 
+/** Someone below you lost their phone: turn off their two-step login and sign them out (Phase 2.1). */
+staffRouter.post("/:id/reset-2fa", requirePermission("staff:manage"), async (req, res) => {
+  const id = param(req, "id");
+  if (id === req.user!.id) throw forbidden("Turn off your own two-step login under Account → Security");
+  const existing = await loadStaff(req, id);
+  assertCanAssign(req, existing.role);
+  await disableTwoFactor(id);
+  await forceLogout(id);
+  await audit(req, "staff.reset_2fa", "User", id);
+  res.json({ ok: true });
+});
+
+/** Send someone below you a one-time link to set a new password (you never see it). */
+staffRouter.post("/:id/reset-link", requirePermission("staff:manage"), async (req, res) => {
+  const id = param(req, "id");
+  const existing = await loadStaff(req, id);
+  if (id !== req.user!.id) assertCanAssign(req, existing.role);
+  if (existing.status !== "ACTIVE") throw forbidden("This account is not active");
+  const delivery = await sendPasswordLink({ id, name: existing.name, email: existing.email, phone: existing.phone }, "RESET", req.user!.id);
+  await audit(req, "staff.reset_link", "User", id, { channel: delivery.channel });
+  res.json(delivery);
+});
+
 /** Staff performance: bills raised, sales value, items sold and attendance over the last N days. */
 staffRouter.get("/:id/performance", requirePermission("staff:view"), async (req, res) => {
   const id = param(req, "id");
   await loadStaff(req, id);
-  const days = Math.min(Number(req.query.days ?? 30), 365);
+  const { days } = parse(z.object({ days: z.coerce.number().int().min(1).max(365).default(30) }), req.query);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   const fromDate = addDays(today, -(days - 1));

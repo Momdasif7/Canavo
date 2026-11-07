@@ -5,7 +5,7 @@ import { api } from "./api";
  * routes name the business explicitly, and a suspended business in the
  * headers would otherwise make the API refuse the request.
  */
-const NO_CONTEXT = { outletId: null, businessId: null } as const;
+const NO_CONTEXT = { outletId: null, businessId: null, support: false } as const;
 
 export const platformApi = {
   get: <T>(path: string, query?: Record<string, string | undefined>) => api.get<T>(path, { ...NO_CONTEXT, query }),

@@ -25,6 +25,13 @@ export interface Tokens {
   expiresIn: number;
 }
 
+/** First sign-in step when two-step login is on: send the ticket + a code to /auth/2fa/verify. */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
+}
+
 export interface OtpRequestResponse {
   ok: boolean;
   expiresIn: number;
@@ -65,6 +72,10 @@ export interface Me {
   shift: Shift | null;
   /** Platform super admin (no business of their own); manages businesses on the web console */
   platformAdmin?: boolean;
+  /** Platform support users can only look (Phase 4.2) */
+  platformRole?: "SUPER_ADMIN" | "PLATFORM_SUPPORT" | null;
+  /** The business's custom role this user has, if any (narrows `role`) */
+  customRole?: { id: string; name: string; baseRole: Role } | null;
   /** Business the session is acting in; null for platform admins until an outlet is chosen */
   business?: BusinessRef | null;
   /** Enabled modules of that business; null = platform context (everything) */
@@ -231,7 +242,16 @@ export interface MenuItem {
   taxRate?: TaxRateRef | null;
   hsnCode: string;
   imageUrl: string | null;
+  /** Effective status: "OUT_OF_STOCK" also when an ingredient ran out (see stockOut) */
   status: ItemStatus;
+  /** Status the manager set (without automatic out-of-stock). Missing on older servers. */
+  manualStatus?: ItemStatus;
+  /** An ingredient can't cover one portion (automatic out-of-stock) */
+  stockOut?: boolean;
+  /** Names of the ingredients that ran out, e.g. "Pav buns" */
+  stockOutReason?: string | null;
+  /** Sizes that are out of stock (the item itself may still be available) */
+  unavailableVariantIds?: string[];
   availableFrom: string | null;
   availableTo: string | null;
   kitchenStation: string;
@@ -383,10 +403,29 @@ export interface PaymentStatusResponse {
 /** GET /orders/:id/receipt — the GST fields (cess, extras, gstEnabled…) are optional for older orders. */
 export type Receipt = ReceiptData & { publicUrl?: string };
 
-export interface WhatsAppShareResponse {
+/**
+ * Result of a WhatsApp action (receipt share, khata reminder…): "sent" = delivered through the
+ * business's WhatsApp provider (don't open wa.me); "link" = open `waLink` (with `error` when the
+ * provider failed and the server fell back to a link).
+ */
+export interface WhatsAppResult {
   method: "sent" | "link";
+  /** WhatsApp provider configured on the web console ("NONE" = links only). Missing on older servers. */
+  provider?: string;
   waLink: string;
+  error?: string;
+}
+
+export interface WhatsAppShareResponse extends WhatsAppResult {
   receiptUrl: string;
+}
+
+/** Customer status message on delivery responses (wa.me link, or already sent automatically). */
+export interface DeliveryCustomerMessage {
+  waLink: string;
+  text: string;
+  /** Sent to the customer on WhatsApp automatically — no need to send it manually */
+  autoSent?: boolean;
 }
 
 export interface SyncResult {
@@ -666,11 +705,14 @@ export interface DeliveryPayment {
   qrPayload: string | null;
 }
 
+/** PATCH /delivery/:id/status (and GET /delivery/:id) */
+export type DeliveryStatusResult = Delivery & { customerMessage?: DeliveryCustomerMessage };
+
 /** POST /delivery/:id/complete — one tap at the door */
 export type DeliveryCompleteResult = Delivery & {
   /** Cash recorded as collected by the partner (0 when already paid) */
   cashCollected: Paise;
-  customerMessage?: unknown;
+  customerMessage?: DeliveryCustomerMessage;
 };
 
 export type DeliveryIssueReason = "CUSTOMER_UNREACHABLE" | "WRONG_ADDRESS" | "CUSTOMER_REFUSED" | "VEHICLE_PROBLEM" | "OTHER";
@@ -863,9 +905,7 @@ export interface CustomerProfile {
   favouriteItems: { menuItemId: string; name: string; quantity: number }[];
 }
 
-export interface KhataRemindResponse {
-  method: "sent" | "link";
-  waLink: string;
+export interface KhataRemindResponse extends WhatsAppResult {
   text: string;
 }
 
@@ -1074,8 +1114,102 @@ export interface OutletOverviewRow {
   staffClockedIn: number;
 }
 
+/** GET /reports/owner-summary — today so far vs the same weekday last week (same time). */
+export interface OwnerOutletDay {
+  outletId: string;
+  name: string;
+  date: string;
+  grossSales: Paise;
+  salesAfterRefunds: Paise;
+  bills: number;
+  averageBill: Paise;
+  voids: { count: number; amount: Paise };
+  refunds: { count: number; amount: Paise };
+  bigDiscounts: number;
+  discountLimitPercent: number;
+  unapprovedApprovals: number;
+  cash:
+    | { status: "OPEN"; expectedCash: Paise; openedAt: string; variance: null; closedAt: null }
+    | { status: "CLOSED"; expectedCash: null; openedAt: null; variance: Paise; closedAt: string | null }
+    | { status: "NONE"; expectedCash: null; openedAt: null; variance: null; closedAt: null };
+  topItems: { name: string; quantity: number; amount: Paise }[];
+  lowStock: number;
+  lastWeek: { date: string; grossSales: Paise; bills: number; fullDaySales: Paise };
+}
+
+export interface OwnerSummary {
+  generatedAt: string;
+  outlets: OwnerOutletDay[];
+  totals: {
+    grossSales: Paise;
+    salesAfterRefunds: Paise;
+    bills: number;
+    averageBill: Paise;
+    voids: { count: number; amount: Paise };
+    refunds: { count: number; amount: Paise };
+    bigDiscounts: number;
+    unapprovedApprovals: number;
+    lowStock: number;
+    cashVariance: Paise;
+    topItems: { name: string; quantity: number; amount: Paise }[];
+    lastWeek: { grossSales: Paise; bills: number; changePercent: number | null };
+  };
+}
+
 export interface OutletsOverview {
   date: string;
   outlets: OutletOverviewRow[];
   totals: Omit<OutletOverviewRow, "outletId" | "name">;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — sales channels (CHANNELS module)
+// ---------------------------------------------------------------------------
+
+/** Where an order came from (mirrors ORDER_CHANNELS in @canavo/shared). */
+export type OrderChannelName = "POS" | "QR" | "ONLINE" | "ZOMATO" | "SWIGGY" | "ONDC" | "OTHER";
+
+export type ChannelBoardStage = "NEW" | "PREPARING" | "PACKED" | "HANDED_OVER" | "CANCELLED";
+
+/** One order on the online / aggregator board (`GET /channels/board`). */
+export interface ChannelBoardOrder {
+  orderId: string;
+  invoiceNumber: string;
+  channel: OrderChannelName | string;
+  channelOrderId: string | null;
+  stage: ChannelBoardStage;
+  customerName: string | null;
+  items: { name: string; quantity: number; notes: string | null }[];
+  total: Paise;
+  /** Paid online (prepaid); false = collect `total` on handover / delivery */
+  paid: boolean;
+  /** Our own rider delivers (false = the aggregator's rider picks up) */
+  weDeliver: boolean;
+  placedAt: string;
+  packedAt: string | null;
+  handedOverAt: string | null;
+  rider: { name: string | null; phone: string | null; pickupCode: string | null; eta: string | null; arrived: boolean } | null;
+}
+
+export interface ChannelBoard {
+  orders: ChannelBoardOrder[];
+}
+
+/** A QR / online order waiting for staff to accept it (`GET /storefront/requests`). */
+export interface ChannelRequest {
+  id: string;
+  channel: "QR" | "ONLINE" | string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED";
+  createdAt: string;
+  tableId: string | null;
+  tableLabel: string | null;
+  order: { id: string; invoiceNumber: string; orderType: string; grandTotal: Paise; status: string; notes: string | null } | null;
+  items: { menuItemId: string; variantId?: string; addonIds: string[]; quantity: number; notes?: string; name: string; unitPrice: Paise }[];
+  total: Paise;
+  customerName: string | null;
+  customerPhone: string | null;
+  notes: string | null;
+  /** Online orders: COUNTER | COD | UPI */
+  payment: "COUNTER" | "COD" | "UPI" | null;
+  rejectReason: string | null;
 }

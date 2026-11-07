@@ -110,7 +110,8 @@ export interface BillLineInput {
 }
 
 export type BillDiscount =
-  | { type: "FLAT"; value: Paise }
+  /** includesTax (D1, Phase 3.6): "₹50 off" means ₹50 off the total incl. GST, not off the pre-tax value */
+  | { type: "FLAT"; value: Paise; includesTax?: boolean }
   | { type: "PERCENT"; value: number };
 
 export interface TaxDetail {
@@ -225,9 +226,12 @@ export function computeBill(
   //    order on the remaining value and distributed proportionally.
   let billDisc = 0;
   const discounts = billDiscount ? (Array.isArray(billDiscount) ? billDiscount : [billDiscount]) : [];
+  // GST-inclusive flat discounts (D1): convert ₹ off the total to pre-tax at the bill's weighted rate.
+  const weightedRate = subtotalAfterLine > 0 ? afterLineDiscount.reduce((s, v, i) => s + v * inclusiveRate[i], 0) / subtotalAfterLine : 0;
+  const flatValue = (d: { value: number; includesTax?: boolean }) => (d.includesTax && !noTax ? Math.round((d.value * 100) / (100 + weightedRate)) : d.value);
   for (const d of discounts) {
     const remaining = subtotalAfterLine - billDisc;
-    const amount = d.type === "FLAT" ? d.value : Math.round((remaining * d.value) / 100);
+    const amount = d.type === "FLAT" ? flatValue(d) : Math.round((remaining * d.value) / 100);
     billDisc += Math.max(0, Math.min(amount, remaining));
   }
   const billDiscShares = allocate(billDisc, afterLineDiscount);
@@ -351,3 +355,7 @@ export function computeBill(
     taxBreakup: [...breakupMap.values()].sort((a, b) => a.rate - b.rate || a.cessRate - b.cessRate || a.name.localeCompare(b.name)),
   };
 }
+
+/** D1: mark a ₹ (FLAT) discount as GST-inclusive when the outlet chose that; percentages are unchanged. */
+export const withTaxMode = (d: BillDiscount, flatIncludesTax: boolean | undefined): BillDiscount =>
+  d.type === "FLAT" && flatIncludesTax ? { ...d, includesTax: true } : d;

@@ -35,11 +35,15 @@ async function validateTable(outletId: string, tableId: string | null | undefine
   return table;
 }
 
-/** No two BOOKED reservations may overlap on the same table. */
-async function assertNoOverlap(outletId: string, tableId: string | null | undefined, start: Date, durationMin: number, excludeId?: string) {
+/**
+ * No two BOOKED reservations may overlap on the same table. Inside a transaction, lock the table
+ * first so two bookings made at the same moment can't both pass the check.
+ */
+async function assertNoOverlap(outletId: string, tableId: string | null | undefined, start: Date, durationMin: number, excludeId?: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
   if (!tableId) return;
+  if (db !== prisma) await db.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${tableId} FOR UPDATE`;
   const end = start.getTime() + durationMin * 60_000;
-  const candidates = await prisma.reservation.findMany({
+  const candidates = await db.reservation.findMany({
     where: {
       outletId,
       tableId,
@@ -137,17 +141,19 @@ reservationsRouter.post("/", requirePermission("reservation:manage"), async (req
   const reservedFor = new Date(data.reservedFor);
   if (reservedFor.getTime() < Date.now() - 15 * 60_000) throw badRequest("Reservation time is in the past");
   await validateTable(outletId, data.tableId, data.partySize);
-  await assertNoOverlap(outletId, data.tableId, reservedFor, data.durationMin);
   await validatePreOrder(outletId, data.preOrderItems);
-  const r = await prisma.reservation.create({
-    data: {
-      ...data,
-      outletId,
-      reservedFor,
-      preOrderItems: data.preOrderItems as unknown as Prisma.InputJsonValue,
-      createdById: req.user!.id,
-    },
-    include,
+  const r = await prisma.$transaction(async (tx) => {
+    await assertNoOverlap(outletId, data.tableId, reservedFor, data.durationMin, undefined, tx);
+    return tx.reservation.create({
+      data: {
+        ...data,
+        outletId,
+        reservedFor,
+        preOrderItems: data.preOrderItems as unknown as Prisma.InputJsonValue,
+        createdById: req.user!.id,
+      },
+      include,
+    });
   });
   await audit(req, "reservation.create", "Reservation", r.id, { reservedFor: data.reservedFor, partySize: data.partySize, advancePaid: data.advancePaid });
   emitToOutlet(outletId, "reservation:updated", r);
@@ -166,16 +172,18 @@ reservationsRouter.patch("/:id", requirePermission("reservation:manage"), async 
     durationMin: data.durationMin ?? existing.durationMin,
   };
   await validateTable(outletId, merged.tableId, merged.partySize);
-  await assertNoOverlap(outletId, merged.tableId, merged.reservedFor, merged.durationMin, existing.id);
   if (data.preOrderItems) await validatePreOrder(outletId, data.preOrderItems);
-  const r = await prisma.reservation.update({
-    where: { id: existing.id },
-    data: {
-      ...data,
-      reservedFor: merged.reservedFor,
-      preOrderItems: data.preOrderItems as unknown as Prisma.InputJsonValue | undefined,
-    },
-    include,
+  const r = await prisma.$transaction(async (tx) => {
+    await assertNoOverlap(outletId, merged.tableId, merged.reservedFor, merged.durationMin, existing.id, tx);
+    return tx.reservation.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        reservedFor: merged.reservedFor,
+        preOrderItems: data.preOrderItems as unknown as Prisma.InputJsonValue | undefined,
+      },
+      include,
+    });
   });
   await audit(req, "reservation.update", "Reservation", r.id, data as unknown as Prisma.InputJsonValue);
   if (existing.tableId !== r.tableId || existing.reservedFor.getTime() !== r.reservedFor.getTime()) await releaseReservedTable(outletId, existing.tableId);

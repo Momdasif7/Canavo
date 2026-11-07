@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ModuleKey } from "@canavo/shared";
+import { featureEnabled, type FeatureFlags, type FeatureKey, type ModuleKey } from "@canavo/shared";
 import { forbidden } from "./http";
 
 /**
@@ -11,12 +11,28 @@ export interface TenantContext {
   businessId?: string;
   /** Enabled modules of the business; undefined in platform scope */
   modules?: ModuleKey[];
+  /** Per-hotel feature flags of the business */
+  features?: FeatureFlags;
+  /** Platform admin request (no hotel): database row-level security shows platform rows only */
+  platform?: boolean;
 }
 
 const store = new AsyncLocalStorage<TenantContext>();
 
+/**
+ * Run `fn` in the tenant context. If it returns a promise-like, it is awaited INSIDE
+ * the context: Prisma query promises are lazy (they run when awaited), so returning
+ * one un-awaited would execute it outside the context — without the tenant filter or
+ * the row-level-security setting (found by the RLS tests, Phase 1.1).
+ */
 export function runWithTenant<T>(ctx: TenantContext, fn: () => T): T {
-  return store.run(ctx, fn);
+  return store.run(ctx, () => {
+    const result = fn();
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      return (async () => await (result as unknown as PromiseLike<unknown>))() as T;
+    }
+    return result;
+  });
 }
 
 export const tenant = (): TenantContext | undefined => store.getStore();
@@ -35,15 +51,21 @@ export function moduleEnabled(m: ModuleKey): boolean {
   return !ctx?.businessId || !ctx.modules || ctx.modules.includes(m);
 }
 
+/** True when the feature flag is on for the current business (and its required modules are enabled). Off in platform scope. */
+export function featureOn(key: FeatureKey): boolean {
+  const ctx = store.getStore();
+  return Boolean(ctx?.businessId) && featureEnabled(ctx!.features, key, ctx!.modules);
+}
+
 /**
  * Run `fn` inside a business context outside of an HTTP request (webhooks,
  * background jobs). Loads the business's modules so module checks apply.
  */
 export async function runForBusiness<T>(businessId: string, fn: () => Promise<T>): Promise<T> {
   const { platformPrisma } = await import("../db");
-  const { normalizeModules } = await import("@canavo/shared");
-  const b = await platformPrisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { modules: true } });
-  return runWithTenant({ businessId, modules: normalizeModules(b.modules) }, fn);
+  const { normalizeFeatures, normalizeModules } = await import("@canavo/shared");
+  const b = await platformPrisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { modules: true, features: true } });
+  return runWithTenant({ businessId, modules: normalizeModules(b.modules), features: normalizeFeatures(b.features) }, fn);
 }
 
 /** Same as runForBusiness, starting from an outlet id. */

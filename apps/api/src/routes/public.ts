@@ -1,14 +1,15 @@
 import express, { Router } from "express";
 import jwt from "jsonwebtoken";
-import { prisma } from "../db";
+import { platformPrisma, prisma } from "../db";
 import { env } from "../env";
-import { notFound, param, unauthorized } from "../lib/http";
+import { badRequest, notFound, param, unauthorized } from "../lib/http";
 import { buildReceipt, getOrder, settleIfPaid } from "../services/billing";
 import { renderReceiptPdf } from "../services/pdf";
 import { verifyWebhookSignature } from "../services/razorpay";
 import { emitToOutlet } from "../realtime";
 import { runForOutlet } from "../lib/tenant";
 import { alertPaymentReceived } from "../services/alerts";
+import { notify, outletManagers } from "../services/notify";
 
 export const publicRouter = Router();
 
@@ -20,6 +21,7 @@ publicRouter.get("/public/receipts/:token", async (req, res) => {
   } catch {
     throw notFound("Receipt");
   }
+  if (typeof oid !== "string" || !oid) throw notFound("Receipt");
   const { outletId } = await prisma.order.findUniqueOrThrow({ where: { id: oid }, select: { outletId: true } });
   const order = await getOrder(oid, outletId);
   const pdf = await renderReceiptPdf(await buildReceipt(order));
@@ -32,6 +34,7 @@ interface RazorpayQrWebhook {
   payload: {
     qr_code?: { entity: { id: string } };
     payment?: { entity: { id: string; amount: number; vpa?: string; contact?: string } };
+    refund?: { entity: { id: string; payment_id: string; amount: number; status: string } };
   };
 }
 
@@ -40,8 +43,16 @@ interface RazorpayQrWebhook {
  * it is mounted before the JSON body parser.
  */
 publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
-  if (!verifyWebhookSignature(req.body as Buffer, req.header("x-razorpay-signature"))) throw unauthorized("Bad signature");
-  const event = JSON.parse((req.body as Buffer).toString("utf8")) as RazorpayQrWebhook;
+  // express.raw only fills a Buffer for JSON bodies; anything else can't carry a valid signature.
+  if (!Buffer.isBuffer(req.body) || !verifyWebhookSignature(req.body, req.header("x-razorpay-signature"))) throw unauthorized("Bad signature");
+  let event: RazorpayQrWebhook;
+  try {
+    event = JSON.parse(req.body.toString("utf8")) as RazorpayQrWebhook;
+  } catch {
+    throw badRequest("Body is not JSON");
+  }
+  if (!event || typeof event !== "object" || typeof event.event !== "string") throw badRequest("Not a Razorpay event");
+  if (event.event === "refund.processed" || event.event === "refund.failed") return res.json(await refundEvent(event));
   if (event.event !== "qr_code.credited") return res.json({ ignored: event.event });
 
   const qrId = event.payload.qr_code?.entity.id;
@@ -54,10 +65,13 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
 
   // Webhooks arrive without a login: act inside the order's business.
   const paid = await runForOutlet(payment.order.outletId, () => prisma.$transaction(async (tx) => {
-    await tx.payment.update({
-      where: { id: payment.id },
+    // Claim the payment: of concurrent deliveries of the same event only one gets past here
+    // (the row lock makes the others wait and then see SUCCESS), so settling runs once.
+    const claimed = await tx.payment.updateMany({
+      where: { id: payment.id, status: { not: "SUCCESS" } },
       data: { status: "SUCCESS", confirmedAt: new Date(), reference: rzpPayment.id, amount: rzpPayment.amount },
     });
+    if (!claimed.count) return "duplicate" as const;
     await tx.auditLog.create({
       data: {
         outletId: payment.order.outletId,
@@ -74,9 +88,37 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
     }
     return settleIfPaid(payment.orderId, tx);
   }));
+  if (paid === "duplicate") return res.json({ ok: true, duplicate: true });
 
   emitToOutlet(payment.order.outletId, "payment:confirmed", { orderId: payment.orderId, paymentId: payment.id, paid });
   void runForOutlet(payment.order.outletId, () => alertPaymentReceived(payment.order.outletId, payment.orderId, rzpPayment.amount));
   if (paid) emitToOutlet(payment.order.outletId, "order:paid", { id: payment.orderId, invoiceNumber: payment.order.invoiceNumber });
   res.json({ ok: true });
 });
+
+/** Razorpay refund outcome for an online order refunded automatically (Phase 6 follow-up). */
+async function refundEvent(event: RazorpayQrWebhook) {
+  const refund = event.payload.refund?.entity;
+  if (!refund?.id) return { ignored: "missing payload" };
+  const request = await platformPrisma.channelRequest.findFirst({ where: { refundRef: { contains: refund.id } } });
+  if (!request) return { ignored: "unknown refund" };
+  const status = event.event === "refund.processed" ? "PROCESSED" : "FAILED";
+  if (request.refundStatus === status) return { ok: true, duplicate: true };
+  await runForOutlet(request.outletId, async () => {
+    await prisma.channelRequest.update({
+      where: { id: request.id },
+      data: { refundStatus: status, ...(status === "FAILED" && { refundError: "Razorpay couldn't complete the refund" }) },
+    });
+    if (status === "FAILED") {
+      await notify(
+        await outletManagers(request.outletId),
+        "UPI refund failed",
+        `Razorpay couldn't refund the online order of ${request.customerName ?? "a customer"} — refund it in the Razorpay dashboard.`,
+        "channel.refund",
+        { outletId: request.outletId, link: "/pos" },
+      ).catch(() => undefined);
+    }
+  });
+  emitToOutlet(request.outletId, "channel:request", { id: request.id, action: "refund" });
+  return { ok: true };
+}

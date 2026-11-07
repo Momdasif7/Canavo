@@ -1,0 +1,361 @@
+Route,File,Auth,Outlet scope,Platform only,Permissions,Modules,Roles allowed
+DELETE /admin/report-schedules/:id,admin.ts,yes,,,report:view + settings:outlet,REPORTS,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /attendance/:id,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /auth/sessions/:id,auth.ts,yes,,,(public),,all
+DELETE /canteen/rules/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /canteen/slots/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /canteen/subscriptions/:id/skips/:date,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /delivery/cash/handovers/:id,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+DELETE /delivery/zones/:id,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /inventory/items/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+DELETE /inventory/vendors/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+DELETE /menu/categories/:id,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /menu/items/:id,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /notifications/devices/:token,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+DELETE /notifications/read,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+DELETE /offers/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /offers/coupons/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /outlets/current/shifts/:id,outlets.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /staff/roles/:id,staff.ts,yes,yes,,outlet:manage,,BUSINESS_OWNER
+DELETE /tables/:id,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /tables/areas/:id,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /tables/sessions/:id/items/:itemId,tables.ts,yes,yes,,order:cancel,TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER
+DELETE /tax-rates/:id,tax-rates.ts,yes,business,,settings:billing,,BUSINESS_OWNER OUTLET_MANAGER
+GET /admin/aadhaar-settings,admin.ts,yes,business,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+GET /admin/audit-logs,admin.ts,yes,,,audit:view,,SUPER_ADMIN BUSINESS_OWNER OUTLET_MANAGER AUDITOR
+GET /admin/backups,admin.ts,yes,,,admin:backup,,SUPER_ADMIN
+GET /admin/export,admin.ts,yes,business,,data:export,,BUSINESS_OWNER
+GET /admin/report-schedules,admin.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /admin/settings,admin.ts,yes,,,settings:outlet|platform(GLOBAL),,all
+GET /admin/settings/:scope/:key,admin.ts,yes,,,settings:outlet|platform(GLOBAL),,all
+GET /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+GET /admin/table-counts,admin.ts,yes,,,admin:backup,,SUPER_ADMIN
+GET /admin/whatsapp,admin.ts,yes,business,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
+GET /attendance,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+GET /attendance/calendar,attendance.ts,yes,,,(any logged-in user / in-handler),ATTENDANCE,all
+GET /attendance/export,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+GET /attendance/leaves,attendance.ts,yes,,,(any logged-in user / in-handler),ATTENDANCE,all
+GET /attendance/me/status,attendance.ts,yes,,,(any logged-in user / in-handler),ATTENDANCE,all
+GET /attendance/register,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+GET /attendance/salary,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+GET /auth/2fa,auth.ts,yes,,,(public),,all
+GET /auth/me,auth.ts,yes,,,(public),,all
+GET /auth/sessions,auth.ts,yes,,,(public),,all
+GET /canteen/accounts,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/rules,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/statement,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/accounts/:id/statements,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/members,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/members/:id,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /canteen/members/lookup,canteen.ts,yes,yes,,any(order:create | payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/preorders,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/production,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/rule-slots,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/slots,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/slots/:id/items,canteen-meals.ts,yes,yes,,any(canteen:manage | order:create),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /canteen/subscriptions,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /canteen/subscriptions/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+GET /cash-shifts,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /cash-shifts/:id,cash-shifts.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /cash-shifts/current,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /channels/connection,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /channels/items,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /channels/orders,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/:id,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/:id/khata,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/:id/loyalty,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/khata/outstanding,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/lookup,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /delivery,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/:id,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+GET /delivery/agents,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/cash,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/cash/handovers,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/locations,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/me/status,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+GET /delivery/mine,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+GET /delivery/mine/cash,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+GET /delivery/mine/summary,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+GET /delivery/partners/:agentId/timeline,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/partners/activity,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/quote,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /delivery/zones,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /gift-cards,gift-cards.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /gift-cards/code/:code,gift-cards.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+GET /inventory/alerts,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/audits,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/audits/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/items,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/items/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/items/categories,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/items/lookup,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/purchases,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/purchases/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/recipes,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/recipes/costing,inventory.ts,yes,yes,,report:view,INVENTORY | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/reports/consumption,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/reports/movement,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/reports/purchases,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/reports/valuation,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/reports/vendor-spend,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/reports/wastage,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+GET /inventory/transactions,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/transfers,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/transfers/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/vendors,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/vendors/:id,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /inventory/wastage,inventory.ts,yes,yes,,inventory:view,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER KITCHEN INVENTORY_MANAGER ACCOUNTANT AUDITOR
+GET /kot,kot.ts,yes,yes,,kot:view,KOT,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN WAITER
+GET /menu,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER WAITER ACCOUNTANT AUDITOR
+GET /menu/import/template,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+GET /menu/items/:id,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER WAITER ACCOUNTANT AUDITOR
+GET /menu/tax-check,menu.ts,yes,yes,,menu:view,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER WAITER ACCOUNTANT AUDITOR
+GET /notifications,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+GET /offers,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /offers/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /offers/active,offers.ts,yes,yes,,order:create,OFFERS | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /offers/coupons,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /offers/coupons/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /offers/coupons/report,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+GET /orders,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/:id,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/:id/credit-notes,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/:id/payment-status,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/:id/receipt,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/:id/receipt.pdf,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/approvers,orders.ts,yes,yes,,any(order:create | payment:collect | order:cancel),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /orders/export,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /orders/summary,orders.ts,yes,yes,,bills:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+GET /outlets,outlets.ts,yes,,,(any logged-in user / in-handler),,all
+GET /outlets/current,outlets.ts,yes,yes,,(any logged-in user / in-handler),,all
+GET /outlets/current/shifts,outlets.ts,yes,yes,,(any logged-in user / in-handler),,all
+GET /platform/admins,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /platform/businesses,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /platform/businesses/:id,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /platform/summary,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /platform/support-grants,platform.ts,yes,,,(any logged-in user / in-handler),,all
+GET /public/o/:slug,storefront-public.ts,NO,,,(public),,all
+GET /public/o/:slug/orders/:token,storefront-public.ts,NO,,,(public),,all
+GET /public/receipts/:token,public.ts,NO,,,(public),,all
+GET /public/t/:token,storefront-public.ts,NO,,,(public),,all
+GET /public/t/:token/orders,storefront-public.ts,NO,,,(public),,all
+GET /reports/:reportKey,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /reports/daily,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /reports/gstr1,reports.ts,yes,yes,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /reports/outlets/overview,reports.ts,yes,,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /reports/owner-summary,reports.ts,yes,,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /reservations,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /reservations/:id,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /reservations/pre-orders,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /settlements,settlements.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+GET /staff,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER AUDITOR
+GET /staff/:id/performance,staff.ts,yes,yes,,staff:view,,BUSINESS_OWNER OUTLET_MANAGER AUDITOR
+GET /staff/roles,staff.ts,yes,yes,,any(staff:manage | outlet:manage),,BUSINESS_OWNER OUTLET_MANAGER
+GET /storefront/requests,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /storefront/settings,storefront.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+GET /storefront/tables,storefront.ts,yes,yes,,any(channel:manage | table:manage),CHANNELS | TABLES,BUSINESS_OWNER OUTLET_MANAGER
+GET /support-access,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+GET /support-access/:id/activity,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+GET /tables,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tables/:id,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tables/areas,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tables/floor,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tables/sessions,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tables/sessions/:id,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+GET /tax-rates,tax-rates.ts,yes,business,,any(menu:view | settings:billing),,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER WAITER ACCOUNTANT AUDITOR
+GET /tax-rates/:id,tax-rates.ts,yes,business,,any(menu:view | settings:billing),,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN INVENTORY_MANAGER WAITER ACCOUNTANT AUDITOR
+GET /uploads/files/:name,uploads.ts,NO,,,(public),,all
+GET /uploads/signature,uploads.ts,yes,,,(any logged-in user / in-handler),,all
+PATCH /admin/aadhaar-settings,admin.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+PATCH /admin/staff/:id/aadhaar,admin.ts,yes,,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /attendance/:id,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /attendance/leaves/:id,attendance.ts,yes,,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/accounts/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/members/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/rules/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/slots/:id,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /canteen/statements/:id,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /customers/:id,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /delivery/:id/assign,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+PATCH /delivery/:id/status,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+PATCH /delivery/cash/handovers/:id,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+PATCH /delivery/zones/:id,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /inventory/items/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+PATCH /inventory/purchases/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+PATCH /inventory/vendors/:id,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+PATCH /kot/:id,kot.ts,yes,yes,,kot:update,KOT,BUSINESS_OWNER OUTLET_MANAGER KITCHEN
+PATCH /menu/categories/:id,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /menu/items/:id,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /offers/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /offers/coupons/:id,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /outlets/current,outlets.ts,yes,yes,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /platform/businesses/:id,platform.ts,yes,,,(any logged-in user / in-handler),,all
+PATCH /reservations/:id,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+PATCH /staff/:id,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /staff/roles/:id,staff.ts,yes,yes,,outlet:manage,,BUSINESS_OWNER
+PATCH /tables/:id,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /tables/:id/status,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+PATCH /tables/:id/waiter,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+PATCH /tables/areas/:id,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+PATCH /tables/sessions/:id,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+PATCH /tax-rates/:id,tax-rates.ts,yes,business,,settings:billing,,BUSINESS_OWNER OUTLET_MANAGER
+POST /admin/aadhaar/reduce-to-last4,admin.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+POST /admin/backups,admin.ts,yes,,,admin:backup,,SUPER_ADMIN
+POST /admin/backups/:file/restore,admin.ts,yes,,,admin:backup,,SUPER_ADMIN
+POST /admin/report-schedules,admin.ts,yes,yes,,report:view + settings:outlet,REPORTS,BUSINESS_OWNER OUTLET_MANAGER
+POST /admin/report-schedules/:id/send-now,admin.ts,yes,,,report:view,REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+POST /admin/whatsapp/test,admin.ts,yes,business,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
+POST /attendance/clock-in,attendance.ts,yes,,,attendance:self,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN DELIVERY INVENTORY_MANAGER WAITER ACCOUNTANT
+POST /attendance/clock-out,attendance.ts,yes,,,attendance:self,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN DELIVERY INVENTORY_MANAGER WAITER ACCOUNTANT
+POST /attendance/leaves,attendance.ts,yes,,,attendance:self,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN DELIVERY INVENTORY_MANAGER WAITER ACCOUNTANT
+POST /attendance/manual,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+POST /attendance/register,attendance.ts,yes,yes,,attendance:manage,ATTENDANCE,BUSINESS_OWNER OUTLET_MANAGER
+POST /auth/2fa/disable,auth.ts,yes,,,(public),,all
+POST /auth/2fa/enable,auth.ts,yes,,,(public),,all
+POST /auth/2fa/recovery-codes,auth.ts,yes,,,(public),,all
+POST /auth/2fa/setup,auth.ts,yes,,,(public),,all
+POST /auth/2fa/verify,auth.ts,NO,,,(public),,all
+POST /auth/cookie-probe,auth.ts,NO,,,(public),,all
+POST /auth/login,auth.ts,NO,,,(public),,all
+POST /auth/logout,auth.ts,NO,,,(public),,all
+POST /auth/otp/request,auth.ts,NO,,,(public),,all
+POST /auth/otp/verify,auth.ts,NO,,,(public),,all
+POST /auth/password/change,auth.ts,yes,,,(public),,all
+POST /auth/password/forgot,auth.ts,NO,,,(public),,all
+POST /auth/password/reset,auth.ts,NO,,,(public),,all
+POST /auth/refresh,auth.ts,NO,,,(public),,all
+POST /auth/sessions/revoke-others,auth.ts,yes,,,(public),,all
+POST /canteen/accounts,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/accounts/:id/rules,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/accounts/:id/statements,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members/:id/tokens,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /canteen/members/:id/topup,canteen.ts,yes,yes,,any(payment:collect | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /canteen/members/:id/wallet/adjust,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/members/import,canteen.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/preorders,canteen-meals.ts,yes,yes,,order:create,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /canteen/preorders/:id/cancel,canteen-meals.ts,yes,yes,,any(order:cancel | canteen:manage),CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/preorders/:id/serve,canteen-meals.ts,yes,yes,,order:create,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /canteen/slots,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions,canteen-meals.ts,yes,yes,,canteen:manage + payment:collect,CANTEEN | BILLING,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/cancel,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/pause,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/resume,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /canteen/subscriptions/:id/skips,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+POST /cash-shifts/current/close,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /cash-shifts/current/movements,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /cash-shifts/open,cash-shifts.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /channels/connection/menu-sync,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/retry-failed,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/store,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/connection/test,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /channels/orders/:orderId/status,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+POST /customers,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /customers/:id/block,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
+POST /customers/:id/khata/remind,customers.ts,yes,yes,,customer:view,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /customers/:id/khata/settle,customers.ts,yes,yes,,payment:collect,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /customers/:id/loyalty/adjust,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
+POST /customers/preview-promotions,customers.ts,yes,yes,,order:create,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /delivery/:id/collect,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/complete,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/issue,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/location,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+POST /delivery/:id/upi-qr,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/:id/upi-qr/:paymentId/confirm,delivery.ts,yes,yes,,any(delivery:manage | delivery:own),DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER DELIVERY
+POST /delivery/agents/:id/back,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /delivery/cash/handovers,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /delivery/cash/settle,delivery.ts,yes,yes,,delivery:manage,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /delivery/me/location,delivery.ts,yes,yes,,delivery:own,DELIVERY,DELIVERY
+POST /delivery/zones,delivery.ts,yes,yes,,delivery:manage + settings:outlet,DELIVERY,BUSINESS_OWNER OUTLET_MANAGER
+POST /gift-cards,gift-cards.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /gift-cards/:id/active,gift-cards.ts,yes,yes,,outlet:manage,BILLING,BUSINESS_OWNER
+POST /inventory/audits,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/audits/:id/cancel,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/audits/:id/complete,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/items,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/items/:id/adjust,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/purchases,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/purchases/:id/cancel,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/purchases/:id/payments,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/purchases/:id/receive,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers/:id/approve,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers/:id/cancel,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers/:id/dispatch,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers/:id/receive,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/transfers/:id/reject,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/vendors,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /inventory/wastage,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+POST /kot/:id/print,kot.ts,yes,yes,,kot:view,KOT,BUSINESS_OWNER OUTLET_MANAGER CASHIER KITCHEN WAITER
+POST /menu/categories,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+POST /menu/import,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+POST /menu/items,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+POST /notifications/:id/read,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+POST /notifications/:id/unread,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+POST /notifications/devices,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+POST /notifications/read-all,notifications.ts,yes,,,(any logged-in user / in-handler),,all
+POST /offers,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+POST /offers/:id/toggle,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+POST /offers/coupons,offers.ts,yes,yes,,offer:manage,OFFERS,BUSINESS_OWNER OUTLET_MANAGER
+POST /offers/coupons/validate,offers.ts,yes,yes,,order:create,OFFERS | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /orders,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /orders/:id/cancel,orders.ts,yes,yes,,any(order:cancel | payment:collect),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/cod,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/payments,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/payments/:paymentId/confirm,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/payments/:paymentId/dev-simulate,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/refunds,orders.ts,yes,yes,,any(order:cancel | payment:collect),BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/:id/share/whatsapp,orders.ts,yes,yes,,order:view,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER ACCOUNTANT AUDITOR
+POST /orders/:id/upi-qr,orders.ts,yes,yes,,payment:collect,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /orders/offline-series,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /orders/sync,orders.ts,yes,yes,,order:create,BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /outlets,outlets.ts,yes,,,outlet:manage,,BUSINESS_OWNER
+POST /outlets/current/shifts,outlets.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+POST /platform/admins,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /platform/businesses,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /platform/businesses/:id/owners/:userId/reset-2fa,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /platform/businesses/:id/owners/:userId/reset-link,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /platform/businesses/:id/users,platform.ts,yes,,,(any logged-in user / in-handler),,all
+POST /public/o/:slug/orders,storefront-public.ts,NO,,,(public),,all
+POST /public/o/:slug/orders/:token/upi,storefront-public.ts,NO,,,(public),,all
+POST /public/t/:token/call,storefront-public.ts,NO,,,(public),,all
+POST /public/t/:token/orders,storefront-public.ts,NO,,,(public),,all
+POST /reservations,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /reservations/:id/cancel,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /reservations/:id/no-show,reservations.ts,yes,yes,,reservation:manage,RESERVATIONS,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /reservations/:id/seat,reservations.ts,yes,yes,,reservation:manage + table:serve,RESERVATIONS | TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /settlements,settlements.ts,yes,yes,,report:view,BILLING | REPORTS,BUSINESS_OWNER OUTLET_MANAGER ACCOUNTANT AUDITOR
+POST /staff,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+POST /staff/:id/reset-2fa,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+POST /staff/:id/reset-link,staff.ts,yes,yes,,staff:manage,,BUSINESS_OWNER OUTLET_MANAGER
+POST /staff/roles,staff.ts,yes,yes,,outlet:manage,,BUSINESS_OWNER
+POST /storefront/requests/:id/accept,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /storefront/requests/:id/reject,storefront.ts,yes,yes,,any(table:serve | order:create),CHANNELS | TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /storefront/tables/:id/rotate,storefront.ts,yes,yes,,any(channel:manage | table:manage),CHANNELS | TABLES,BUSINESS_OWNER OUTLET_MANAGER
+POST /support-access,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+POST /support-access/:id/revoke,support.ts,yes,business,,outlet:manage,,BUSINESS_OWNER
+POST /tables,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+POST /tables/:id/open,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /tables/areas,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER
+POST /tables/sessions/:id/bill,tables.ts,yes,yes,,table:serve + order:create + payment:collect,TABLES | BILLING,BUSINESS_OWNER OUTLET_MANAGER CASHIER
+POST /tables/sessions/:id/close,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /tables/sessions/:id/items,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /tables/sessions/:id/merge,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /tables/sessions/:id/transfer,tables.ts,yes,yes,,table:serve,TABLES,BUSINESS_OWNER OUTLET_MANAGER CASHIER WAITER
+POST /tax-rates,tax-rates.ts,yes,business,,settings:billing,,BUSINESS_OWNER OUTLET_MANAGER
+POST /uploads/image,uploads.ts,yes,,,(any logged-in user / in-handler),,all
+POST /webhooks/razorpay,public.ts,NO,,,(public),,all
+PUT /admin/settings/:scope/:key,admin.ts,yes,,,settings:outlet|platform(GLOBAL),,all
+PUT /admin/whatsapp,admin.ts,yes,business,,settings:outlet,,BUSINESS_OWNER OUTLET_MANAGER
+PUT /canteen/slots/:id/items,canteen-meals.ts,yes,yes,,canteen:manage,CANTEEN,BUSINESS_OWNER OUTLET_MANAGER
+PUT /channels/connection,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+PUT /channels/items/:menuItemId,channels.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+PUT /customers/loyalty/config,customers.ts,yes,yes,,customer:manage,BILLING | CUSTOMERS,BUSINESS_OWNER OUTLET_MANAGER
+PUT /inventory/audits/:id/counts,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+PUT /inventory/recipes/:menuItemId,inventory.ts,yes,yes,,inventory:manage,INVENTORY,BUSINESS_OWNER OUTLET_MANAGER INVENTORY_MANAGER
+PUT /menu/items/:id/override,menu.ts,yes,yes,,menu:manage,BILLING | INVENTORY,BUSINESS_OWNER OUTLET_MANAGER
+PUT /storefront/settings,storefront.ts,yes,yes,,channel:manage,CHANNELS,BUSINESS_OWNER OUTLET_MANAGER
+PUT /tables/layout,tables.ts,yes,yes,,table:manage,TABLES,BUSINESS_OWNER OUTLET_MANAGER

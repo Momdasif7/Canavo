@@ -6,6 +6,7 @@ import Constants from "expo-constants";
 import { ROLE_LABELS } from "@canavo/shared";
 import { moreItems } from "../../src/auth/access";
 import { useSignedIn } from "../../src/auth/AuthContext";
+import { BusinessLogo, useBusinessBrand } from "../../src/components/BusinessBrand";
 import { Screen } from "../../src/components/Screen";
 import { AppText, Button, Card, Notice, Row } from "../../src/components/ui";
 import { API_URL } from "../../src/lib/config";
@@ -70,6 +71,8 @@ export default function More() {
   const platformAdmin = !!me.platformAdmin;
   const groups = platformAdmin ? groupByBusiness(me.outlets) : [{ name: "", outlets: me.outlets }];
   const businessName = me.business?.name ?? outlet?.businessName ?? null;
+  // Hotel logo + name for business users (platform admins keep the CANAVO identity).
+  const hotel = useBusinessBrand();
   const { unread } = useNotifications();
   const { pendingCount, syncing, syncNow, online, lastError, failed } = useOffline();
   const cart = useCart();
@@ -110,7 +113,7 @@ export default function More() {
         <View style={{ flex: 1 }}>
           <AppText variant="h3">{me.name}</AppText>
           <AppText variant="muted">
-            {platformAdmin ? "Platform admin" : ROLE_LABELS[me.role]}
+            {platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : (me.customRole?.name ?? ROLE_LABELS[me.role])}
             {businessName ? ` · ${businessName}` : ""}
           </AppText>
           <AppText variant="small">+91 {me.phone}{me.email ? ` · ${me.email}` : ""}</AppText>
@@ -127,7 +130,17 @@ export default function More() {
 
       {me.outlets.length > 1 ? (
         <Card style={{ gap: space.sm }}>
-          <AppText variant="h3">{platformAdmin ? "Business & outlet" : "Outlet"}</AppText>
+          {hotel ? (
+            <Row style={{ gap: space.sm }}>
+              <BusinessLogo name={hotel.name} logoUrl={hotel.logoUrl} size={36} />
+              <AppText variant="h3" style={{ flex: 1 }} numberOfLines={1}>
+                {hotel.name}
+              </AppText>
+            </Row>
+          ) : null}
+          <AppText variant={hotel ? "small" : "h3"} style={hotel ? { fontWeight: "800", textTransform: "uppercase" } : undefined}>
+            {platformAdmin ? "Business & outlet" : "Outlet"}
+          </AppText>
           {me.role === "BUSINESS_OWNER" ? <AppText variant="small">All outlets of {businessName ?? "your business"}</AppText> : null}
           {groups.map((g) => (
             <View key={g.name || "outlets"} style={{ gap: space.sm }}>
@@ -157,9 +170,12 @@ export default function More() {
           ))}
         </Card>
       ) : outlet ? (
-        <Card>
-          <AppText variant="small">{businessName && businessName !== outlet.name ? businessName : "Outlet"}</AppText>
-          <AppText variant="h3">{outlet.name}</AppText>
+        <Card style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          {hotel ? <BusinessLogo name={hotel.name} logoUrl={hotel.logoUrl} size={48} /> : null}
+          <View style={{ flex: 1 }}>
+            <AppText variant="small">{businessName && businessName !== outlet.name ? businessName : "Outlet"}</AppText>
+            <AppText variant="h3">{outlet.name}</AppText>
+          </View>
         </Card>
       ) : (
         <Notice kind="warning" message="No outlet assigned yet. Ask your business owner to add you to an outlet." />

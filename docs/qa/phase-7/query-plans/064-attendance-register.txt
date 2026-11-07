@@ -1,0 +1,44 @@
+-- attendance-register
+-- calls during capture: 4; server-side max 1.4 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "StaffAttendance"."id", "StaffAttendance"."userId", "StaffAttendance"."outletId", "StaffAttendance"."workDate", "StaffAttendance"."clockInAt", "StaffAttendance"."clockOutAt", "StaffAttendance"."clockInLat", "StaffAttendance"."clockInLng", "StaffAttendance"."clockInDistance", "StaffAttendance"."clockInAccuracy", "StaffAttendance"."clockInMocked", "StaffAttendance"."clockInSelfieUrl", "StaffAttendance"."clockInFlags", "StaffAttendance"."clockOutLat", "StaffAttendance"."clockOutLng", "StaffAttendance"."workedMinutes", "StaffAttendance"."overtimeMinutes", "StaffAttendance"."lateByMinutes", "StaffAttendance"."earlyByMinutes", "StaffAttendance"."status"::text, "StaffAttendance"."source", "StaffAttendance"."note", "StaffAttendance"."markedById", "StaffAttendance"."editedAt", "StaffAttendance"."createdAt" FROM "StaffAttendance" WHERE (("StaffAttendance"."outletId" = $1 AND "StaffAttendance"."workDate" >= $2 AND "StaffAttendance"."workDate" <= $3) AND "StaffAttendance"."userId" IN ($…)) OFFSET $24
+-- params: $1 = 'out1', $2 = '2026-10-07', $3 = '2026-11-06', $4 = 'usr1_1', $5 = 'usr1_10', $6 = 'usr1_11', $7 = 'usr1_12', $8 = 'usr1_13', $9 = 'usr1_14', $10 = 'usr1_15', $11 = 'usr1_16', $12 = 'usr1_17', $13 = 'usr1_18', $14 = 'usr1_19', $15 = 'usr1_2', $16 = 'usr1_20', $17 = 'usr1_3', $18 = 'usr1_4', $19 
+
+==== BEFORE (1.344 ms, median of 3)
+Bitmap Heap Scan on "StaffAttendance"  (cost=15.52..1028.09 rows=36 width=269) (actual time=0.664..1.209 rows=545 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("workDate" >= '2026-10-07'::text) AND ("workDate" <= '2026-11-06'::text))
+  Filter: (("userId" = ANY ('{usr1_1,usr1_10,usr1_11,usr1_12,usr1_13,usr1_14,usr1_15,usr1_…}'::text[])) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+  Heap Blocks: exact=37
+  Buffers: shared hit=109
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.542..0.543 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Bitmap Index Scan on "StaffAttendance_outletId_workDate_idx"  (cost=0.00..15.21 rows=553 width=0) (actual time=0.052..0.052 rows=545 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("workDate" >= '2026-10-07'::text) AND ("workDate" <= '2026-11-06'::text))
+        Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=327
+Planning Time: 1.852 ms
+Execution Time: 1.344 ms
+
+==== AFTER (1.898 ms, median of 3)
+Bitmap Heap Scan on "StaffAttendance"  (cost=179.11..360.55 rows=35 width=269) (actual time=1.018..1.788 rows=545 loops=1)
+  Recheck Cond: (("outletId" = 'out1'::text) AND ("userId" = ANY ('{usr1_1,usr1_10,usr1_11,usr1_12,usr1_13,usr1_14,usr1_15,usr1_…}'::text[])) AND ("workDate" >= '2026-10-07'::text) AND ("workDate" <= '2026-11-06'::text))
+  Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+  Heap Blocks: exact=37
+  Buffers: shared hit=180
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.664..0.665 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  BitmapAnd  (cost=178.80..178.80 rows=54 width=0) (actual time=0.301..0.302 rows=0 loops=1)
+        Buffers: shared hit=74
+        ->  Bitmap Index Scan on "StaffAttendance_outletId_clockOutAt_idx"  (cost=0.00..83.43 rows=6818 width=0) (actual time=0.153..0.153 rows=6877 loops=1)
+              Index Cond: ("outletId" = 'out1'::text)
+              Buffers: shared hit=9
+        ->  Bitmap Index Scan on "StaffAttendance_userId_workDate_idx"  (cost=0.00..95.10 rows=539 width=0) (actual time=0.133..0.133 rows=545 loops=1)
+              Index Cond: (("userId" = ANY ('{usr1_1,usr1_10,usr1_11,usr1_12,usr1_13,usr1_14,usr1_15,usr1_…}'::text[])) AND ("workDate" >= '2026-10-07'::text) AND ("workDate" <= '2026-11-06'::text))
+              Buffers: shared hit=65
+Planning:
+  Buffers: shared hit=323
+Planning Time: 2.040 ms
+Execution Time: 1.898 ms

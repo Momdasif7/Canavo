@@ -11,6 +11,8 @@ export interface DeliveredResult {
   delivery: Delivery;
   /** Cash the partner collected at the door (0 = already paid) */
   cashCollected: number;
+  /** The server sent the "Delivered" message to the customer on WhatsApp automatically */
+  customerNotified?: boolean;
 }
 
 /** Full-screen "Delivered" confirmation after the one-tap complete. */
@@ -48,6 +50,12 @@ export function DeliveredModal({
           ) : (
             <AppText style={[styles.text, { fontWeight: "800" }]}>Already paid · nothing collected</AppText>
           )}
+          {result.customerNotified ? (
+            <View style={styles.notified}>
+              <Ionicons name="logo-whatsapp" size={20} color="#fff" />
+              <AppText style={[styles.text, { fontWeight: "700" }]}>Customer notified on WhatsApp</AppText>
+            </View>
+          ) : null}
         </View>
         <View style={{ padding: space.lg, gap: space.sm }}>
           <Button
@@ -72,4 +80,5 @@ const styles = StyleSheet.create({
   circle: { width: 150, height: 150, borderRadius: 75, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   big: { color: "#fff", fontSize: 40, fontWeight: "900" },
   text: { color: "#fff", fontSize: 18, textAlign: "center" },
+  notified: { flexDirection: "row", alignItems: "center", gap: space.sm },
 });

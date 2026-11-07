@@ -188,5 +188,5 @@ export function CellBar({ value, max }: { value: number; max: number }) {
 }
 
 export const ORDER_TYPE_LABEL: Record<string, string> = { DINE_IN: "Dine-In", TAKEAWAY: "Takeaway", DELIVERY: "Delivery", PRE_ORDER: "Pre-Order" };
-export const PAYMENT_LABEL: Record<string, string> = { CASH: "Cash", UPI: "UPI", CARD: "Card", KHATA: "Khata" };
+export const PAYMENT_LABEL: Record<string, string> = { CASH: "Cash", UPI: "UPI", CARD: "Card", KHATA: "Khata", GIFT_CARD: "Gift card", CORPORATE: "Company", WALLET: "Wallet", MEAL_TOKEN: "Meal token", ONLINE: "Paid online" };
 export const roleLabel = (role: string) => (ROLE_LABELS as Record<string, string>)[role] ?? role;

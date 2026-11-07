@@ -84,7 +84,10 @@ export default function BackupsPage() {
                     <tr key={b.file}>
                       <Td className="whitespace-nowrap font-semibold">{formatDateTime(b.createdAt)}</Td>
                       <Td>
-                        <Badge tone={b.kind === "auto" ? "info" : "neutral"}>{b.kind === "auto" ? "Automatic" : "Manual"}</Badge>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge tone={b.kind === "auto" ? "info" : "neutral"}>{b.kind === "auto" ? "Automatic" : "Manual"}</Badge>
+                          {b.location === "offsite" && <Badge tone="neutral">Off-site only</Badge>}
+                        </div>
                       </Td>
                       <Td className="tabular text-right">{formatBytes(b.size)}</Td>
                       <Td className="hidden max-w-[280px] truncate font-mono text-xs text-muted lg:table-cell" title={b.file}>

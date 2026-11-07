@@ -1,0 +1,39 @@
+-- customers-search
+-- calls during capture: 8; server-side max 24.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Customer"."id", "Customer"."businessId", "Customer"."phone", "Customer"."name", "Customer"."email", "Customer"."birthday", "Customer"."anniversary", "Customer"."totalSpend", "Customer"."visitCount", "Customer"."lastVisitAt", "Customer"."points", "Customer"."tier"::text, "Customer"."khataBalance", "Customer"."khataLimit", "Customer"."blocked", "Customer"."notes", "Customer"."createdAt", "Customer"."updatedAt", "Customer"."canteenMember", "Customer"."corporateAccountId", "Customer"."employeeCode", "Customer"."department", "Customer"."cardUid", "Customer"."memberActive", "Customer"."walletBalance" FROM "Customer" WHERE (("Customer"."phone"::text LIKE $1 OR "Customer"."name" ILIKE $2) AND "Customer"."businessId" = $3) ORDER BY "Customer"."lastVisitAt"DESC NULLS LAST, "Customer"."createdAt" DESC LIMIT $4 OFFSET $5
+-- params: $1 = '%Customer 1234%', $2 = '%Customer 1234%', $3 = 'biz1', $4 = '50', $5 = '0'
+
+==== BEFORE (16.487 ms, median of 3)
+Limit  (cost=1716.15..1716.16 rows=3 width=377) (actual time=16.447..16.448 rows=11 loops=1)
+  Buffers: shared hit=576
+  ->  Sort  (cost=1716.15..1716.16 rows=3 width=377) (actual time=16.446..16.447 rows=11 loops=1)
+        Sort Key: "lastVisitAt" DESC NULLS LAST, "createdAt" DESC
+        Sort Method: quicksort  Memory: 26kB
+        Buffers: shared hit=576
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1716.13 rows=3 width=377) (actual time=0.917..16.427 rows=11 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ((phone ~~ '%Customer 1234%'::text) OR (name ~~* '%Customer 1234%
+              Rows Removed by Filter: 29989
+              Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=249
+Planning Time: 0.647 ms
+Execution Time: 16.487 ms
+
+==== AFTER (17.337 ms, median of 3)
+Limit  (cost=1716.15..1716.16 rows=3 width=377) (actual time=17.283..17.285 rows=11 loops=1)
+  Buffers: shared hit=576
+  ->  Sort  (cost=1716.15..1716.16 rows=3 width=377) (actual time=17.282..17.283 rows=11 loops=1)
+        Sort Key: "lastVisitAt" DESC NULLS LAST, "createdAt" DESC
+        Sort Method: quicksort  Memory: 26kB
+        Buffers: shared hit=576
+        ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1716.13 rows=3 width=377) (actual time=0.863..17.240 rows=11 loops=1)
+              Index Cond: ("businessId" = 'biz1'::text)
+              Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ((phone ~~ '%Customer 1234%'::text) OR (name ~~* '%Customer 1234%
+              Rows Removed by Filter: 29989
+              Buffers: shared hit=573
+Planning:
+  Buffers: shared hit=249
+Planning Time: 0.771 ms
+Execution Time: 17.337 ms

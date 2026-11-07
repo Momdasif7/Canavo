@@ -34,6 +34,8 @@ export interface PromotionPreview {
   /** Free items the cart qualifies for but doesn't contain (Buy X Get Y) */
   suggestions?: FreeItemSuggestion[];
   applied: AppliedPromotion[];
+  /** Phase 3.7: every offer / coupon checked, its saving alone, and why it was (not) used */
+  comparison?: OfferComparison[];
   promoDiscount: number;
   couponCode: string | null;
   pointsRedeemed: number;
@@ -206,7 +208,8 @@ export interface Delivery {
   amountDue?: number;
   amountPaid?: number;
   agentLocation?: AgentLocation | null;
-  customerMessage?: { waLink: string; text: string };
+  /** WhatsApp status update for the customer; autoSent = already sent through the business's provider */
+  customerMessage?: { waLink: string; text: string; autoSent?: boolean };
 }
 
 // ---------- Tables ----------
@@ -397,4 +400,13 @@ export interface StaffOption {
   name: string;
   role: string;
   status?: string;
+}
+
+export interface OfferComparison {
+  kind: "OFFER" | "COUPON";
+  id: string;
+  label: string;
+  saving: number;
+  applied: boolean;
+  note: string;
 }

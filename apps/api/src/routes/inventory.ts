@@ -25,16 +25,18 @@ import {
 import { prisma } from "../db";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, forbidden, notFound, param, parse } from "../lib/http";
-import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
+import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
-import { requireBusinessId } from "../lib/tenant";
+import { featureOn, requireBusinessId } from "../lib/tenant";
 import {
   alertLowStock,
   applyStockMovement,
   convertQuantity,
+  inItemOrder,
   isLowStock,
   lowStockItems,
   netPrice,
@@ -43,6 +45,8 @@ import {
   round3,
   updateWeightedCost,
 } from "../services/inventory";
+import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
+import { safeCellText } from "../services/report-export";
 
 type Tx = Prisma.TransactionClient;
 
@@ -66,6 +70,7 @@ async function outletTz(outletId: string) {
 
 /** Inclusive local-date range → UTC instants. Defaults to the last 7 days. */
 async function dateRange(req: Request, from?: string, to?: string) {
+  for (const d of [from, to]) if (d !== undefined && !isValidYmd(d)) throw badRequest("Dates must be real dates in YYYY-MM-DD");
   const tz = await outletTz(req.outletId!);
   const today = zonedParts(new Date(), tz).date;
   const t = to ?? today;
@@ -86,7 +91,7 @@ async function respond(req: Request, res: Response, json: unknown, sheet: { name
   const ws = wb.addWorksheet(sheet.name);
   ws.columns = sheet.columns.map((c) => ({ width: 14, ...c }));
   ws.getRow(1).font = { bold: true };
-  for (const r of sheet.rows) ws.addRow(r);
+  for (const r of sheet.rows) ws.addRow(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "string" ? safeCellText(v) : v])));
   res.setHeader("content-disposition", `attachment; filename="${sheet.filename}.xlsx"`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   await wb.xlsx.write(res);
@@ -204,7 +209,7 @@ inventoryRouter.get("/items/:id", view, async (req, res) => {
 
 inventoryRouter.post("/items", manage, async (req, res) => {
   const { openingStock, ...data } = parse(inventoryItemSchema, req.body);
-  const item = await prisma.$transaction(async (tx) => {
+  const item = await retryTransaction(async (tx) => {
     const created = await tx.inventoryItem.create({ data: { ...data, sku: data.sku || null, barcode: data.barcode || null, businessId: requireBusinessId() } });
     if (openingStock) {
       await applyStockMovement(tx, {
@@ -257,7 +262,7 @@ inventoryRouter.post("/items/:id/adjust", manage, async (req, res) => {
   const id = param(req, "id");
   const data = parse(stockAdjustSchema, req.body);
   const item = await getItem(id);
-  const txn = await prisma.$transaction(async (tx) => {
+  const txn = await retryTransaction(async (tx) => {
     const stock = await tx.inventoryStock.findUnique({ where: { outletId_inventoryItemId: { outletId: req.outletId!, inventoryItemId: id } } });
     const current = stock?.quantity ?? 0;
     const delta = round3(data.setTo !== undefined ? data.setTo - current : data.quantity!);
@@ -418,7 +423,7 @@ inventoryRouter.put("/recipes/:menuItemId", manage, async (req, res) => {
     if (q <= 0) throw badRequest(`Quantity for ${item.name} rounds to zero in ${item.unit}`);
     merged.set(item.id, round3((merged.get(item.id) ?? 0) + q));
   }
-  const recipes = await prisma.$transaction(async (tx) => {
+  const recipes = await retryTransaction(async (tx) => {
     await tx.recipe.deleteMany({ where: { menuItemId, variantId } });
     if (merged.size) {
       await tx.recipe.createMany({ data: [...merged].map(([inventoryItemId, quantity]) => ({ menuItemId, variantId, inventoryItemId, quantity })) });
@@ -426,6 +431,7 @@ inventoryRouter.put("/recipes/:menuItemId", manage, async (req, res) => {
     await audit(req, "inventory.recipe.replace", "MenuItem", menuItemId, { variantId, lines: merged.size }, tx);
     return tx.recipe.findMany({ where: { menuItemId, variantId }, include: { item: { select: { name: true, unit: true, costPerUnit: true } } } });
   });
+  if (featureOn("AUTO_STOCK_OUT")) await announceAvailability(prisma, req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
   res.json({ menuItemId, variantId, lines: recipes, cost: recipeCost(recipes.map((r) => ({ quantity: r.quantity, costPerUnit: r.item.costPerUnit }))) });
 });
 
@@ -549,7 +555,7 @@ async function receivePurchase(tx: Tx, purchaseId: string, outletId: string, use
   if (!claimed.count) throw conflict("Only draft purchases can be received");
   const p = await tx.purchase.findUniqueOrThrow({ where: { id: purchaseId }, include: { items: true } });
   await loadItems(p.items.map((i) => i.inventoryItemId), tx);
-  for (const line of p.items) {
+  for (const line of inItemOrder(p.items)) {
     // Canteens on 5% GST can't claim input credit, so tax is part of the real cost.
     const landed = line.quantity > 0 ? line.total / line.quantity : line.unitCost;
     await updateWeightedCost(tx, line.inventoryItemId, line.quantity, landed);
@@ -604,7 +610,7 @@ inventoryRouter.post("/purchases", manage, async (req, res) => {
   if (!vendor || !vendor.active) throw badRequest("Unknown or inactive vendor");
   await loadItems(data.items.map((i) => i.inventoryItemId));
   const { lines, subtotal, tax, total } = purchaseLines(data.items);
-  const id = await prisma.$transaction(async (tx) => {
+  const id = await retryTransaction(async (tx) => {
     const p = await tx.purchase.create({
       data: {
         outletId: req.outletId!,
@@ -639,7 +645,7 @@ inventoryRouter.patch("/purchases/:id", manage, async (req, res) => {
     if (!v?.active) throw badRequest("Unknown or inactive vendor");
   }
   if (data.items) await loadItems(data.items.map((i) => i.inventoryItemId));
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     let totals = {};
     if (data.items) {
       const { lines, subtotal, tax, total } = purchaseLines(data.items);
@@ -667,7 +673,7 @@ inventoryRouter.patch("/purchases/:id", manage, async (req, res) => {
 inventoryRouter.post("/purchases/:id/receive", manage, async (req, res) => {
   const id = param(req, "id");
   await getPurchase(id, req.outletId!);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await receivePurchase(tx, id, req.outletId!, req.user!.id);
     await audit(req, "inventory.purchase.receive", "Purchase", id, undefined, tx);
   });
@@ -681,14 +687,15 @@ inventoryRouter.post("/purchases/:id/cancel", manage, async (req, res) => {
   const p = await getPurchase(id, req.outletId!);
   if (p.status === "CANCELLED") throw conflict("Purchase already cancelled");
   const returned: string[] = [];
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
+    returned.length = 0; // a retried attempt starts again
     const claimed = await tx.purchase.updateMany({
       where: { id, status: p.status },
       data: { status: "CANCELLED", notes: [p.notes, `Cancelled: ${reason}`].filter(Boolean).join("\n") },
     });
     if (!claimed.count) throw conflict("Purchase changed meanwhile; reload and retry");
     if (p.status === "RECEIVED") {
-      for (const line of p.items) {
+      for (const line of inItemOrder(p.items)) {
         await applyStockMovement(tx, {
           outletId: req.outletId!,
           inventoryItemId: line.inventoryItemId,
@@ -716,7 +723,7 @@ inventoryRouter.post("/purchases/:id/payments", manage, async (req, res) => {
   const p = await getPurchase(id, req.outletId!);
   if (p.status === "CANCELLED") throw conflict("Purchase is cancelled");
   if (data.amount > p.total - p.paidAmount) throw badRequest(`Payment exceeds balance due (₹${rupees(p.total - p.paidAmount)})`);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     // Guard against concurrent payments overshooting the total.
     const ok = await tx.purchase.updateMany({
       where: { id, paidAmount: { lte: p.total - data.amount } },
@@ -738,9 +745,9 @@ inventoryRouter.post("/purchases/:id/payments", manage, async (req, res) => {
 inventoryRouter.post("/wastage", manage, async (req, res) => {
   const { items } = parse(wastageSchema, req.body);
   const byId = await loadItems(items.map((i) => i.inventoryItemId));
-  const txns = await prisma.$transaction(async (tx) => {
+  const txns = await retryTransaction(async (tx) => {
     const out = [];
-    for (const w of items) {
+    for (const w of inItemOrder(items)) {
       const item = byId.get(w.inventoryItemId)!;
       const q = convertQuantity(w.quantity, (w.unit ?? item.unit) as StockUnit, item.unit);
       const t = await applyStockMovement(tx, {
@@ -837,7 +844,7 @@ inventoryRouter.post("/audits", manage, async (req, res) => {
     include: { stocks: { where: { outletId: req.outletId } } },
   });
   if (!items.length) throw badRequest("No active items to audit");
-  const a = await prisma.$transaction(async (tx) => {
+  const a = await retryTransaction(async (tx) => {
     const created = await tx.stockAudit.create({
       data: {
         outletId: req.outletId!,
@@ -862,7 +869,7 @@ inventoryRouter.put("/audits/:id/counts", manage, async (req, res) => {
   const inAudit = new Set(a.lines.map((l) => l.inventoryItemId));
   const unknown = counts.find((c) => !inAudit.has(c.inventoryItemId));
   if (unknown) throw badRequest(`Item ${unknown.inventoryItemId} is not part of this audit`);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     for (const c of counts) {
       await tx.stockAuditLine.update({
         where: { auditId_inventoryItemId: { auditId: id, inventoryItemId: c.inventoryItemId } },
@@ -884,10 +891,10 @@ inventoryRouter.post("/audits/:id/complete", manage, async (req, res) => {
   const before = await getAudit(id, req.outletId!);
   if (before.status !== "IN_PROGRESS") throw conflict(`Audit is ${before.status.toLowerCase()}`);
   if (!before.summary.counted) throw badRequest("Count at least one item before completing");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     const claimed = await tx.stockAudit.updateMany({ where: { id, status: "IN_PROGRESS" }, data: { status: "COMPLETED", completedAt: new Date() } });
     if (!claimed.count) throw conflict("Audit changed meanwhile");
-    for (const l of before.lines) {
+    for (const l of inItemOrder(before.lines)) {
       if (l.variance == null || l.variance === 0) continue;
       await applyStockMovement(tx, {
         outletId: req.outletId!,
@@ -909,6 +916,7 @@ inventoryRouter.post("/audits/:id/complete", manage, async (req, res) => {
 
 inventoryRouter.post("/audits/:id/cancel", manage, async (req, res) => {
   const id = param(req, "id");
+  if (!(await prisma.stockAudit.findFirst({ where: { id, outletId: req.outletId }, select: { id: true } }))) throw notFound("Stock audit");
   const r = await prisma.stockAudit.updateMany({ where: { id, outletId: req.outletId, status: "IN_PROGRESS" }, data: { status: "CANCELLED" } });
   if (!r.count) throw conflict("Only in-progress audits can be cancelled");
   await audit(req, "inventory.audit.cancel", "StockAudit", id);
@@ -1003,7 +1011,7 @@ inventoryRouter.post("/transfers", manage, async (req, res) => {
   const autoApprove = fromOutletId === req.outletId && canApproveFor(req, fromOutletId);
   const merged = new Map<string, number>();
   for (const i of data.items) merged.set(i.inventoryItemId, round3((merged.get(i.inventoryItemId) ?? 0) + i.quantity));
-  const t = await prisma.$transaction(async (tx) => {
+  const t = await retryTransaction(async (tx) => {
     const created = await tx.stockTransfer.create({
       data: {
         fromOutletId,
@@ -1031,7 +1039,7 @@ inventoryRouter.post("/transfers", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/approve", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canApproveFor(req, t.fromOutletId)) throw forbidden("Only the source outlet's manager can approve");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "REQUESTED", { status: "APPROVED", approvedById: req.user!.id });
     await audit(req, "inventory.transfer.approve", "StockTransfer", t.id, undefined, tx);
   });
@@ -1043,7 +1051,7 @@ inventoryRouter.post("/transfers/:id/reject", manage, async (req, res) => {
   const { reason } = parse(stockTransferRejectSchema, req.body);
   const t = await visibleTransfer(req);
   if (!canApproveFor(req, t.fromOutletId)) throw forbidden("Only the source outlet's manager can reject");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, ["REQUESTED", "APPROVED"], {
       status: "REJECTED",
       approvedById: req.user!.id,
@@ -1059,9 +1067,9 @@ inventoryRouter.post("/transfers/:id/reject", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/dispatch", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canActFor(req, t.fromOutletId)) throw forbidden("You don't have access to the source outlet");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "APPROVED", { status: "DISPATCHED" });
-    for (const l of t.items) {
+    for (const l of inItemOrder(t.items)) {
       await applyStockMovement(tx, {
         outletId: t.fromOutletId,
         inventoryItemId: l.inventoryItemId,
@@ -1085,11 +1093,11 @@ inventoryRouter.post("/transfers/:id/dispatch", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/receive", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canActFor(req, t.toOutletId)) throw forbidden("You don't have access to the destination outlet");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "DISPATCHED", { status: "RECEIVED" });
     const out = await tx.inventoryTransaction.findMany({ where: { refType: "StockTransfer", refId: t.id, type: "TRANSFER_OUT" } });
     const cost = new Map(out.map((o) => [o.inventoryItemId, o.unitCost ?? undefined]));
-    for (const l of t.items) {
+    for (const l of inItemOrder(t.items)) {
       await applyStockMovement(tx, {
         outletId: t.toOutletId,
         inventoryItemId: l.inventoryItemId,
@@ -1113,7 +1121,7 @@ inventoryRouter.post("/transfers/:id/cancel", manage, async (req, res) => {
   if (t.requestedById !== req.user!.id && !canApproveFor(req, t.fromOutletId) && !canApproveFor(req, t.toOutletId)) {
     throw forbidden("Only the requester or a manager can cancel");
   }
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, ["REQUESTED", "APPROVED"], { status: "CANCELLED" });
     await audit(req, "inventory.transfer.cancel", "StockTransfer", t.id, undefined, tx);
   });

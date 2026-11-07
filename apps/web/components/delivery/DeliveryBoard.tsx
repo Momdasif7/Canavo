@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { ArrowRight, HandCoins, MapPin, MapTrifold, Phone, WhatsappLogo, XCircle } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, HandCoins, MapPin, MapTrifold, Phone, WhatsappLogo, XCircle } from "@phosphor-icons/react";
 import { formatINR, type DeliveryStatusValue } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { todayISO } from "@/lib/dates";
@@ -44,6 +44,8 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
   const [cancelling, setCancelling] = useState<Delivery | null>(null);
   /** Latest WhatsApp status link per delivery (from status/assign responses) */
   const [links, setLinks] = useState<Record<string, string>>({});
+  /** Deliveries whose latest status update was already sent to the customer through the WhatsApp provider */
+  const [autoSent, setAutoSent] = useState<Record<string, boolean>>({});
   const [locations, setLocations] = useState<Record<string, AgentLocation & { remainingKm?: number | null }>>({});
   /** Card whose map is open */
   const [mapFor, setMapFor] = useState<string | null>(null);
@@ -82,7 +84,9 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
       const res = await api.patch<Delivery>(`/delivery/${d.id}/status`, { status, note });
       update(res);
       if (res.customerMessage?.waLink) setLinks((m) => ({ ...m, [d.id]: res.customerMessage!.waLink }));
-      toast(`${res.order.invoiceNumber}: ${STATUS_LABEL[status]}`, "success");
+      const sent = !!res.customerMessage?.autoSent;
+      setAutoSent((m) => ({ ...m, [d.id]: sent }));
+      toast(`${res.order.invoiceNumber}: ${STATUS_LABEL[status]}${sent ? " · Customer notified on WhatsApp" : ""}`, "success");
       onAgentsChanged();
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -280,10 +284,16 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
                         </Button>
                       )}
                     </div>
-                    {links[d.id] && (
-                      <a href={links[d.id]} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-green-700 hover:underline dark:text-green-300">
-                        Notify customer on WhatsApp →
-                      </a>
+                    {autoSent[d.id] ? (
+                      <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-green-700 dark:text-green-300" data-testid="wa-auto-sent">
+                        <CheckCircle size={14} weight="fill" className="shrink-0" /> Customer notified on WhatsApp
+                      </p>
+                    ) : (
+                      links[d.id] && (
+                        <a href={links[d.id]} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-green-700 hover:underline dark:text-green-300">
+                          Notify customer on WhatsApp →
+                        </a>
+                      )
                     )}
                   </article>
                 );

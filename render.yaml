@@ -1,13 +1,136 @@
-# Render.com blueprint: API (Docker) + managed Postgres.
-# Web is deployed on Vercel (root directory apps/web); mobile via EAS.
+# Render blueprint: BACKEND (API) + DATABASE as two separate Render resources.
+# The FRONTEND (web) is deployed separately on Vercel (apps/web/vercel.json).
+# Full guide: docs/deployment/DEPLOYMENT.md
+#
+# - canavo-api : Docker web service built from apps/api/Dockerfile. Runs
+#                `prisma migrate deploy` on start, then the API (port 4000).
+# - canavo-db  : managed PostgreSQL 16. Prefer an external managed Postgres
+#                (Neon / Supabase / RDS)? Delete the `databases:` block and set
+#                DATABASE_URL on canavo-api by hand.
+#
+# Background jobs (Phase 1): pg-boss queue in Postgres, run by the separate
+# canavo-worker service (JOBS_MODE=worker on the API). Several API instances and
+# workers are safe (no double execution). Scaling the API beyond one instance
+# also needs REDIS_URL so live updates reach every instance.
+
 services:
   - type: web
     name: canavo-api
     runtime: docker
+    region: singapore
+    plan: starter
+    numInstances: 1 # raise only after setting REDIS_URL (Socket.io rooms shared through Redis)
     dockerfilePath: apps/api/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    healthCheckPath: /ready
+    autoDeploy: true
     envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: canavo-db
+          property: connectionString
+      # Secrets: generated once by Render (min 32 chars each)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: RECEIPT_LINK_SECRET
+        generateValue: true
+      # 32-byte key, base64 or hex: `openssl rand -base64 32`. Losing it makes encrypted Aadhaar and WhatsApp tokens unreadable.
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      # Vercel production domain(s) + previews, e.g. https://app.canavo.in,https://*.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      # Public URL of this API, e.g. https://canavo-api.onrender.com (used in receipt links)
+      - key: PUBLIC_API_URL
+        sync: false
+      # Web app URL, e.g. https://app.canavo.in (password setup / reset links)
+      - key: WEB_APP_URL
+        sync: false
+      # Optional: ".canavo.in" when the web app and API share a domain (app. + api.) → web sessions in httpOnly cookies
+      - key: AUTH_COOKIE_DOMAIN
+        sync: false
+      # Render's load balancer is on a private network
+      - key: TRUST_PROXY
+        value: loopback, linklocal, uniquelocal
+      # Jobs run in canavo-worker (below); the API serves requests only
+      - key: JOBS_MODE
+        value: worker
+      - key: LOG_FORMAT
+        value: json
+      # Prometheus scrape token for GET /metrics (16+ chars)
+      - key: METRICS_TOKEN
+        sync: false
+      # Optional: Redis for Socket.io across several API instances
+      - key: REDIS_URL
+        sync: false
+      # Off-site backup copies (S3 / R2 / B2); see docs/deployment/DEPLOYMENT.md
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+      # Optional integrations (leave empty to use the dev fallbacks)
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      # DLT template with a ##message## variable: alerts and password links by SMS
+      - key: MSG91_ALERT_TEMPLATE_ID
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      # Email (or MSG91 SMS above) is required in production: password setup / reset links go through it
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+    disk:
+      # Uploaded images (when Cloudinary isn't set), platform backups, email outbox
+      name: canavo-storage
+      mountPath: /repo/apps/api/storage
+      sizeGB: 5
+
+  # Background worker: scheduled jobs (auto-assign deliveries, alerts, report emails,
+  # backups, stock checks) on pg-boss. Same image and env as the API.
+  - type: worker
+    name: canavo-worker
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    dockerCommand: node dist/worker.js
+    envVars:
+      - fromGroup: canavo-shared
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -15,25 +138,63 @@ services:
           name: canavo-db
           property: connectionString
       - key: JWT_ACCESS_SECRET
-        generateValue: true
+        fromService: { type: web, name: canavo-api, envVarKey: JWT_ACCESS_SECRET }
       - key: JWT_REFRESH_SECRET
-        generateValue: true
+        fromService: { type: web, name: canavo-api, envVarKey: JWT_REFRESH_SECRET }
       - key: RECEIPT_LINK_SECRET
-        generateValue: true
+        fromService: { type: web, name: canavo-api, envVarKey: RECEIPT_LINK_SECRET }
       - key: DATA_ENCRYPTION_KEY
-        sync: false
-      - key: CORS_ORIGINS
-        sync: false
+        fromService: { type: web, name: canavo-api, envVarKey: DATA_ENCRYPTION_KEY }
       - key: PUBLIC_API_URL
+        fromService: { type: web, name: canavo-api, envVarKey: PUBLIC_API_URL }
+      - key: WEB_APP_URL
+        fromService: { type: web, name: canavo-api, envVarKey: WEB_APP_URL }
+      # The worker sends scheduled report emails, SMS alerts and push notifications
+      - key: SMTP_HOST
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_HOST }
+      - key: SMTP_PORT
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_PORT }
+      - key: SMTP_USER
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_USER }
+      - key: SMTP_PASS
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_PASS }
+      - key: SMTP_FROM
+        fromService: { type: web, name: canavo-api, envVarKey: SMTP_FROM }
+      - key: MSG91_AUTH_KEY
+        fromService: { type: web, name: canavo-api, envVarKey: MSG91_AUTH_KEY }
+      - key: MSG91_ALERT_TEMPLATE_ID
+        fromService: { type: web, name: canavo-api, envVarKey: MSG91_ALERT_TEMPLATE_ID }
+      - key: EXPO_ACCESS_TOKEN
+        fromService: { type: web, name: canavo-api, envVarKey: EXPO_ACCESS_TOKEN }
+      - key: LOG_FORMAT
+        value: json
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
         sync: false
     disk:
-      # uploads, backups and the email outbox when Cloudinary/SMTP are not configured
-      name: canavo-storage
+      # Backups are written here before the off-site copy
+      name: canavo-worker-storage
       mountPath: /repo/apps/api/storage
       sizeGB: 5
 
+envVarGroups:
+  - name: canavo-shared
+    envVars:
+      - key: TRUST_PROXY
+        value: loopback, linklocal, uniquelocal
+
 databases:
   - name: canavo-db
+    region: singapore
     plan: basic-256mb
+    postgresMajorVersion: "16"
     databaseName: canavo
     user: canavo
+    ipAllowList: [] # only Render services in this account can connect

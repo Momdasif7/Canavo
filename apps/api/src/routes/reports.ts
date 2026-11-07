@@ -1,15 +1,17 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import type { Outlet } from "@prisma/client";
-import { exclusiveOf, financialYearLabel, REPORT_KEYS, type ReportKey } from "@canavo/shared";
+import { exclusiveOf, financialYearLabel, ORDER_CHANNEL_LABELS, REPORT_KEYS, type OrderChannel, type ReportKey } from "@canavo/shared";
 import { prisma } from "../db";
 import { dayOutcome } from "../services/attendance";
-import { badRequest, parse } from "../lib/http";
-import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
+import { badRequest, forbidden, parse } from "../lib/http";
+import { moduleEnabled } from "../lib/tenant";
+import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { sendExport, type ExportColumn, type ExportFormat, type ExportTable } from "../services/report-export";
 import { buildGstr1, type Gstr1Order } from "../services/gstr1";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
+import { aboveApprovalLimit, ownerSummary } from "../services/owner-summary";
 
 export const reportsRouter = Router();
 reportsRouter.use(authenticate, requireModule("REPORTS"));
@@ -18,7 +20,7 @@ reportsRouter.use(authenticate, requireModule("REPORTS"));
 // Shared helpers
 // =====================================================================
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidYmd, "Use a real date (YYYY-MM-DD)");
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MAX_RANGE_DAYS = 366;
 
@@ -87,6 +89,18 @@ export function makeCtx(outlet: Outlet, from: string, to: string, q: Record<stri
 }
 
 const window = (ctx: ReportCtx) => ({ outletId: ctx.outlet.id, createdAt: { gte: ctx.start, lt: ctx.end } });
+
+/**
+ * PostgreSQL takes at most 32,767 bind values per statement and Prisma sends `in: ids` (and a
+ * filtered relation load) as one `IN ($1 … $n)`: a busy outlet's year holds more bills than that.
+ * Run the query per slice of the id list instead (QA Phase 7).
+ */
+const IN_CHUNK = 10_000;
+async function inChunks<T>(ids: string[], run: (slice: string[]) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) out.push(...(await run(ids.slice(i, i + IN_CHUNK))));
+  return out;
+}
 const subtitle = (ctx: ReportCtx, extra?: string) =>
   [`${ctx.outlet.name}`, `${ctx.from} to ${ctx.to}`, extra].filter(Boolean).join(" · ");
 
@@ -103,9 +117,10 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   const orders = await prisma.order.findMany({
     where: { ...window(ctx), status: { in: ["PAID", "CANCELLED"] } },
     select: {
-      status: true, createdAt: true, orderType: true, grandTotal: true, discount: true, promoDiscount: true,
+      status: true, createdAt: true, orderType: true, channel: true, grandTotal: true, discount: true, promoDiscount: true,
       extraCharges: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
-      payments: { where: { status: "SUCCESS" }, select: { mode: true, amount: true } },
+      // Filtered in code: a `where` here overflows the bind-value cap on >32k bills (QA Phase 7)
+      payments: { select: { mode: true, amount: true, status: true } },
     },
   });
 
@@ -125,6 +140,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   const total = blank("Total");
   const byType = new Map<string, { orderType: string; orders: number; gross: number; net: number }>();
   const byMode = new Map<string, { mode: string; count: number; amount: number }>();
+  const byChannel = new Map<string, { channel: string; orders: number; gross: number; net: number }>();
 
   for (const o of orders) {
     const b = buckets.get(periodKey(localParts(o.createdAt, ctx.outlet.timezone).date, groupBy))!;
@@ -151,7 +167,13 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
     ty.gross += o.grandTotal;
     ty.net += o.grandTotal - taxOf(o) - o.roundOff;
     byType.set(o.orderType, ty);
+    const ch = byChannel.get(o.channel) ?? { channel: o.channel, orders: 0, gross: 0, net: 0 };
+    ch.orders++;
+    ch.gross += o.grandTotal;
+    ch.net += o.grandTotal - taxOf(o) - o.roundOff;
+    byChannel.set(o.channel, ch);
     for (const p of o.payments) {
+      if (p.status !== "SUCCESS") continue;
       const m = byMode.get(p.mode) ?? { mode: p.mode, count: 0, amount: 0 };
       m.count++;
       m.amount += p.amount;
@@ -162,6 +184,18 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   total.aov = avg(total.gross, total.orders);
   const orderTypes = [...byType.values()].map((t) => ({ ...t, share: pct(t.gross, total.gross) })).sort((a, b) => b.gross - a.gross);
   const paymentModes = [...byMode.values()].map((m) => ({ ...m, share: pct(m.amount, total.gross) })).sort((a, b) => b.amount - a.amount);
+  // Phase 6.1: sales by channel, with the aggregator commission estimated from Settings → Channels.
+  const channelsOn = moduleEnabled("CHANNELS");
+  const commission = channelsOn
+    ? (((await prisma.channelConnection.findFirst({ where: { outletId: ctx.outlet.id }, select: { commission: true } }))?.commission ?? {}) as Record<string, number>)
+    : {};
+  const channels = [...byChannel.values()]
+    .map((c) => {
+      const commissionPercent = Number(commission[c.channel] ?? 0);
+      const est = Math.round((c.gross * commissionPercent) / 100);
+      return { ...c, label: ORDER_CHANNEL_LABELS[c.channel as OrderChannel] ?? c.channel, share: pct(c.gross, total.gross), commissionPercent, commission: est, afterCommission: c.gross - est };
+    })
+    .sort((a, b) => b.gross - a.gross);
 
   const cols: ExportColumn[] = [
     { key: "period", header: groupBy === "day" ? "Date" : groupBy === "week" ? "Week of" : "Month", width: 12 },
@@ -179,7 +213,7 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   ];
   return {
     title: "Sales report",
-    data: { from: ctx.from, to: ctx.to, groupBy, totals: total, periods, byOrderType: orderTypes, byPaymentMode: paymentModes },
+    data: { from: ctx.from, to: ctx.to, groupBy, totals: total, periods, byOrderType: orderTypes, byPaymentMode: paymentModes, ...(channelsOn && { byChannel: channels }) },
     tables: [
       { title: "Sales", subtitle: subtitle(ctx, `grouped by ${groupBy}`), columns: cols, rows: periods, totals: { ...total, period: "Total" } },
       {
@@ -205,6 +239,26 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
         rows: paymentModes,
         totals: true,
       },
+      ...(channelsOn
+        ? [
+            {
+              title: "By channel",
+              subtitle: "Commission is an estimate from the % set in Settings → Channels",
+              columns: [
+                { key: "label", header: "Channel", width: 14 },
+                { key: "orders", header: "Orders", type: "int" },
+                { key: "gross", header: "Gross", type: "money", width: 14 },
+                { key: "net", header: "Net", type: "money", width: 14 },
+                { key: "commissionPercent", header: "Commission %", width: 12 },
+                { key: "commission", header: "Commission (est.)", type: "money", width: 14 },
+                { key: "afterCommission", header: "After commission", type: "money", width: 14 },
+                { key: "share", header: "Share", type: "percent" },
+              ] as ExportColumn[],
+              rows: channels,
+              totals: true as const,
+            },
+          ]
+        : []),
     ],
   };
 }
@@ -549,7 +603,17 @@ export async function gstr1For(outlet: Outlet, month: string) {
       },
     },
   });
+  // Credit notes issued in the month (Phase 3.1) → negative lines at the original items' rates.
+  const cns = await prisma.creditNote.findMany({
+    where: window(ctx),
+    select: {
+      number: true, items: true, amount: true, taxableValue: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true,
+      order: { select: { documentType: true, interState: true, items: { select: { id: true, hsnCode: true, gstRate: true, quantity: true, taxableValue: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, taxRates: true, total: true } } } },
+    },
+  });
+  const creditNotes = cns.map((c) => ({ number: c.number, documentType: c.order.documentType, interState: c.order.interState, items: creditLines(c) }));
   const result = buildGstr1({
+    creditNotes,
     gstin: outlet.gstin,
     stateCode: outlet.stateCode,
     month,
@@ -826,9 +890,9 @@ async function customersReport(ctx: ReportCtx): Promise<BuiltReport> {
   const ids = [...per.keys()];
   const orderIds = orders.map((o) => o.id);
   const [firsts, customers, loyalty, khata, khataCustomers] = await Promise.all([
-    prisma.order.groupBy({ by: ["customerId"], where: { outletId: ctx.outlet.id, status: "PAID", customerId: { in: ids } }, _min: { createdAt: true } }),
-    prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, phone: true, tier: true, points: true, khataBalance: true } }),
-    prisma.loyaltyTransaction.groupBy({ by: ["type"], where: { createdAt: { gte: ctx.start, lt: ctx.end }, orderId: { in: orderIds } }, _sum: { points: true }, _count: true }),
+    inChunks(ids, (slice) => prisma.order.groupBy({ by: ["customerId"], where: { outletId: ctx.outlet.id, status: "PAID", customerId: { in: slice } }, _min: { createdAt: true } })),
+    inChunks(ids, (slice) => prisma.customer.findMany({ where: { id: { in: slice } }, select: { id: true, name: true, phone: true, tier: true, points: true, khataBalance: true } })),
+    inChunks(orderIds, (slice) => prisma.loyaltyTransaction.groupBy({ by: ["type"], where: { createdAt: { gte: ctx.start, lt: ctx.end }, orderId: { in: slice } }, _sum: { points: true }, _count: true })),
     prisma.khataTransaction.groupBy({ by: ["type"], where: window(ctx), _sum: { amount: true }, _count: true }),
     prisma.customer.findMany({ where: { khataBalance: { gt: 0 }, khataTxns: { some: { outletId: ctx.outlet.id } } }, select: { khataBalance: true } }),
   ]);
@@ -845,7 +909,7 @@ async function customersReport(ctx: ReportCtx): Promise<BuiltReport> {
       const c = byId.get(id);
       return { customerId: id, name: c?.name ?? "", phone: c?.phone ?? "", tier: c?.tier ?? "", orders: p.orders, spend: p.spend, avgOrder: avg(p.spend, p.orders), points: c?.points ?? 0 };
     });
-  const pts = (t: string) => Math.abs(loyalty.find((l) => l.type === t)?._sum.points ?? 0);
+  const pts = (t: string) => Math.abs(loyalty.filter((l) => l.type === t).reduce((sum, l) => sum + (l._sum.points ?? 0), 0));
   const kh = (t: string) => khata.find((k) => k.type === t)?._sum.amount ?? 0;
   const summary = {
     uniqueCustomers: ids.length,
@@ -1095,6 +1159,199 @@ async function deliveryReport(ctx: ReportCtx): Promise<BuiltReport> {
 }
 
 // =====================================================================
+// Exceptions (Phase 3.3): voids, refunds, big discounts, approvals, reprints
+// =====================================================================
+
+async function exceptionsReport(ctx: ReportCtx): Promise<BuiltReport> {
+  const w = window(ctx);
+  const outletId = ctx.outlet.id;
+  const limit = ctx.outlet.approvalDiscountPercent;
+  const [voids, refunds, discounted, approvals, reprints] = await Promise.all([
+    prisma.order.findMany({
+      where: { outletId, cancelledAt: { gte: ctx.start, lt: ctx.end } },
+      select: { id: true, invoiceNumber: true, grandTotal: true, cancelledAt: true, cancelReason: true, paidAt: true, cashier: { select: { name: true } } },
+      orderBy: { cancelledAt: "asc" },
+    }),
+    prisma.creditNote.findMany({ where: w, select: { id: true, number: true, amount: true, reason: true, note: true, refundMode: true, createdAt: true, createdById: true, approvedById: true, order: { select: { invoiceNumber: true } } }, orderBy: { createdAt: "asc" } }),
+    prisma.order.findMany({
+      where: { ...w, status: { not: "CANCELLED" }, discount: { gt: 0 } },
+      select: { id: true, invoiceNumber: true, subtotal: true, discount: true, createdAt: true, cashier: { select: { name: true } } },
+    }),
+    prisma.approvalLog.findMany({ where: w, orderBy: { createdAt: "asc" } }),
+    prisma.auditLog.findMany({ where: { ...w, action: "kot.reprint" }, select: { createdAt: true, entityId: true, user: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+  ]);
+  // Who cancelled: from the audit log.
+  const cancelAudit = await prisma.auditLog.findMany({ where: { action: "order.cancel", entityId: { in: voids.map((v) => v.id) } }, select: { entityId: true, user: { select: { name: true } } } });
+  const cancelledBy = new Map(cancelAudit.map((a) => [a.entityId, a.user?.name ?? ""]));
+  const userIds = [...new Set([...approvals.flatMap((a) => [a.requestedById, a.approvedById]), ...refunds.flatMap((r) => [r.createdById, r.approvedById])].filter((x): x is string => !!x))];
+  const names = new Map((await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+  const name = (id: string | null) => (id ? (names.get(id) ?? "") : "");
+  const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: ctx.outlet.timezone, dateStyle: "medium", timeStyle: "short" });
+  const bigDiscounts = discounted.filter((o) => aboveApprovalLimit(o, limit));
+  const unapproved = approvals.filter((a) => !a.approvedById);
+
+  const data = {
+    discountLimitPercent: limit,
+    totals: {
+      voids: { count: voids.length, amount: voids.reduce((s, v) => s + v.grandTotal, 0), afterPayment: voids.filter((v) => v.paidAt).length },
+      refunds: { count: refunds.length, amount: refunds.reduce((s, r) => s + r.amount, 0) },
+      bigDiscounts: { count: bigDiscounts.length, amount: bigDiscounts.reduce((s, o) => s + o.discount, 0) },
+      approvals: approvals.length,
+      unapproved: unapproved.length,
+      reprints: reprints.length,
+    },
+    voids: voids.map((v) => ({ invoiceNumber: v.invoiceNumber, at: when(v.cancelledAt!), amount: v.grandTotal, reason: v.cancelReason ?? "", wasPaid: Boolean(v.paidAt), cashier: v.cashier.name, by: cancelledBy.get(v.id) ?? "" })),
+    refunds: refunds.map((r) => ({ number: r.number, invoiceNumber: r.order.invoiceNumber, at: when(r.createdAt), amount: r.amount, reason: r.reason, note: r.note ?? "", mode: r.refundMode, by: name(r.createdById), approvedBy: name(r.approvedById) })),
+    bigDiscounts: bigDiscounts.map((o) => ({ invoiceNumber: o.invoiceNumber, at: when(o.createdAt), subtotal: o.subtotal, discount: o.discount, percent: pct(o.discount, o.subtotal), cashier: o.cashier.name })),
+    approvals: approvals.map((a) => ({ at: when(a.createdAt), action: a.action, amount: a.amount, reason: a.reason ?? "", requestedBy: name(a.requestedById), approvedBy: a.approvedById ? name(a.approvedById) : "NOT APPROVED (offline)" })),
+    reprints: reprints.map((r) => ({ at: when(r.createdAt), kot: r.entityId ?? "", by: r.user?.name ?? "" })),
+  };
+  return {
+    title: "Exceptions",
+    data,
+    tables: [
+      {
+        title: "Voided bills",
+        subtitle: subtitle(ctx),
+        columns: [
+          { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Voided", width: 20 }, { key: "amount", header: "Amount", type: "money" },
+          { key: "reason", header: "Reason", width: 30 }, { key: "cashier", header: "Billed by", width: 16 }, { key: "by", header: "Voided by", width: 16 },
+        ],
+        rows: data.voids,
+        totals: true,
+      },
+      {
+        title: "Refunds (credit notes)",
+        columns: [
+          { key: "number", header: "Credit note", width: 16 }, { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Issued", width: 20 },
+          { key: "amount", header: "Amount", type: "money" }, { key: "mode", header: "Mode" }, { key: "reason", header: "Reason", width: 18 },
+          { key: "by", header: "By", width: 16 }, { key: "approvedBy", header: "Approved by", width: 16 },
+        ],
+        rows: data.refunds,
+        totals: true,
+      },
+      {
+        title: `Discounts above ${limit}%`,
+        columns: [
+          { key: "invoiceNumber", header: "Bill", width: 16 }, { key: "at", header: "Billed", width: 20 }, { key: "subtotal", header: "Subtotal", type: "money" },
+          { key: "discount", header: "Discount", type: "money" }, { key: "percent", header: "%", type: "number" }, { key: "cashier", header: "Cashier", width: 16 },
+        ],
+        rows: data.bigDiscounts,
+        totals: true,
+      },
+      {
+        title: "Approvals",
+        columns: [
+          { key: "at", header: "When", width: 20 }, { key: "action", header: "Action" }, { key: "amount", header: "Amount", type: "money" },
+          { key: "requestedBy", header: "Requested by", width: 16 }, { key: "approvedBy", header: "Approved by", width: 22 }, { key: "reason", header: "Reason", width: 30 },
+        ],
+        rows: data.approvals,
+      },
+      {
+        title: "KOT reprints",
+        columns: [{ key: "at", header: "When", width: 20 }, { key: "kot", header: "KOT", width: 26 }, { key: "by", header: "By", width: 16 }],
+        rows: data.reprints,
+      },
+    ],
+  };
+}
+
+// =====================================================================
+// Canteen (Phase 5.5): meals by company and department, who paid, wallet liability
+// =====================================================================
+
+async function canteenReport(ctx: ReportCtx): Promise<BuiltReport> {
+  if (!moduleEnabled("CANTEEN")) throw forbidden("This feature is not enabled for your business");
+  const w = window(ctx);
+  const [orders, wallets, tokens, topups, tokenSales] = await Promise.all([
+    prisma.order.findMany({
+      where: { ...w, status: "PAID", customer: { canteenMember: true } },
+      select: {
+        grandTotal: true,
+        payments: { select: { mode: true, amount: true, tokens: true, status: true } }, // SUCCESS filtered below (bind-value cap)
+        customer: { select: { department: true, corporateAccount: { select: { name: true } } } },
+      },
+    }),
+    prisma.customer.aggregate({ where: { canteenMember: true }, _sum: { walletBalance: true }, _count: { _all: true } }),
+    prisma.mealTokenAccount.aggregate({ _sum: { balance: true, value: true } }),
+    prisma.walletTxn.groupBy({ by: ["mode"], where: { ...w, type: "TOPUP" }, _sum: { amount: true }, _count: true }),
+    prisma.mealTokenTxn.aggregate({ where: { ...w, type: "PURCHASE" }, _sum: { amount: true, count: true } }),
+  ]);
+
+  type Row = { key: string; meals: number; gross: number; employerShare: number; employeeShare: number; walletSpend: number; tokensRedeemed: number; tokenValue: number };
+  const blank = (key: string): Row => ({ key, meals: 0, gross: 0, employerShare: 0, employeeShare: 0, walletSpend: 0, tokensRedeemed: 0, tokenValue: 0 });
+  const byAccount = new Map<string, Row>();
+  const byDept = new Map<string, Row>();
+  const total = blank("Total");
+  for (const o of orders) {
+    const payments = o.payments.filter((p) => p.status === "SUCCESS");
+    const sum = (mode: string) => payments.filter((p) => p.mode === mode).reduce((s, p) => s + p.amount, 0);
+    const employer = sum("CORPORATE");
+    const add = (r: Row) => {
+      r.meals += 1;
+      r.gross += o.grandTotal;
+      r.employerShare += employer;
+      r.employeeShare += o.grandTotal - employer;
+      r.walletSpend += sum("WALLET");
+      r.tokensRedeemed += payments.filter((p) => p.mode === "MEAL_TOKEN").reduce((s, p) => s + (p.tokens ?? 1), 0);
+      r.tokenValue += sum("MEAL_TOKEN");
+    };
+    const account = o.customer?.corporateAccount?.name ?? "No company";
+    const dept = `${account} · ${o.customer?.department || "No department"}`;
+    if (!byAccount.has(account)) byAccount.set(account, blank(account));
+    if (!byDept.has(dept)) byDept.set(dept, blank(dept));
+    add(byAccount.get(account)!);
+    add(byDept.get(dept)!);
+    add(total);
+  }
+  const sorted = (m: Map<string, Row>) => [...m.values()].sort((a, b) => b.gross - a.gross);
+  const data = {
+    totals: total,
+    byAccount: sorted(byAccount),
+    byDepartment: sorted(byDept),
+    // Liability (business-wide, now): prepaid money not yet eaten. Not sales; no GST until spent.
+    liability: {
+      members: wallets._count._all,
+      walletBalance: wallets._sum.walletBalance ?? 0,
+      tokensOutstanding: tokens._sum.balance ?? 0,
+      tokenValue: tokens._sum.value ?? 0,
+    },
+    topups: {
+      byMode: Object.fromEntries(topups.map((t) => [t.mode ?? "OTHER", { count: t._count, amount: t._sum.amount ?? 0 }])),
+      wallet: topups.reduce((s, t) => s + (t._sum.amount ?? 0), 0),
+      tokensSold: tokenSales._sum.count ?? 0,
+      tokenSales: tokenSales._sum.amount ?? 0,
+    },
+  };
+  const columns = (first: string): ExportColumn[] => [
+    { key: "key", header: first, width: 28 },
+    { key: "meals", header: "Meals", type: "int" },
+    { key: "gross", header: "Gross", type: "money", width: 13 },
+    { key: "employerShare", header: "Company share", type: "money", width: 14 },
+    { key: "employeeShare", header: "Employee share", type: "money", width: 14 },
+    { key: "walletSpend", header: "Wallet", type: "money", width: 12 },
+    { key: "tokensRedeemed", header: "Tokens", type: "int" },
+  ];
+  return {
+    title: "Canteen",
+    data,
+    tables: [
+      { title: "Canteen by company", subtitle: subtitle(ctx, "paid bills of canteen members"), columns: columns("Company"), rows: data.byAccount, totals: true },
+      { title: "Canteen by department", columns: columns("Company · department"), rows: data.byDepartment, totals: true },
+      {
+        title: "Prepaid liability (now, all outlets)",
+        columns: [{ key: "what", header: "What", width: 30 }, { key: "amount", header: "Amount", type: "money", width: 14 }],
+        rows: [
+          { what: `Wallet balances (${data.liability.members} members)`, amount: data.liability.walletBalance },
+          { what: `Meal tokens not used (${data.liability.tokensOutstanding})`, amount: data.liability.tokenValue },
+        ],
+        totals: true,
+      },
+    ],
+  };
+}
+
+// =====================================================================
 // Registry (also used by scheduled emails)
 // =====================================================================
 
@@ -1109,6 +1366,8 @@ export const REPORTS: Record<ReportKey, { title: string; build: (ctx: ReportCtx)
   customers: { title: "Customers", build: customersReport },
   inventory: { title: "Inventory", build: inventoryReport },
   delivery: { title: "Delivery", build: deliveryReport },
+  exceptions: { title: "Exceptions", build: exceptionsReport },
+  canteen: { title: "Canteen", build: canteenReport },
 };
 
 export async function buildReport(key: ReportKey, outlet: Outlet, from: string, to: string, q: Record<string, unknown> = {}) {
@@ -1171,6 +1430,15 @@ reportsRouter.get("/outlets/overview", requirePermission("report:view"), async (
   }]);
 });
 
+/** Owner home (Phase 4.3): today so far vs the same weekday last week, per outlet + totals — not outlet-scoped. */
+reportsRouter.get("/owner-summary", requirePermission("report:view"), async (req, res) => {
+  const outlets = await prisma.outlet.findMany({
+    where: req.user!.role === "SUPER_ADMIN" ? {} : { id: { in: req.user!.outletIds } },
+    orderBy: { name: "asc" },
+  });
+  res.json(await ownerSummary(outlets));
+});
+
 reportsRouter.use(requireOutlet, requirePermission("report:view"));
 
 async function currentOutlet(req: Request) {
@@ -1197,6 +1465,26 @@ for (const key of REPORT_KEYS) {
 }
 
 /** GSTR-1 for a month. format=json returns {gstr1, totals, notes, warnings}; add download=1 for the bare GSTN payload file. */
+type CnLine = { orderItemId: string; quantity: number; taxableValue: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; total: number };
+type OrderLine = { id: string; hsnCode: string; gstRate: number; quantity: number; taxableValue: number; serviceCharge: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; taxRates: unknown; total: number };
+
+/** A credit note as negative GSTR-1 lines; value-only credits are spread over the bill's lines by taxable value. */
+function creditLines(c: { items: unknown; amount: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; order: { items: OrderLine[] } }) {
+  const neg = (l: OrderLine, v: Omit<CnLine, "orderItemId">) => ({
+    hsnCode: l.hsnCode, gstRate: l.gstRate, taxRates: l.taxRates, serviceCharge: 0,
+    quantity: -v.quantity, taxableValue: -v.taxableValue, cgst: -v.cgst, sgst: -v.sgst, igst: -v.igst, cess: -v.cess, otherTaxes: -v.otherTaxes, total: -v.total,
+  });
+  const lines = c.items as CnLine[];
+  const byId = new Map(c.order.items.map((l) => [l.id, l]));
+  if (lines.length) return lines.filter((l) => byId.has(l.orderItemId)).map((l) => neg(byId.get(l.orderItemId)!, l));
+  const base = c.order.items.reduce((s, l) => s + l.total, 0) || 1;
+  return c.order.items.map((l) => {
+    const share = l.total / base;
+    const part = (v: number) => Math.round(v * share);
+    return neg(l, { quantity: 0, taxableValue: 0, cgst: part(c.cgst), sgst: part(c.sgst), igst: part(c.igst), cess: part(c.cess), otherTaxes: part(c.otherTaxes), total: part(c.amount) });
+  });
+}
+
 reportsRouter.get("/gstr1", async (req, res) => {
   const q = parse(
     z.object({
@@ -1299,7 +1587,7 @@ reportsRouter.get("/daily", async (req, res) => {
     prisma.payment.groupBy({
       by: ["mode"],
       where: { status: "SUCCESS", order: { ...window, status: "PAID" } },
-      _sum: { amount: true },
+      _sum: { amount: true, tip: true },
       _count: true,
     }),
     prisma.orderItem.groupBy({
@@ -1312,6 +1600,15 @@ reportsRouter.get("/daily", async (req, res) => {
     daySales(req.outletId!, addDays(date, -1), outlet.timezone),
     daySales(req.outletId!, addDays(date, -7), outlet.timezone),
   ]);
+  // Credit notes issued on this day (Phase 3.1), whatever day the bill was from.
+  const refundRows = await prisma.creditNote.groupBy({ by: ["refundMode"], where: window, _sum: { amount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true }, _count: true });
+  const refundTotal = refundRows.reduce((s, r) => s + (r._sum.amount ?? 0), 0);
+  // Exceptions for the dashboard tiles: bills voided on this day, and cash shifts closed on it.
+  const [voided, shifts] = await Promise.all([
+    prisma.order.aggregate({ where: { outletId: req.outletId, cancelledAt: { gte: from, lt: to } }, _count: true, _sum: { grandTotal: true } }),
+    prisma.cashShift.findMany({ where: { outletId: req.outletId, status: "CLOSED", closedAt: { gte: from, lt: to } }, select: { variance: true } }),
+  ]);
+  const refundTax = refundRows.reduce((s, r) => s + (r._sum.cgst ?? 0) + (r._sum.sgst ?? 0) + (r._sum.igst ?? 0) + (r._sum.cess ?? 0) + (r._sum.otherTaxes ?? 0), 0);
 
   const sum = (f: (o: (typeof orders)[number]) => number) => orders.reduce((s, o) => s + f(o), 0);
   const gross = sum((o) => o.grandTotal);
@@ -1341,6 +1638,19 @@ reportsRouter.get("/daily", async (req, res) => {
     serviceCharge: sum((o) => o.serviceCharge),
     orders: orders.length,
     cancelledOrders: cancelled,
+    refunds: {
+      count: refundRows.reduce((s, r) => s + r._count, 0),
+      amount: refundTotal,
+      tax: refundTax,
+      byMode: Object.fromEntries(refundRows.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
+    },
+    voids: { count: voided._count, amount: voided._sum.grandTotal ?? 0 },
+    /** Cash shifts closed on this day: counted − expected (negative = short) */
+    cashDifference: { shifts: shifts.length, amount: shifts.reduce((s, x) => s + (x.variance ?? 0), 0) },
+    /** Gross sales minus refunds issued today */
+    salesAfterRefunds: gross - refundTotal,
+    /** Tips received on top of bills (not sales, not taxed) — Phase 3.8 */
+    tips: payments.reduce((s, p) => s + (p._sum.tip ?? 0), 0),
     averageOrderValue: orders.length ? Math.round(gross / orders.length) : 0,
     byOrderType: byType,
     byPaymentMode: Object.fromEntries(payments.map((p) => [p.mode, { count: p._count, amount: p._sum.amount ?? 0 }])),
@@ -1370,6 +1680,9 @@ reportsRouter.get("/daily", async (req, res) => {
         { metric: "Service charge", value: data.serviceCharge },
         { metric: "Average order value", value: data.averageOrderValue },
         { metric: "Cancelled orders", count: data.cancelledOrders },
+        { metric: "Refunds (credit notes)", value: data.refunds.amount, count: data.refunds.count },
+        { metric: "Sales after refunds", value: data.salesAfterRefunds },
+        { metric: "Tips (not sales)", value: data.tips },
         { metric: `Yesterday (${data.comparison.yesterday.changePercent ?? "-"}%)`, value: yesterday.gross, count: yesterday.orders },
         { metric: `Same day last week (${data.comparison.lastWeek.changePercent ?? "-"}%)`, value: lastWeek.gross, count: lastWeek.orders },
       ],

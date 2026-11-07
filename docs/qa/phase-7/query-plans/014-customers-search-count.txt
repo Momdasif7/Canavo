@@ -1,0 +1,31 @@
+-- customers-search-count
+-- calls during capture: 8; server-side max 24.1 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all" FROM (SELECT "Customer"."id" FROM "Customer" WHERE (("Customer"."phone"::text LIKE $1 OR "Customer"."name" ILIKE $2) AND "Customer"."businessId" = $3) OFFSET $4) AS "sub"
+-- params: $1 = '%Customer 1234%', $2 = '%Customer 1234%', $3 = 'biz1', $4 = '0'
+
+==== BEFORE (14.487 ms, median of 3)
+Aggregate  (cost=1716.15..1716.16 rows=1 width=8) (actual time=14.440..14.440 rows=1 loops=1)
+  Buffers: shared hit=570
+  ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1716.11 rows=3 width=32) (actual time=0.654..14.434 rows=11 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ((phone ~~ '%Customer 1234%'::text) OR (name ~~* '%Customer 1234%'::tex
+        Rows Removed by Filter: 29989
+        Buffers: shared hit=570
+Planning:
+  Buffers: shared hit=167
+Planning Time: 0.418 ms
+Execution Time: 14.487 ms
+
+==== AFTER (16.171 ms, median of 3)
+Aggregate  (cost=1716.15..1716.16 rows=1 width=8) (actual time=16.120..16.120 rows=1 loops=1)
+  Buffers: shared hit=570
+  ->  Index Scan using "Customer_businessId_idx" on "Customer"  (cost=0.29..1716.11 rows=3 width=32) (actual time=0.839..16.113 rows=11 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))) AND ((phone ~~ '%Customer 1234%'::text) OR (name ~~* '%Customer 1234%'::tex
+        Rows Removed by Filter: 29989
+        Buffers: shared hit=570
+Planning:
+  Buffers: shared hit=167
+Planning Time: 0.529 ms
+Execution Time: 16.171 ms

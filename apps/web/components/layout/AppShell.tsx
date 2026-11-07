@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type { Me } from "@/lib/types";
 import clsx from "clsx";
 import { ROLE_LABELS } from "@canavo/shared";
-import { CaretDown, CaretLeft, List, LockSimple, Moon, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
+import { CaretDown, CaretLeft, Eye, List, LockSimple, Moon, Palette, ShieldCheck, ShieldStar, SignOut, Storefront, Sun } from "@phosphor-icons/react";
 import { errorMessage } from "@/lib/api";
 import { mediaUrl } from "@/lib/media";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -33,7 +34,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (status === "anonymous") router.replace(`/login`);
   }, [status, router]);
 
-  if (status === "loading" || status === "anonymous") return <LoadingState label="Loading your workspace…" />;
+  // The hotel requires two-step login for this role (REQUIRE_2FA): only Account → Security works until it's on.
+  const mustSetUp2fa = Boolean(me?.twoFactorSetupRequired) && pathname !== "/account/security";
+  useEffect(() => {
+    if (mustSetUp2fa) router.replace("/account/security");
+  }, [mustSetUp2fa, router]);
+
+  if (status === "loading" || status === "anonymous" || mustSetUp2fa) return <LoadingState label="Loading your workspace…" />;
   if (status === "error" || !me) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2">
@@ -70,7 +77,7 @@ function RouteGate({ pathname, children }: { pathname: string; children: React.R
         title="Not available in the platform console"
         description="Hotel data (sales, bills, staff, customers, reports) is private to each hotel. The hotel's owner or manager can open this screen from their own login."
         action={
-          <Link href="/platform" className="inline-flex min-h-tap items-center rounded-xl bg-primary px-4 font-semibold text-white hover:bg-primary-600">
+          <Link href="/platform" className="inline-flex min-h-tap items-center rounded-xl bg-primary px-4 font-semibold text-primary-fg hover:bg-primary-600">
             Go to the platform console
           </Link>
         }
@@ -89,7 +96,7 @@ function NotAvailableState({ home }: { home: string }) {
       </span>
       <p className="mt-1 font-bold text-fg">This page isn&apos;t available for your role</p>
       <p className="max-w-sm text-sm text-muted">Ask your outlet manager if you need access.</p>
-      <Link href={home} className="mt-2 inline-flex min-h-tap items-center rounded-xl bg-primary px-5 font-semibold text-white hover:bg-primary-600">
+      <Link href={home} className="mt-2 inline-flex min-h-tap items-center rounded-xl bg-primary px-5 font-semibold text-primary-fg hover:bg-primary-600">
         Go to my home screen
       </Link>
     </div>
@@ -98,7 +105,8 @@ function NotAvailableState({ home }: { home: string }) {
 
 function Shell({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   const toast = useToast();
-  const { me, outletId, setOutlet, logout, switching } = useSession();
+  const router = useRouter();
+  const { me, outletId, outlet, setOutlet, logout, switching, exitSupport } = useSession();
   const { theme, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -141,7 +149,13 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
   const groups = navGroupsFor({ me, outletId });
   // Delivery partners mostly use a phone browser: bottom tabs instead of hunting in the drawer.
   const partnerTabs = isDeliveryPartner({ me, outletId }) ? (groups.find((g) => g.id === "partner")?.items ?? []) : [];
-  const roleLabel = me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role];
+  const roleLabel = me.platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : me.customRole?.name ?? ROLE_LABELS[me.role];
+  // Hotel staff see their own hotel's logo and name; the platform console keeps CANAVO's.
+  // `outlet` reloads on outlet switch and after Settings saves (reloadOutlet).
+  const brand: Brand =
+    me.platformAdmin || !me.business
+      ? { name: "CANAVO", logoUrl: null, canavo: true }
+      : { name: me.business.name, logoUrl: outlet?.id === outletId ? (outlet?.logoUrl ?? null) : null, canavo: false };
 
   const changeOutlet = async (value: string) => {
     const next = value || null;
@@ -172,15 +186,16 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
             tabIndex={-1}
             className={clsx("shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]", collapsed ? "rotate-[360deg] hover:scale-110" : "rotate-0")}
           >
-            <Logo size={34} />
+            <BrandMark brand={brand} size={34} />
           </button>
           <span
+            title={brand.name}
             className={clsx(
-              "whitespace-nowrap text-lg font-extrabold tracking-tight transition-all duration-300",
+              "min-w-0 truncate whitespace-nowrap text-lg font-extrabold tracking-tight transition-all duration-300",
               collapsed ? "pointer-events-none -translate-x-3 opacity-0" : "translate-x-0 opacity-100 delay-100",
             )}
           >
-            CANAVO
+            {brand.name}
           </span>
         </div>
         <SidebarToggle collapsed={collapsed} onToggle={toggleCollapsed} />
@@ -193,8 +208,10 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="relative flex h-full w-64 animate-fade-in flex-col bg-surface">
             <div className="flex h-16 items-center gap-2.5 border-b border-line px-4">
-              <Logo size={34} />
-              <span className="text-lg font-extrabold">CANAVO</span>
+              <BrandMark brand={brand} size={34} />
+              <span className="min-w-0 truncate text-lg font-extrabold" title={brand.name}>
+                {brand.name}
+              </span>
             </div>
             {nav(false)}
           </aside>
@@ -216,6 +233,7 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
             <UserMenu name={me.name} role={roleLabel} email={me.email} photoUrl={me.photoUrl} onLogout={() => void logout()} />
           </div>
         </header>
+        {me.support && <SupportBanner support={me.support} onExit={() => void exitSupport().then(() => router.push("/platform"))} />}
         <main className="flex min-h-0 flex-1 flex-col print:block">
           <CategoryTabs groups={groups} pathname={pathname} />
           <div className={clsx("min-h-0 flex-1 overflow-y-auto print:overflow-visible", partnerTabs.length > 0 && "pb-[76px] md:pb-0")}>{children}</div>
@@ -248,6 +266,51 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
   );
 }
 
+interface Brand {
+  name: string;
+  logoUrl: string | null;
+  /** Platform console: CANAVO's own logo */
+  canavo: boolean;
+}
+
+/** Sidebar logo: CANAVO's for the platform console, else the outlet's uploaded logo or the business initials. */
+function BrandMark({ brand, size }: { brand: Brand; size: number }) {
+  const [failed, setFailed] = useState(false);
+  const src = brand.logoUrl ? mediaUrl(brand.logoUrl) : "";
+  useEffect(() => setFailed(false), [src]);
+  if (brand.canavo) return <Logo size={size} />;
+  if (src && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        onError={() => setFailed(true)}
+        className="block shrink-0 rounded-[10px] bg-surface object-contain"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  const initials =
+    brand.name
+      .split(/\s+/)
+      .filter((w) => /[\p{L}\p{N}]/u.test(w))
+      .slice(0, 2)
+      .map((w) => [...w.replace(/[^\p{L}\p{N}]/gu, "")][0]?.toUpperCase() ?? "")
+      .join("") || "?";
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center rounded-[10px] bg-primary/15 text-sm font-extrabold text-primary"
+      style={{ width: size, height: size }}
+    >
+      {initials}
+    </span>
+  );
+}
+
 /**
  * Sidebar: one entry per category (links to its first screen the session may
  * use). The category's screens are tabs at the top of the page (CategoryTabs).
@@ -264,7 +327,7 @@ function SidebarNav({ groups, pathname, compact }: { groups: NavGroup[]; pathnam
       aria-current={active ? "page" : undefined}
       className={clsx(
         "group/item flex min-h-[44px] items-center gap-3 rounded-xl px-[19px] text-[15px] font-semibold transition-colors md:px-[19px]",
-        active ? "bg-primary text-white shadow-sm" : "text-muted hover:bg-surface-2 hover:text-fg",
+        active ? "bg-primary text-primary-fg shadow-sm" : "text-muted hover:bg-surface-2 hover:text-fg",
       )}
     >
       <Icon size={22} weight={active ? "fill" : "regular"} className="shrink-0 transition-transform duration-200 group-hover/item:scale-110" />
@@ -303,7 +366,7 @@ function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: 
       title={`${collapsed ? "Expand" : "Collapse"} sidebar (Ctrl + \\)`}
       className={clsx(
         "absolute -right-3.5 top-[18px] z-20 flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-muted shadow-md",
-        "transition-all duration-300 hover:scale-110 hover:border-primary hover:bg-primary hover:text-white focus-visible:scale-110",
+        "transition-all duration-300 hover:scale-110 hover:border-primary hover:bg-primary hover:text-primary-fg focus-visible:scale-110",
         "opacity-70 group-hover/side:opacity-100",
       )}
     >
@@ -363,6 +426,24 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
             </div>
           </div>
           <div className="border-t border-line pt-2">
+            <Link
+              href="/account/security"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex min-h-tap w-full items-center gap-3 rounded-xl px-3 font-semibold hover:bg-surface-2"
+            >
+              <ShieldCheck size={20} />
+              Security
+            </Link>
+            <Link
+              href="/account/appearance"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex min-h-tap w-full items-center gap-3 rounded-xl px-3 font-semibold hover:bg-surface-2"
+            >
+              <Palette size={20} />
+              Appearance
+            </Link>
             <button
               type="button"
               role="menuitem"
@@ -391,7 +472,7 @@ function CategoryTabs({ groups, pathname }: { groups: NavGroup[]; pathname: stri
 }
 
 /**
- * Header context: business name + outlet picker. Platform admins have no
+ * Header context: outlet picker (the business name and logo are in the sidebar). Platform admins have no
  * outlets (hotel data is private), so they just see "Platform console".
  */
 function OutletSwitcher({ value, disabled, onChange }: { value: string | null; disabled: boolean; onChange: (v: string) => void }) {
@@ -416,9 +497,8 @@ function OutletSwitcher({ value, disabled, onChange }: { value: string | null; d
     <div className="flex min-w-0 items-center gap-2">
       <Storefront size={22} className="shrink-0 text-muted" />
       <div className="flex min-w-0 flex-col">
-        {me.business && <span className="truncate text-[11px] font-bold uppercase leading-tight tracking-wider text-muted">{me.business.name}</span>}
         {me.outlets.length > 1 ? (
-          <select aria-label="Outlet" value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={clsx(selectCls, me.business && "min-h-[30px] border-0 px-0 focus:ring-0")}>
+          <select aria-label="Outlet" value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={clsx(selectCls, "border-0 px-0 focus:ring-0")}>
             {me.outlets.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}
@@ -429,6 +509,21 @@ function OutletSwitcher({ value, disabled, onChange }: { value: string | null; d
           <span className="truncate text-sm font-semibold">{me.outlets[0]?.name ?? "No outlet yet"}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Support view (Phase 2.4): always visible, so it's obvious the platform team is looking (read-only). */
+function SupportBanner({ support, onExit }: { support: NonNullable<Me["support"]>; onExit: () => void }) {
+  const until = new Date(support.expiresAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 print:hidden">
+      <Eye size={18} weight="bold" />
+      <span className="font-semibold">Support view of {support.businessName}</span>
+      <span>· read-only · owner&apos;s permission ends {until} · every screen you open is shown to the owner</span>
+      <button type="button" onClick={onExit} className="ml-auto rounded-lg border border-amber-400 px-3 py-1 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900">
+        Exit support view
+      </button>
     </div>
   );
 }

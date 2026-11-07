@@ -1,16 +1,19 @@
 import express, { Router } from "express";
 import { z } from "zod";
 import type { TaxRate } from "@prisma/client";
-import { categorySchema, effectiveGstRate, menuItemSchema, roundRate, taxFromRate, toPaise } from "@canavo/shared";
+import { categorySchema, totalTaxPercent, effectiveGstRate, menuItemSchema, roundRate, taxFromRate, toPaise } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { badRequest, notFound, param, parse } from "../lib/http";
+import { badRequest, HttpError, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireAnyModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
-import { requireBusinessId } from "../lib/tenant";
-import { defaultTaxRate, taxRateBrief } from "../services/tax";
+import { featureOn, moduleEnabled, requireBusinessId } from "../lib/tenant";
+import { slotAt } from "../services/meal-slots";
+import { defaultTaxRate, resolveItemTax, taxRateBrief } from "../services/tax";
 import multer from "multer";
+import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 import { applyImport, buildTemplate, parseSheet, planImport, summarize } from "../services/menu-import";
+import { publicImageUrlError } from "../lib/safe-url";
 
 export const menuRouter = Router();
 menuRouter.use(authenticate, requireOutlet, requireAnyModule("BILLING", "INVENTORY"));
@@ -53,8 +56,27 @@ async function resolveTaxFields(data: { taxRateId?: string | null; gstRate?: num
 }
 
 /** Full menu for the active outlet with outlet overrides applied. */
+/**
+ * 0% GST safeguard (Phase 3.6): on a GST-registered outlet, list menu items whose tax
+ * works out to 0%. New items default to 0% (owner request 2026-10-31), so this catches
+ * items nobody set a rate for. Only food that is really exempt should stay at 0%.
+ */
+menuRouter.get("/tax-check", requirePermission("menu:view"), async (req, res) => {
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { gstEnabled: true, compositionScheme: true } });
+  if (!outlet.gstEnabled || outlet.compositionScheme) return res.json({ applies: false, zeroRated: [] });
+  const items = await prisma.menuItem.findMany({ where: {}, select: { id: true, name: true, taxRateId: true, gstRate: true } });
+  const taxes = await resolveItemTax(items, requireBusinessId());
+  const zeroRated = items.filter((i) => totalTaxPercent(taxes.get(i.id)!, false) === 0).map((i) => ({ id: i.id, name: i.name }));
+  res.json({ applies: true, zeroRated });
+});
+
+/**
+ * Full menu. `?slot=current` (the POS, CANTEEN module, outlet has meal slots): only what sells in
+ * the slot open now: items on that slot (at the slot price) plus items on no slot, which sell all day.
+ */
 menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
-  const [categories, items] = await Promise.all([
+  const slotView = req.query.slot === "current" && moduleEnabled("CANTEEN") ? await currentSlotMenu(req.outletId!) : null;
+  const [categories, allItems] = await Promise.all([
     prisma.menuCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.menuItem.findMany({
       include: { ...itemInclude, overrides: { where: { outletId: req.outletId } } },
@@ -62,28 +84,71 @@ menuRouter.get("/", requirePermission("menu:view"), async (req, res) => {
     }),
   ]);
   const def = taxRateBrief(await defaultTaxRate());
+  const autoStock = featureOn("AUTO_STOCK_OUT");
+  const items = slotView ? allItems.filter((i) => !slotView.onSomeSlot.has(i.id) || slotView.prices.has(i.id)) : allItems;
   res.json({
     categories,
+    ...(slotView && { mealSlot: slotView.slot }),
     items: items.map(({ overrides, ...item }) => ({
       ...itemJson(item),
       /** Rate the item is billed at: its own, else the business default (null = legacy gstRate split equally) */
       effectiveTaxRate: taxRateBrief(item.taxRate) ?? def,
       basePrice: item.price,
-      price: overrides[0]?.price ?? item.price,
-      status: overrides[0]?.status ?? item.status,
-      hasOverride: Boolean(overrides[0]),
+      price: slotView?.prices.get(item.id) ?? overrides[0]?.price ?? item.price,
+      /** Effective status at this outlet: an ingredient that ran out makes an available item OUT_OF_STOCK */
+      status: autoStock && overrides[0]?.stockOut && (overrides[0]?.status ?? item.status) === "AVAILABLE" ? "OUT_OF_STOCK" : (overrides[0]?.status ?? item.status),
+      /** The status a manager set (outlet override or the item's own) */
+      manualStatus: overrides[0]?.status ?? item.status,
+      /** Automatic out-of-stock from inventory (comes back by itself when restocked) */
+      stockOut: autoStock && (overrides[0]?.stockOut ?? false),
+      stockOutReason: autoStock ? (overrides[0]?.stockOutReason ?? null) : null,
+      /** Sizes that can't be sold right now (ingredient ran out) */
+      unavailableVariantIds: autoStock ? (overrides[0]?.stockOutVariantIds ?? []) : [],
+      hasOverride: overrides[0]?.price != null || overrides[0]?.status != null,
     })),
   });
 });
 
+/** Phase 5.3: the slot open now and its menu; null when the outlet has no active slots (normal menu). */
+export async function currentSlotMenu(outletId: string) {
+  const rows = await prisma.mealSlotItem.findMany({ where: { slot: { outletId, active: true } }, select: { slotId: true, menuItemId: true, price: true } });
+  if (!(await prisma.mealSlot.count({ where: { outletId, active: true } }))) return null;
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { timezone: true } });
+  const slot = await slotAt(outletId, new Date(), outlet.timezone);
+  const prices = new Map<string, number | null>();
+  for (const r of rows) if (r.slotId === slot?.id) prices.set(r.menuItemId, r.price);
+  return {
+    slot: slot && { id: slot.id, name: slot.name, startTime: slot.startTime, endTime: slot.endTime },
+    onSomeSlot: new Set(rows.map((r) => r.menuItemId)),
+    /** Items on the current slot → slot price (null = normal price) */
+    prices,
+  };
+}
+
+/**
+ * A category id from the body must be one of this business's own (RLS-scoped lookup): foreign-key
+ * checks in PostgreSQL ignore row-level security, so another hotel's id would otherwise be linked.
+ */
+async function assertOwnCategory(id: string | null | undefined, what = "Category") {
+  if (id == null) return;
+  if (!(await prisma.menuCategory.findUnique({ where: { id }, select: { id: true } }))) throw badRequest(`${what} not found`);
+}
+
+function assertImageUrl(url: string | undefined) {
+  const err = url ? publicImageUrlError(url) : null;
+  if (err) throw badRequest(err);
+}
+
 // ---------- Categories ----------
 menuRouter.post("/categories", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema, req.body);
+  await assertOwnCategory(data.parentId, "Parent category");
   res.status(201).json(await prisma.menuCategory.create({ data: { ...data, businessId: requireBusinessId() } }));
 });
 
 menuRouter.patch("/categories/:id", requirePermission("menu:manage"), async (req, res) => {
   const data = parse(categorySchema.partial(), req.body);
+  await assertOwnCategory(data.parentId, "Parent category");
   res.json(await prisma.menuCategory.update({ where: { id: param(req, "id") }, data }));
 });
 
@@ -105,6 +170,8 @@ function itemData(data: z.infer<typeof menuItemSchema>) {
 menuRouter.post("/items", requirePermission("menu:manage"), async (req, res) => {
   const body = req.body as { gstRate?: unknown } | undefined;
   const data = parse(menuItemSchema, req.body);
+  await assertOwnCategory(data.categoryId);
+  assertImageUrl(data.imageUrl);
   // gstRate has a schema default; only treat it as the client's choice when actually sent.
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: body?.gstRate !== undefined ? data.gstRate : undefined }, true);
   const item = await prisma.menuItem.create({
@@ -127,6 +194,8 @@ menuRouter.patch("/items/:id", requirePermission("menu:manage"), async (req, res
   const data = parse(menuItemSchema.partial(), req.body);
   const { variants, addons, ...rest } = data;
   if (!(await prisma.menuItem.findUnique({ where: { id }, select: { id: true } }))) throw notFound("Menu item");
+  await assertOwnCategory(data.categoryId);
+  assertImageUrl(data.imageUrl);
   const tax = await resolveTaxFields({ taxRateId: data.taxRateId, gstRate: data.gstRate }, false);
   const item = await prisma.menuItem.update({
     where: { id },
@@ -146,10 +215,18 @@ menuRouter.patch("/items/:id", requirePermission("menu:manage"), async (req, res
 
 menuRouter.delete("/items/:id", requirePermission("menu:manage"), async (req, res) => {
   const id = param(req, "id");
-  const sold = await prisma.orderItem.count({ where: { menuItemId: id } });
-  // Items on past invoices are hidden, not deleted, to keep invoice history intact.
-  if (sold) await prisma.menuItem.update({ where: { id }, data: { status: "HIDDEN" } });
+  const [sold, onTabs, onPlans] = await Promise.all([
+    prisma.orderItem.count({ where: { menuItemId: id } }),
+    // Running tabs and meal plans point at the item without a foreign key: deleting it would leave
+    // a tab that can no longer be billed ("Unknown menu item") — QA Phase 7.
+    prisma.tableSessionItem.count({ where: { menuItemId: id, billedOrderId: null, session: { status: "OPEN" } } }),
+    prisma.mealSubscription.count({ where: { menuItemId: id } }),
+  ]);
+  // Items on past invoices (or still in use) are hidden, not deleted, to keep history intact.
+  const hide = sold + onTabs + onPlans > 0;
+  if (hide) await prisma.menuItem.update({ where: { id }, data: { status: "HIDDEN" } });
   else await prisma.menuItem.delete({ where: { id } });
+  await audit(req, hide ? "menu.item.delete.hidden" : "menu.item.delete", "MenuItem", id, { sold, onTabs, onPlans });
   emitToOutlet(req.outletId!, "menu:changed", { id });
   res.status(204).end();
 });
@@ -210,7 +287,14 @@ menuRouter.get("/import/template", requirePermission("menu:manage"), async (_req
  * returns a per-row preview (create / update / error). With ?apply=1 the valid
  * rows are saved in one transaction; rows with errors are skipped.
  */
-menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single("file"), async (req, res) => {
+/** Multer errors (too big, wrong field) are the client's: 413 / 400, not 500. */
+const importFile: express.RequestHandler = (req, res, next) =>
+  importUpload.single("file")(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) return next(err.code === "LIMIT_FILE_SIZE" ? new HttpError(413, "The file must be 5 MB or smaller") : badRequest(err.message));
+    next(err);
+  });
+
+menuRouter.post("/import", requirePermission("menu:manage"), importFile, async (req, res) => {
   if (!req.file) throw badRequest("Attach the filled template as \"file\"");
   const { rows } = await parseSheet(req.file.buffer, req.file.originalname);
   if (!rows.length) throw badRequest("The sheet has no item rows");
@@ -219,6 +303,8 @@ menuRouter.post("/import", requirePermission("menu:manage"), importUpload.single
   if (apply) {
     if (!planned.some((r) => r.action !== "error")) throw badRequest("No valid rows to import");
     await applyImport(planned);
+    // Imported ingredients may already be out of stock at this outlet
+    if (featureOn("AUTO_STOCK_OUT")) await announceAvailability(prisma, req.outletId!, await refreshMenuAvailability(prisma, req.outletId!));
     const result = summarize(planned, true);
     await audit(req, "menu.import", "MenuItem", undefined, result.summary);
     emitToOutlet(req.outletId!, "menu:changed", { import: true });

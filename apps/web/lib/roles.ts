@@ -1,4 +1,4 @@
-import { ROLES, type Role } from "@canavo/shared";
+import { isPlatformRole, ROLES, type Role } from "@canavo/shared";
 import type { Me, OutletRef } from "./types";
 
 /** Lower = more authority. Mirrors RANK in apps/api/src/routes/staff.ts. */
@@ -10,6 +10,11 @@ const RANK: Record<Role, number> = {
   KITCHEN: 3,
   DELIVERY: 3,
   INVENTORY_MANAGER: 3,
+  WAITER: 3,
+  // Accountants and auditors come from the owner only (managers can't add them).
+  ACCOUNTANT: 2,
+  AUDITOR: 2,
+  PLATFORM_SUPPORT: 0,
 };
 
 /** Roles that work across the whole business and need no outlet assignment. */
@@ -23,8 +28,8 @@ export const isBusinessWideRole = (r: Role) => r === "SUPER_ADMIN" || r === "BUS
  * the platform admin creates no staff at all.
  */
 export function assignableRoles(role: Role): Role[] {
-  if (role === "SUPER_ADMIN") return [];
-  return ROLES.filter((r) => r !== "SUPER_ADMIN" && r !== "BUSINESS_OWNER" && RANK[r] > RANK[role]);
+  if (isPlatformRole(role)) return [];
+  return ROLES.filter((r) => !isPlatformRole(r) && r !== "BUSINESS_OWNER" && RANK[r] > RANK[role]);
 }
 
 /**
@@ -38,6 +43,9 @@ export function canManageAttendanceOf(actor: { id: string; role: Role }, target:
 }
 
 export const canManageRole =(myRole: Role, target: Role) => assignableRoles(myRole).includes(target);
+
+/** Super admins change the platform; platform support users only look (Phase 4.2). */
+export const canManagePlatform = (me: Pick<Me, "permissions"> | null | undefined) => Boolean(me?.permissions?.includes("platform:manage"));
 
 /** Outlets of the business the session acts in (platform admins have none: they never open a hotel). */
 export function businessOutlets(me: Pick<Me, "platformAdmin" | "outlets">): OutletRef[] {

@@ -1,0 +1,45 @@
+-- open-bills-count-by-status
+-- calls during capture: 20; server-side max 19.4 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT SUM("grandTotal") AS "_sum$grandTotal", COUNT(*) AS "_count$_all" FROM (SELECT "Order"."grandTotal", "Order"."id" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."status" = CAST($2::text AS "OrderStatus")) OFFSET $3) AS "sub"
+-- params: $1 = 'out5', $2 = 'OPEN', $3 = '0'
+
+==== BEFORE (19.625 ms, median of 3)
+Aggregate  (cost=18737.32..18737.33 rows=1 width=16) (actual time=19.571..19.572 rows=1 loops=1)
+  Buffers: shared hit=8455
+  ->  Bitmap Heap Scan on "Order"  (cost=508.04..18620.04 rows=7819 width=36) (actual time=4.712..19.566 rows=22 loops=1)
+        Recheck Cond: ("outletId" = 'out5'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('OPEN'::cstring)::"OrderStatus"))
+        Rows Removed by Filter: 35927
+        Heap Blocks: exact=8337
+        Buffers: shared hit=8455
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.219..0.220 rows=1 loops=1)
+                Buffers: shared hit=64
+        ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.82 rows=35920 width=0) (actual time=1.203..1.203 rows=35949 loops=1)
+              Index Cond: ("outletId" = 'out5'::text)
+              Buffers: shared hit=54
+Planning:
+  Buffers: shared hit=334
+Planning Time: 0.758 ms
+Execution Time: 19.625 ms
+
+==== AFTER (39.833 ms, median of 3)
+Aggregate  (cost=18640.84..18640.85 rows=1 width=16) (actual time=39.743..39.744 rows=1 loops=1)
+  Buffers: shared hit=6030 read=2408
+  ->  Bitmap Heap Scan on "Order"  (cost=411.96..18523.59 rows=7817 width=36) (actual time=11.636..39.734 rows=22 loops=1)
+        Recheck Cond: ("outletId" = 'out5'::text)
+        Filter: (((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))) AND (status = ('OPEN'::cstring)::"OrderStatus"))
+        Rows Removed by Filter: 35927
+        Heap Blocks: exact=8337
+        Buffers: shared hit=6030 read=2408
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.260..0.261 rows=1 loops=1)
+                Buffers: shared hit=64
+        ->  Bitmap Index Scan on "Order_outletId_cancelledAt_idx"  (cost=0.00..409.75 rows=35910 width=0) (actual time=4.793..4.793 rows=35949 loops=1)
+              Index Cond: ("outletId" = 'out5'::text)
+              Buffers: shared hit=2 read=35
+Planning:
+  Buffers: shared hit=350
+Planning Time: 0.856 ms
+Execution Time: 39.833 ms

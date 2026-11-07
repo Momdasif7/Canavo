@@ -15,6 +15,11 @@ export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
   UPI: "UPI",
   CARD: "Card",
   KHATA: "Khata",
+  GIFT_CARD: "Gift card",
+  CORPORATE: "Company",
+  WALLET: "Wallet",
+  MEAL_TOKEN: "Meal token",
+  ONLINE: "Paid online",
 };
 
 /** ₹ amount entered by a user → paise, or null when blank/invalid. */

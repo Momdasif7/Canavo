@@ -1,4 +1,4 @@
-import { computeBill, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
+import { computeBill, withTaxMode, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
 import type { DocumentType, FoodType, MenuItem, OrderType, Outlet, TaxDetail, TaxExtra } from "@/lib/types";
 import type { FreeItemSuggestion } from "@/lib/types-service";
 
@@ -91,6 +91,8 @@ export interface CartMeta {
   /** PRE_ORDER: `datetime-local` value (outlet-local wall time) */
   scheduledFor: string;
   delivery: DeliveryMeta;
+  /** Phase 5 (CANTEEN): scanned member ("" = none); the company's share is added at billing */
+  memberId?: string;
 }
 
 export const EMPTY_META: CartMeta = {
@@ -161,6 +163,30 @@ export function makeLine(item: MenuItem, variantId?: string, addonIds: string[] 
     quantity: 1,
     notes: "",
   };
+}
+
+/** "Pav buns ran out" for an item that went out of stock automatically, else null. */
+export const stockOutNote = (item: Pick<MenuItem, "stockOut" | "stockOutReason">): string | null =>
+  item.stockOut ? (item.stockOutReason ? `${item.stockOutReason} ran out` : "An ingredient ran out") : null;
+
+/** The size is out of stock while others still sell. */
+export const variantUnavailable = (item: Pick<MenuItem, "unavailableVariantIds">, variantId: string | undefined) =>
+  !!variantId && !!item.unavailableVariantIds?.includes(variantId);
+
+/**
+ * Warning for a cart line whose item (or size) can't be billed any more
+ * (e.g. a restored cart after an ingredient ran out). Null when it's fine.
+ */
+export function lineStockWarning(line: CartLine, items: MenuItem[]): string | null {
+  const item = items.find((i) => i.id === line.itemId);
+  if (!item) return null;
+  if (item.status === "HIDDEN") return "No longer on the menu — remove it";
+  if (item.status === "OUT_OF_STOCK") {
+    const note = stockOutNote(item);
+    return `Out of stock${note ? ` (${note})` : ""} — remove it`;
+  }
+  if (variantUnavailable(item, line.variantId)) return `${line.variantName ?? "This size"} is out of stock — remove it or pick another size`;
+  return null;
 }
 
 /** Badge text for an auto-added offer line. */
@@ -277,7 +303,8 @@ export function previewBill(lines: CartLine[], outlet: Outlet | null, meta: Cart
     return gstOn && l.tax ? { ...base, tax: l.tax } : base;
   });
   const config = { ...taxConfig(outlet, meta.orderType), extraCharges: extraCharges.filter((c) => c.amount > 0), taxEnabled: gstOn };
-  const bill: LocalBill = computeBill(input, config, parseDiscount(meta).discount);
+  const d = parseDiscount(meta).discount;
+  const bill: LocalBill = computeBill(input, config, d && withTaxMode(d, outlet?.flatDiscountsIncludeTax));
   return gstOn ? bill : { ...bill, documentType: "BILL" };
 }
 
@@ -374,6 +401,7 @@ export function toOrderInput(lines: CartLine[], meta: CartMeta, clientOrderId?: 
     tableLabel: meta.orderType === "DINE_IN" && meta.tableLabel.trim() ? meta.tableLabel.trim() : undefined,
     customerName: meta.customerName.trim() || undefined,
     customerPhone: meta.customerPhone.trim() || undefined,
+    memberId: meta.memberId || undefined,
     interState: false,
     items: lines.map((l) => ({
       menuItemId: l.itemId,

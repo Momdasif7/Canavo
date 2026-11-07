@@ -2,7 +2,6 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import type { DeliveryStatus, Prisma } from "@prisma/client";
 import {
-  can,
   deliveryActivityQuerySchema,
   deliveryAssignSchema,
   deliveryHandoverSchema,
@@ -25,12 +24,13 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { requireAnyPermission, authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "../services/notify";
 import { deliveryStatusLink } from "../services/delivery-notify";
+import { getWaConfig, sendWhatsApp } from "../services/whatsapp";
 import { canTransitionDelivery, selectZone } from "../services/service-context";
-import { amountPaid, settleIfPaid } from "../services/billing";
+import { amountPaid, assertConfirmable, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { cashBalance, cashCollected, cashHandedOver, pendingCollections, reallocateHandovers } from "../services/delivery-cash";
 import { assignWaitingDeliveries, canTakeOrder, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
@@ -70,9 +70,17 @@ async function findDelivery(id: string, outletId: string) {
   return d;
 }
 
-async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>) {
+/** Statuses a customer is told about automatically (when the business turned it on). */
+const AUTO_UPDATE_STATUSES = new Set(["ACCEPTED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"]);
+
+/**
+ * Customer status message: always a wa.me link for staff; on a status change with
+ * "auto delivery updates" on and a WhatsApp provider set, it is also sent in the
+ * background through the provider (never delays or fails the request).
+ */
+async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>, opts: { autoSend?: boolean } = {}) {
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: d.outletId }, select: { name: true, timezone: true } });
-  return deliveryStatusLink({
+  const msg = deliveryStatusLink({
     phone: d.customerPhone,
     status: d.status,
     outletName: outlet.name,
@@ -81,6 +89,28 @@ async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>) {
     agentName: d.agent?.name,
     timezone: outlet.timezone,
   });
+  let autoSent = false;
+  if (opts.autoSend && d.customerPhone && AUTO_UPDATE_STATUSES.has(d.status)) {
+    const cfg = await getWaConfig();
+    if (cfg.autoDeliveryUpdates && cfg.provider !== "NONE") {
+      autoSent = true;
+      void sendWhatsApp(
+        {
+          to: d.customerPhone,
+          text: msg.text,
+          purpose: "delivery_update",
+          tag: `delivery_${d.order.invoiceNumber}`,
+          params: [
+            { name: "outlet", value: outlet.name },
+            { name: "invoice", value: d.order.invoiceNumber },
+            { name: "status", value: msg.text },
+          ],
+        },
+        cfg,
+      ).catch((e) => console.error("[whatsapp] delivery update failed", e));
+    }
+  }
+  return { ...msg, autoSent };
 }
 
 // ---------- Zones ----------
@@ -140,6 +170,9 @@ deliveryRouter.get("/quote", requirePermission("delivery:manage"), async (req, r
     zones,
   });
 });
+
+/** Delivery routes used by both the board (managers) and the assigned partner; the handler checks it's their delivery. */
+const managerOrPartner = requireAnyPermission("delivery:manage", "delivery:own");
 
 // ---------- Agents ----------
 /** Delivery partners of the outlet with live availability (on duty, at the outlet / on a run, orders held vs limit). */
@@ -475,9 +508,15 @@ deliveryRouter.post("/cash/settle", requirePermission("delivery:manage"), async 
   const { agentId } = parse(deliveryCashSettleSchema, req.body);
   const outletId = req.outletId!;
   await assertPartner(outletId, agentId);
-  const amount = await cashBalance(outletId, agentId);
-  if (amount <= 0) throw badRequest("No cash to settle for this delivery partner");
-  const h = await prisma.deliveryCashHandover.create({ data: { outletId, agentId, amount, note: "Full handover", receivedById: req.user!.id } });
+  // One settle per partner at a time (lock their row), with the balance read after the lock:
+  // two taps at once used to record the full balance twice (partner shown in credit).
+  const { amount, h } = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${agentId} FOR UPDATE`;
+    const amount = await cashBalance(outletId, agentId);
+    if (amount <= 0) throw badRequest("No cash to settle for this delivery partner");
+    const h = await tx.deliveryCashHandover.create({ data: { outletId, agentId, amount, note: "Full handover", receivedById: req.user!.id } });
+    return { amount, h };
+  });
   await reallocateHandovers(outletId, agentId);
   await audit(req, "delivery.cash.settle", "DeliveryCashHandover", h.id, { agentId, amount });
   await notify([agentId], "Cash handover confirmed", `₹${(amount / 100).toFixed(2)} received by ${req.user!.name}`, "delivery");
@@ -628,11 +667,11 @@ deliveryRouter.get("/partners/:agentId/timeline", requirePermission("delivery:ma
 });
 
 function canSee(req: Request, d: { agentId: string | null }) {
-  if (can(req.user!.role, "delivery:manage")) return true;
-  return can(req.user!.role, "delivery:own") && d.agentId === req.user!.id;
+  if (userCan(req, "delivery:manage")) return true;
+  return userCan(req, "delivery:own") && d.agentId === req.user!.id;
 }
 
-deliveryRouter.get("/:id", async (req, res) => {
+deliveryRouter.get("/:id", managerOrPartner, async (req, res) => {
   const d = await findDelivery(param(req, "id"), req.outletId!);
   if (!canSee(req, d)) throw forbidden();
   res.json({ ...withExtras(d), customerMessage: await customerLink(d) });
@@ -665,13 +704,13 @@ deliveryRouter.patch("/:id/assign", requirePermission("delivery:manage"), async 
   res.json(withExtras(updated));
 });
 
-deliveryRouter.patch("/:id/status", async (req, res) => {
+deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
   const { status, note } = parse(deliveryStatusSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager) {
-    if (!can(req.user!.role, "delivery:own") || d.agentId !== req.user!.id) throw forbidden("Not your delivery");
+    if (!userCan(req, "delivery:own") || d.agentId !== req.user!.id) throw forbidden("Not your delivery");
     if (status === "CANCELLED") throw forbidden("Ask the outlet to cancel a delivery");
   }
   if (!canTransitionDelivery(d.status, status)) throw badRequest(`Cannot move delivery from ${d.status} to ${status}`);
@@ -706,12 +745,12 @@ deliveryRouter.patch("/:id/status", async (req, res) => {
     const ids = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
     await notify(ids, "Delivery cancelled", `${d.order.invoiceNumber} · ${d.customerName}`, "delivery");
   }
-  res.json({ ...withExtras(updated), customerMessage: await customerLink(updated) });
+  res.json({ ...withExtras(updated), customerMessage: await customerLink(updated, { autoSend: true }) });
 });
 
 /** Only the assigned partner (or a manager on their behalf) may act on a delivery's money. */
 function assertMyDeliveryEarly(req: Request, d: { agentId: string | null }) {
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager && d.agentId !== req.user!.id) throw forbidden("Not your delivery");
   return manager;
 }
@@ -721,7 +760,7 @@ function assertMyDeliveryEarly(req: Request, d: { agentId: string | null }) {
  * amount due in cash (recorded against them, adds to cash to hand over);
  * already paid → simply delivered. Then the delivery is marked DELIVERED.
  */
-deliveryRouter.post("/:id/complete", async (req, res) => {
+deliveryRouter.post("/:id/complete", managerOrPartner, async (req, res) => {
   const { cashCollected } = parse(z.object({ cashCollected: z.number().int().nonnegative().optional() }), req.body ?? {});
   const d = await findDelivery(param(req, "id"), req.outletId!);
   const manager = assertMyDeliveryEarly(req, d);
@@ -745,6 +784,12 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   const collectorId = d.agentId ?? req.user!.id;
   const now = new Date();
   await prisma.$transaction(async (tx) => {
+    // Re-check on the locked bill: a payment / cancel / second tap may have landed since we read it.
+    const fresh = await lockOrder(tx, d.order.id, outletId);
+    if (fresh.status === "CANCELLED") throw conflict("Order was cancelled");
+    if ((fresh.status === "OPEN" ? Math.max(0, fresh.grandTotal - amountPaid(fresh)) : 0) !== due) throw conflict("The amount due changed — refresh and try again");
+    const current = await tx.delivery.findUniqueOrThrow({ where: { id: d.id }, select: { status: true } });
+    if (!canTransitionDelivery(current.status, "DELIVERED")) throw conflict(`Delivery is ${current.status.toLowerCase()}`);
     if (d.agentId) await startRun(tx, d.agentId);
     if (due > 0) {
       await tx.payment.updateMany({ where: { orderId: d.order.id, status: "PENDING" }, data: { status: "FAILED" } });
@@ -768,11 +813,11 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   if (due > 0) void cashBalance(outletId, collectorId).then((bal) => alertPartnerCash(outletId, collectorId, bal));
   // The partner is free again: hand them any delivery that is waiting.
   assignWaitingDeliveries(outletId).catch((e) => console.error("[delivery] auto-assign failed", e));
-  return { ...withExtras(updated), cashCollected: due, customerMessage: await customerLink(updated) };
+  return { ...withExtras(updated), cashCollected: due, customerMessage: await customerLink(updated, { autoSend: true }) };
 }
 
 function assertMyDelivery(req: Request, d: { agentId: string | null }) {
-  const manager = can(req.user!.role, "delivery:manage");
+  const manager = userCan(req, "delivery:manage");
   if (!manager && d.agentId !== req.user!.id) throw forbidden("Not your delivery");
   return manager;
 }
@@ -781,7 +826,7 @@ function assertMyDelivery(req: Request, d: { agentId: string | null }) {
  * Payment received at the door: cash, GPay/UPI (customer paid to the outlet's
  * UPI — enter the UTR) or card. Recorded against the partner who collected it.
  */
-deliveryRouter.post("/:id/collect", async (req, res) => {
+deliveryRouter.post("/:id/collect", managerOrPartner, async (req, res) => {
   const { payments } = parse(deliveryCollectSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
@@ -793,6 +838,11 @@ deliveryRouter.post("/:id/collect", async (req, res) => {
   if (total > balance) throw badRequest(`Amount ₹${(total / 100).toFixed(2)} is more than the ₹${(balance / 100).toFixed(2)} due`);
   const collectorId = d.agentId ?? req.user!.id;
   const paid = await prisma.$transaction(async (tx) => {
+    // Re-check on the locked bill: the counter may be collecting the same bill right now.
+    const fresh = await lockOrder(tx, d.order.id, outletId);
+    if (fresh.status !== "OPEN") throw conflict(fresh.status === "PAID" ? "This order is already paid" : "Order was cancelled");
+    const freshBalance = fresh.grandTotal - amountPaid(fresh);
+    if (total > freshBalance) throw badRequest(`Amount ₹${(total / 100).toFixed(2)} is more than the ₹${(freshBalance / 100).toFixed(2)} due`);
     await tx.payment.updateMany({ where: { orderId: d.order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
     await tx.payment.createMany({
       data: payments.map((p) => ({
@@ -815,7 +865,7 @@ deliveryRouter.post("/:id/collect", async (req, res) => {
 });
 
 /** Show a UPI QR (GPay/PhonePe/Paytm) for the amount due, at the customer's door. */
-deliveryRouter.post("/:id/upi-qr", async (req, res) => {
+deliveryRouter.post("/:id/upi-qr", managerOrPartner, async (req, res) => {
   const d = await findDelivery(param(req, "id"), req.outletId!);
   assertMyDelivery(req, d);
   if (d.order.status !== "OPEN") throw conflict("Nothing to collect on this order");
@@ -839,7 +889,7 @@ deliveryRouter.post("/:id/upi-qr", async (req, res) => {
 });
 
 /** Partner confirms the customer's UPI payment arrived (no gateway webhook / mock mode). */
-deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", async (req, res) => {
+deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", managerOrPartner, async (req, res) => {
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
   assertMyDelivery(req, d);
@@ -847,6 +897,8 @@ deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", async (req, res) => {
   if (!payment || payment.status !== "PENDING") throw notFound("Pending UPI payment");
   const reference = typeof req.body?.reference === "string" ? String(req.body.reference).slice(0, 100) : undefined;
   const paid = await prisma.$transaction(async (tx) => {
+    // Same re-check as the counter's confirm: never on a bill already settled, never more than is due.
+    await assertConfirmable(tx, d.order.id, payment.id, outletId);
     await tx.payment.update({ where: { id: payment.id }, data: { status: "SUCCESS", confirmedAt: new Date(), reference } });
     await audit(req, "delivery.upi_confirm", "Delivery", d.id, { paymentId: payment.id, reference: reference ?? null }, tx);
     return settleIfPaid(d.order.id, tx);
@@ -866,7 +918,7 @@ const ISSUE_LABELS = {
 } as const;
 
 /** Partner reports a problem (customer unreachable, wrong address…) — the outlet decides what to do. */
-deliveryRouter.post("/:id/issue", async (req, res) => {
+deliveryRouter.post("/:id/issue", managerOrPartner, async (req, res) => {
   const { reason, note } = parse(deliveryIssueSchema, req.body);
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);

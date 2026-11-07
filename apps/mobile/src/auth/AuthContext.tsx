@@ -6,7 +6,7 @@ import { kvGet, kvSet } from "../lib/db";
 import { getDeviceId, readSession } from "../lib/secure";
 import { connectSocket, disconnectSocket } from "../lib/socket";
 import { unregisterPush } from "../notifications/push";
-import type { Me, OutletRef, Tokens } from "../lib/types";
+import type { Me, MfaChallenge, OutletRef, Tokens } from "../lib/types";
 import { hasModule as profileHasModule, type AccessProfile } from "./access";
 
 type Status = "loading" | "signedOut" | "signedIn";
@@ -25,8 +25,11 @@ interface AuthState {
   access: AccessProfile;
   /** Why the user was signed out (e.g. business suspended), shown on the login screen */
   signOutReason: string | null;
-  loginWithOtp: (phone: string, code: string) => Promise<void>;
-  loginWithPassword: (email: string, password: string) => Promise<void>;
+  /** Resolves with a challenge when two-step login is on (then call verifyTwoFactor) */
+  loginWithOtp: (phone: string, code: string) => Promise<MfaChallenge | null>;
+  loginWithPassword: (email: string, password: string) => Promise<MfaChallenge | null>;
+  /** Second sign-in step: a 6-digit authenticator code or a recovery code */
+  verifyTwoFactor: (mfaToken: string, input: { code?: string; recoveryCode?: string }) => Promise<void>;
   logout: () => Promise<void>;
   switchOutlet: (id: string) => Promise<void>;
   reloadMe: () => Promise<void>;
@@ -134,10 +137,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [stale, loadMe]);
 
   const finishLogin = useCallback(
-    async (tokens: Tokens) => {
+    async (tokens: Tokens | MfaChallenge): Promise<MfaChallenge | null> => {
+      if ("mfaRequired" in tokens) return tokens;
       setSignOutReason(null);
       await api.setTokens(tokens);
       await loadMe();
+      return null;
     },
     [loadMe],
   );
@@ -156,6 +161,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOutReason,
       loginWithOtp: async (phone, code) => finishLogin(await endpoints.verifyOtp(phone, code, await getDeviceId())),
       loginWithPassword: async (email, password) => finishLogin(await endpoints.passwordLogin(email, password)),
+      verifyTwoFactor: async (mfaToken, input) => {
+        await finishLogin(await endpoints.verifyTwoFactor(mfaToken, input, await getDeviceId()));
+      },
       logout: async () => {
         // Needs the access token, so it runs before the session is cleared.
         await unregisterPush();

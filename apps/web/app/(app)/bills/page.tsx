@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowCounterClockwise, CloudArrowUp, HandCoins, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
-import { formatINR } from "@canavo/shared";
+import { ArrowCounterClockwise, ArrowUUpLeft, CaretLeft, CaretRight, CloudArrowUp, FileXls, HandCoins, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
+import { ORDER_CHANNELS, ORDER_CHANNEL_LABELS, REFUND_REASON_LABELS, formatINR, type OrderChannel } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { addDaysISO, todayISO } from "@/lib/dates";
 import { ORDER_TYPE_LABELS, PAYMENT_MODE_LABELS, formatDateTime, formatTime } from "@/lib/format";
 import { listQueue, subscribeQueue, type QueuedOrder } from "@/lib/offline";
-import type { Order, OrderStatus } from "@/lib/types";
+import type { CreditNote, Order, OrderStatus, OrderType } from "@/lib/types";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useDebouncedValue } from "@/hooks/useDebounced";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useSocketEvent } from "@/components/providers/SocketProvider";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -23,79 +24,245 @@ import { Dialog, Sheet } from "@/components/ui/Dialog";
 import { Table, THead, Th, Td, Tr } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { ReceiptActions } from "@/components/bills/ReceiptActions";
+import { RefundDialog } from "@/components/bills/RefundDialog";
+import { useApproval } from "@/components/providers/ApprovalProvider";
 import { CodBadge, codPartnerName, isCodPending } from "@/components/bills/CodBadge";
+import { ChannelBadge } from "@/components/bills/ChannelBadge";
+import { KitchenStatus } from "@/components/bills/KitchenStatus";
+import { DownloadButton } from "@/components/reports/ExportButtons";
+import {
+  BILLS_PAGE_SIZE,
+  BillSummaryStrip,
+  MAX_BILL_RANGE_DAYS,
+  RangePicker,
+  apiQuery,
+  daysInRange,
+  filtersFromQuery,
+  filtersToQuery,
+  matchPreset,
+  presetDates,
+  rangeLabel,
+  type BillFilterState,
+  type BillPaymentFilter,
+  type BillSummary,
+} from "@/components/bills/BillFilters";
 import { PaymentDialog, codEligible, orderBalance } from "@/components/pos/PaymentDialog";
 import { extraTaxRows } from "@/components/pos/CartPanel";
 
 const statusTone = { OPEN: "warning", PAID: "success", CANCELLED: "danger" } as const;
 
 export default function BillsPage() {
-  const { outletId, outlet } = useSession();
+  const { outletId, outlet, me } = useSession();
+  // Phase 6: the channel filter only matters to hotels taking online / aggregator orders.
+  const channelsOn = Boolean(me?.modules?.includes("CHANNELS"));
   const tz = outlet?.timezone;
-  const [date, setDate] = useState(() => todayISO(tz));
+  const today = todayISO(tz);
+  const [filters, setFilters] = useState<BillFilterState>(() => ({ ...presetDates("today", today), status: "", paymentMode: "", orderType: "", search: "", cod: false }));
+  /** URL read once on mount (deep links such as /bills?search=<phone>, refresh, back) */
+  const [ready, setReady] = useState(false);
   const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
-  const [status, setStatus] = useState<OrderStatus | "">("");
-  /** "COD pending" chip: delivery bills the partner still has to collect */
-  const [codOnly, setCodOnly] = useState(false);
+  const debounced = useDebouncedValue(search.trim(), 300);
+  const [customOpen, setCustomOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const toast = useToast();
 
-  // Deep link: /bills?search=<invoice or phone> (e.g. from a customer profile)
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("search");
-    if (q) setSearch(q);
+    const f = filtersFromQuery(new URLSearchParams(window.location.search), today);
+    setFilters(f);
+    setSearch(f.search);
+    setCustomOpen(matchPreset(f.from, f.to, today) === "custom");
+    setReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Apply the search once typing has settled (the debounced value caught up with the box).
   useEffect(() => {
-    const id = setTimeout(() => setDebounced(search.trim()), 300);
-    return () => clearTimeout(id);
-  }, [search]);
+    if (ready && debounced === search.trim()) setFilters((f) => (f.search === debounced ? f : { ...f, search: debounced }));
+  }, [debounced, search, ready]);
 
-  // COD pending = unpaid delivery bills marked COD (filtered client-side on the unpaid list).
-  const queryStatus = codOnly ? "OPEN" : status;
-  const key = outletId ? `bills:${outletId}:${date}:${debounced}:${queryStatus}` : null;
-  const bills = useApiQuery<Order[]>(key, () =>
-    api.get<Order[]>("/orders", { query: { date: debounced ? undefined : date, search: debounced, status: queryStatus, limit: 200 } }),
-  );
+  // Keep the filters in the URL (refresh / back keep them) without adding history entries.
+  useEffect(() => {
+    if (!ready) return;
+    const qs = filtersToQuery(filters, today);
+    const next = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", next);
+  }, [filters, ready, today]);
 
-  useSocketEvent("order:created", () => void bills.reload());
-  useSocketEvent("order:paid", () => void bills.reload());
+  const patch = (p: Partial<BillFilterState>) => setFilters((f) => ({ ...f, ...p }));
+  const query = useMemo(() => apiQuery(filters), [filters]);
+  const searching = !!filters.search;
+  const rangeTooLong = daysInRange(filters.from, filters.to) > MAX_BILL_RANGE_DAYS;
+  const key = outletId && ready && !rangeTooLong ? `bills:${outletId}:${JSON.stringify(query)}` : null;
+
+  // Pages: the first request (and every refresh) loads everything shown so far, "Load more" appends.
+  const loaded = useRef<{ key: string | null; count: number }>({ key: null, count: BILLS_PAGE_SIZE });
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const bills = useApiQuery<Order[]>(key, async () => {
+    if (loaded.current.key !== key) loaded.current = { key, count: BILLS_PAGE_SIZE };
+    const limit = Math.min(200, Math.max(BILLS_PAGE_SIZE, loaded.current.count));
+    const rows = await api.get<Order[]>("/orders", { query: { ...query, limit, offset: 0 } });
+    setHasMore(rows.length >= limit);
+    return rows;
+  });
+  const summary = useApiQuery<BillSummary>(key ? `bills-summary:${key}` : null, () => api.get<BillSummary>("/orders/summary", { query }));
+
+  const loadMore = async () => {
+    const current = bills.data ?? [];
+    setLoadingMore(true);
+    try {
+      const rows = await api.get<Order[]>("/orders", { query: { ...query, limit: BILLS_PAGE_SIZE, offset: current.length } });
+      if (loaded.current.key !== key) return;
+      bills.setData((prev) => {
+        const seen = new Set((prev ?? []).map((o) => o.id));
+        const merged = [...(prev ?? []), ...rows.filter((o) => !seen.has(o.id))];
+        loaded.current.count = merged.length;
+        return merged;
+      });
+      setHasMore(rows.length >= BILLS_PAGE_SIZE);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const reloadAll = () => {
+    void bills.reload();
+    void summary.reload();
+  };
+  useSocketEvent("order:created", reloadAll);
+  useSocketEvent("order:paid", reloadAll);
   // COD switched / partner collected or handed over the cash
-  useSocketEvent("delivery:updated", () => void bills.reload());
+  useSocketEvent("delivery:updated", reloadAll);
 
   const all = bills.data ?? [];
-  const list = codOnly ? all.filter(isCodPending) : all;
-  const paid = all.filter((o) => o.status === "PAID");
-  const total = paid.reduce((s, o) => s + o.grandTotal, 0);
+  const list = filters.cod ? all.filter(isCodPending) : all;
+  const multiDay = searching || filters.from !== filters.to;
+
+  // Previous / Next shift the selected day — or the whole range by its length.
+  const span = daysInRange(filters.from, filters.to);
+  const shift = (dir: -1 | 1) => {
+    const from = addDaysISO(filters.from, dir * span);
+    const to = addDaysISO(filters.to, dir * span);
+    patch({ from, to });
+    setCustomOpen(matchPreset(from, to, today) === "custom");
+  };
+  const nextDisabled = addDaysISO(filters.to, span) > today;
+
+  const choosePreset = (p: ReturnType<typeof matchPreset>) => {
+    if (p === "custom") return setCustomOpen(true);
+    setCustomOpen(false);
+    patch(presetDates(p, today));
+  };
+
+  const anyFilter =
+    filters.status || filters.paymentMode || filters.orderType || filters.channel || filters.search || filters.cod || filters.from !== today || filters.to !== today;
+  const clearFilters = () => {
+    setSearch("");
+    setCustomOpen(false);
+    setFilters({ ...presetDates("today", today), status: "", paymentMode: "", orderType: "", channel: "", search: "", cod: false });
+  };
+
+  const exportName = `bills_${searching ? "search" : filters.from}${!searching && filters.to !== filters.from ? `_${filters.to}` : ""}.xlsx`;
 
   return (
     <PageContainer>
       <PageHeader
         title="Bills"
-        subtitle={debounced ? `Search results for “${debounced}”` : `${paid.length} paid · ${formatINR(total)}`}
+        subtitle={searching ? `Search results for “${filters.search}” · all dates` : rangeLabel(filters.from, filters.to, today)}
         actions={
           <>
-            <Input type="date" aria-label="Date" value={date} max={todayISO(tz)} onChange={(e) => setDate(e.target.value || todayISO(tz))} disabled={!!debounced} />
-            <Button variant="outline" size="sm" onClick={() => setDate(addDaysISO(date, -1))} disabled={!!debounced}>
+            <Button variant="outline" size="sm" icon={<CaretLeft size={18} />} onClick={() => shift(-1)} disabled={searching} title={span > 1 ? `Previous ${span} days` : undefined}>
               Previous day
             </Button>
+            <Button variant="outline" size="sm" onClick={() => shift(1)} disabled={searching || nextDisabled} title={span > 1 ? `Next ${span} days` : undefined}>
+              Next day <CaretRight size={18} />
+            </Button>
+            <DownloadButton path="/orders/export" query={query} filename={exportName} icon={<FileXls size={20} />}>
+              Export Excel
+            </DownloadButton>
           </>
         }
       />
 
       <OfflineQueueCard />
 
+      <div className="mb-4">
+        <RangePicker
+          from={filters.from}
+          to={filters.to}
+          today={today}
+          customOpen={customOpen}
+          disabled={searching}
+          onPreset={choosePreset}
+          onCustom={(from, to) => patch({ from, to })}
+        />
+        {searching && <p className="mt-2 text-xs text-muted">Searching all dates — clear the search to filter by date.</p>}
+      </div>
+
+      {summary.data && !rangeTooLong && <BillSummaryStrip summary={summary.data} />}
+
       <Card>
-        <div className="flex flex-wrap gap-3 border-b border-line p-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
           <Input
-            wrapperClassName="min-w-[240px] flex-1"
+            wrapperClassName="min-w-[220px] flex-1 basis-full sm:basis-auto"
             type="search"
             placeholder="Search invoice no., phone or name"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             prefix={<MagnifyingGlass size={18} />}
           />
-          <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as OrderStatus | "")} wrapperClassName="w-44" disabled={codOnly}>
+          <Select
+            aria-label="Payment mode"
+            value={filters.cod ? "COD" : filters.paymentMode}
+            onChange={(e) => patch({ paymentMode: e.target.value as BillPaymentFilter | "" })}
+            wrapperClassName="w-[calc(50%-6px)] sm:w-40"
+            disabled={filters.cod}
+          >
+            <option value="">All payments</option>
+            <option value="CASH">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="CARD">Card</option>
+            <option value="KHATA">Khata</option>
+            {channelsOn && <option value="ONLINE">Paid online</option>}
+            <option value="COD">Cash on Delivery</option>
+          </Select>
+          {channelsOn && (
+            <Select
+              aria-label="Channel"
+              value={filters.channel ?? ""}
+              onChange={(e) => patch({ channel: e.target.value as OrderChannel | "" })}
+              wrapperClassName="w-[calc(50%-6px)] sm:w-40"
+            >
+              <option value="">All channels</option>
+              {ORDER_CHANNELS.map((c) => (
+                <option key={c} value={c}>
+                  {ORDER_CHANNEL_LABELS[c]}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Select
+            aria-label="Order type"
+            value={filters.orderType}
+            onChange={(e) => patch({ orderType: e.target.value as OrderType | "" })}
+            wrapperClassName="w-[calc(50%-6px)] sm:w-40"
+          >
+            <option value="">All order types</option>
+            {(Object.keys(ORDER_TYPE_LABELS) as OrderType[]).map((t) => (
+              <option key={t} value={t}>
+                {ORDER_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Status"
+            value={filters.cod ? "OPEN" : filters.status}
+            onChange={(e) => patch({ status: e.target.value as OrderStatus | "" })}
+            wrapperClassName="w-[calc(50%-6px)] sm:w-40"
+            disabled={filters.cod}
+          >
             <option value="">All statuses</option>
             <option value="PAID">Paid</option>
             <option value="OPEN">Unpaid</option>
@@ -103,70 +270,101 @@ export default function BillsPage() {
           </Select>
           <button
             type="button"
-            aria-pressed={codOnly}
-            onClick={() => setCodOnly((v) => !v)}
+            aria-pressed={filters.cod}
+            onClick={() => patch({ cod: !filters.cod })}
             className={clsx(
               "inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-4 text-sm font-semibold transition-colors",
-              codOnly
+              filters.cod
                 ? "border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-400 dark:bg-amber-500/15 dark:text-amber-100"
                 : "border-line bg-surface text-fg hover:bg-surface-2",
             )}
             data-testid="cod-pending-chip"
           >
-            <HandCoins size={18} weight={codOnly ? "fill" : "regular"} /> COD pending
+            <HandCoins size={18} weight={filters.cod ? "fill" : "regular"} /> COD pending
           </button>
+          {anyFilter && (
+            <button type="button" onClick={clearFilters} className="min-h-[44px] px-1 text-sm font-semibold text-primary hover:underline" data-testid="clear-filters">
+              Clear filters
+            </button>
+          )}
         </div>
-        {bills.loading && !bills.data ? (
+        {rangeTooLong ? (
+          <div className="p-4">
+            <Alert>Pick at most {MAX_BILL_RANGE_DAYS} days.</Alert>
+          </div>
+        ) : bills.loading && !bills.data ? (
           <LoadingState />
         ) : bills.error ? (
-          <ErrorState message={bills.error} onRetry={bills.reload} />
+          <ErrorState message={bills.error} onRetry={reloadAll} />
         ) : list.length === 0 ? (
           <EmptyState
-            title={codOnly ? "No COD pending" : "No bills"}
-            description={codOnly ? "Unpaid Cash on Delivery bills for this day will appear here." : debounced ? "Try a different search." : "Bills raised on this day will appear here."}
+            title={filters.cod ? "No COD pending" : "No bills"}
+            description={
+              filters.cod
+                ? "Unpaid Cash on Delivery bills for these dates will appear here."
+                : searching
+                  ? "Try a different search."
+                  : anyFilter && (filters.status || filters.paymentMode || filters.orderType || filters.channel)
+                    ? "No bills match these filters."
+                    : "Bills raised in this period will appear here."
+            }
           />
         ) : (
-          <Table>
-            <THead>
-              <tr>
-                <Th>Invoice</Th>
-                <Th>Time</Th>
-                <Th>Type</Th>
-                <Th>Customer</Th>
-                <Th>Payment</Th>
-                <Th className="text-right">Total</Th>
-                <Th>Status</Th>
-              </tr>
-            </THead>
-            <tbody>
-              {list.map((o) => (
-                <Tr key={o.id} onClick={() => setSelected(o.id)}>
-                  <Td className="font-semibold">
-                    {o.invoiceNumber}
-                    {o.syncedOffline && <CloudArrowUp size={14} className="ml-1 inline text-muted" aria-label="Synced from offline" />}
-                  </Td>
-                  <Td className="tabular whitespace-nowrap text-muted">{debounced ? formatDateTime(o.createdAt) : formatTime(o.createdAt)}</Td>
-                  <Td>
-                    {ORDER_TYPE_LABELS[o.orderType]}
-                    {o.tableLabel && <span className="text-muted"> · T{o.tableLabel}</span>}
-                  </Td>
-                  <Td className="text-muted">{[o.customerName, o.customerPhone].filter(Boolean).join(" · ") || "—"}</Td>
-                  <Td className="text-muted">
-                    {[...new Set(o.payments.filter((p) => p.status === "SUCCESS").map((p) => PAYMENT_MODE_LABELS[p.mode]))].join(" + ") || (o.delivery?.cod ? "" : "—")}
-                    <CodBadge order={o} className={o.payments.some((p) => p.status === "SUCCESS") ? "ml-2" : undefined} />
-                  </Td>
-                  <Td className="tabular text-right font-bold">{formatINR(o.grandTotal)}</Td>
-                  <Td>
-                    <Badge tone={statusTone[o.status]}>{o.status === "OPEN" ? "Unpaid" : o.status === "PAID" ? "Paid" : "Cancelled"}</Badge>
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
+          <>
+            <Table>
+              <THead>
+                <tr>
+                  <Th>Invoice</Th>
+                  <Th>Time</Th>
+                  <Th>Type</Th>
+                  <Th>Customer</Th>
+                  <Th>Payment</Th>
+                  <Th className="text-right">Total</Th>
+                  <Th>Status</Th>
+                </tr>
+              </THead>
+              <tbody>
+                {list.map((o) => (
+                  <Tr key={o.id} onClick={() => setSelected(o.id)}>
+                    <Td className="font-semibold">
+                      {o.invoiceNumber}
+                      {o.syncedOffline && <CloudArrowUp size={14} className="ml-1 inline text-muted" aria-label="Synced from offline" />}
+                    </Td>
+                    <Td className="tabular whitespace-nowrap text-muted">{multiDay ? formatDateTime(o.createdAt) : formatTime(o.createdAt)}</Td>
+                    <Td>
+                      {ORDER_TYPE_LABELS[o.orderType]}
+                      {o.tableLabel && <span className="text-muted"> · T{o.tableLabel}</span>}
+                      <ChannelBadge channel={o.channel} className="ml-2" />
+                    </Td>
+                    <Td className="text-muted">{[o.customerName, o.customerPhone].filter(Boolean).join(" · ") || "—"}</Td>
+                    <Td className="text-muted">
+                      {[...new Set(o.payments.filter((p) => p.status === "SUCCESS").map((p) => PAYMENT_MODE_LABELS[p.mode]))].join(" + ") || (o.delivery?.cod ? "" : "—")}
+                      <CodBadge order={o} className={o.payments.some((p) => p.status === "SUCCESS") ? "ml-2" : undefined} />
+                    </Td>
+                    <Td className="tabular text-right font-bold">{formatINR(o.grandTotal)}</Td>
+                    <Td>
+                      <Badge tone={statusTone[o.status]}>{o.status === "OPEN" ? "Unpaid" : o.status === "PAID" ? "Paid" : "Cancelled"}</Badge>
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-muted">
+              <span>
+                Showing {list.length}
+                {summary.data && !filters.cod ? ` of ${summary.data.count}` : ""} bill{list.length === 1 ? "" : "s"}
+              </span>
+              {hasMore && (
+                <Button variant="outline" size="sm" loading={loadingMore} onClick={() => void loadMore()} data-testid="load-more">
+                  Load more
+                </Button>
+              )}
+            </div>
+          </>
         )}
       </Card>
 
-      <BillDrawer orderId={selected} onClose={() => setSelected(null)} onChanged={bills.reload} />
+      <BillDrawer orderId={selected} onClose={() => setSelected(null)} onChanged={reloadAll} />
     </PageContainer>
   );
 }
@@ -185,7 +383,7 @@ function OfflineQueueCard() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
         <div>
           <h2 className="font-bold">Waiting to sync ({queue.length})</h2>
-          <p className="text-sm text-muted">Bills raised offline on this device. They get invoice numbers once synced.</p>
+          <p className="text-sm text-muted">Bills raised offline on this device. Unnumbered ones get their invoice number once synced.</p>
         </div>
         <Button variant="secondary" size="sm" loading={syncing} disabled={!online} onClick={() => void sync()}>
           Sync now
@@ -195,6 +393,8 @@ function OfflineQueueCard() {
         {queue.map((q) => (
           <li key={q.clientOrderId} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
             <span className="tabular text-muted">{formatDateTime(q.createdAt)}</span>
+            {/* The server's number wins once synced (it falls back to its own counter if the device's is taken). */}
+            {(q.invoiceNumber ?? q.order.offlineInvoiceNumber) && <span className="tabular font-semibold">{q.invoiceNumber ?? q.order.offlineInvoiceNumber}</span>}
             <span className="font-semibold">{q.order.items.reduce((s, i) => s + i.quantity, 0)} items</span>
             <span className="text-muted">{q.payments.map((p) => PAYMENT_MODE_LABELS[p.mode]).join(" + ")}</span>
             <span className="tabular ml-auto font-bold">{formatINR(q.previewTotal)}</span>
@@ -207,9 +407,14 @@ function OfflineQueueCard() {
 }
 
 function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; onClose: () => void; onChanged: () => void }) {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const toast = useToast();
+  const withApproval = useApproval();
   const order = useApiQuery<Order>(orderId ? `order:${orderId}` : null, () => api.get<Order>(`/orders/${orderId}`));
+  const creditNotes = useApiQuery<CreditNote[]>(orderId ? `credit-notes:${orderId}` : null, () => api.get<CreditNote[]>(`/orders/${orderId}/credit-notes`));
+  const [refundOpen, setRefundOpen] = useState(false);
+  // Voids and refunds: order:cancel as before, or a cashier with a manager's PIN when approvals are on (Phase 3.3).
+  const canVoid = can("order:cancel") || (Boolean(me?.features?.APPROVAL_PINS) && can("payment:collect"));
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -218,12 +423,16 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
   const o = order.data?.id === orderId ? order.data : undefined;
   // Stable object: PaymentDialog resets its form whenever `checkout` changes identity.
   const collectCheckout = useMemo(() => (collecting && o ? { kind: "online" as const, order: o } : null), [collecting, o]);
+  // Live food progress: the kitchen moved one of this bill's tickets.
+  useSocketEvent("kot:updated", (k: { orderId?: string | null }) => {
+    if (orderId && k?.orderId === orderId) void order.reload();
+  });
 
   const cancel = async () => {
     if (!o) return;
     setCancelling(true);
     try {
-      await api.post(`/orders/${o.id}/cancel`, { reason: reason.trim() });
+      await withApproval((approval) => api.post(`/orders/${o.id}/cancel`, { reason: reason.trim(), approval }));
       toast(`Bill ${o.invoiceNumber} cancelled`, "success");
       setCancelOpen(false);
       setReason("");
@@ -261,6 +470,8 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge tone={statusTone[o.status]}>{o.status === "OPEN" ? "Unpaid" : o.status === "PAID" ? "Paid" : "Cancelled"}</Badge>
             <Badge>{ORDER_TYPE_LABELS[o.orderType]}</Badge>
+            <ChannelBadge channel={o.channel} />
+            {o.channelOrderId && <span className="text-muted">#{o.channelOrderId}</span>}
             {o.tableLabel && <Badge>Table {o.tableLabel}</Badge>}
             {o.documentType === "BILL_OF_SUPPLY" && <Badge tone="info">Bill of supply</Badge>}
             {o.documentType === "BILL" && <Badge tone="info">Plain bill</Badge>}
@@ -327,6 +538,13 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
             </div>
           </dl>
 
+          {o.kots && (
+            <div>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Kitchen status</h3>
+              <KitchenStatus kots={o.kots} cancelled={o.status === "CANCELLED"} />
+            </div>
+          )}
+
           <div>
             <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Payments</h3>
             {o.payments.length === 0 ? (
@@ -370,12 +588,38 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
                   Mark Cash on Delivery
                 </Button>
               ))}
-            {o.status !== "CANCELLED" && can("order:cancel") && (
+            {o.status === "PAID" && canVoid && (o.refundedAmount ?? 0) < o.grandTotal && (
+              <Button variant="outline" icon={<ArrowUUpLeft size={20} />} onClick={() => setRefundOpen(true)}>
+                Refund
+              </Button>
+            )}
+            {o.status !== "CANCELLED" && canVoid && !(o.refundedAmount ?? 0) && (
               <Button variant="outline" className="text-red-600" icon={<Prohibit size={20} />} onClick={() => setCancelOpen(true)}>
                 Cancel bill
               </Button>
             )}
           </div>
+
+          {(creditNotes.data ?? []).length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">Refunds (credit notes)</h3>
+              <ul className="space-y-1 text-sm">
+                {creditNotes.data!.map((cn) => (
+                  <li key={cn.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      <span className="font-semibold">{cn.number}</span>
+                      <span className="text-muted">
+                        {" "}
+                        · {formatDateTime(cn.createdAt)} · {REFUND_REASON_LABELS[cn.reason as keyof typeof REFUND_REASON_LABELS] ?? cn.reason} · {cn.refundMode.toLowerCase()}
+                        {cn.items.length > 0 && ` · ${cn.items.map((l) => `${l.quantity}× ${l.name}`).join(", ")}`}
+                      </span>
+                    </span>
+                    <span className="tabular font-semibold text-red-600 dark:text-red-300">−{formatINR(cn.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {o.status !== "CANCELLED" && (
             <div className="border-t border-line pt-5">
@@ -389,7 +633,11 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
             onClose={() => setCancelOpen(false)}
             size="sm"
             title={`Cancel ${o.invoiceNumber}?`}
-            description={o.status === "PAID" ? "This bill is already paid — refund the customer separately." : undefined}
+            description={
+              o.status === "PAID"
+                ? "This bill is already paid. Cancelling voids it: hand the cash back — the drawer's expected cash goes down by the cash paid. To give back only part of it, or keep the bill, use Refund (credit note)."
+                : undefined
+            }
             footer={
               <>
                 <Button variant="ghost" onClick={() => setCancelOpen(false)}>
@@ -403,6 +651,20 @@ function BillDrawer({ orderId, onClose, onChanged }: { orderId: string | null; o
           >
             <Textarea label="Reason" placeholder="e.g. Customer changed order" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Dialog>
+
+          <RefundDialog
+            order={o}
+            credited={creditNotes.data ?? []}
+            open={refundOpen}
+            onClose={() => setRefundOpen(false)}
+            onDone={(cn) => {
+              setRefundOpen(false);
+              toast(`Credit note ${cn.number}: refunded ${formatINR(cn.amount)}`, "success");
+              void order.reload();
+              void creditNotes.reload();
+              onChanged();
+            }}
+          />
 
           <PaymentDialog
             checkout={collectCheckout}

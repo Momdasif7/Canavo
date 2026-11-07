@@ -16,6 +16,7 @@ export const ops: Op[] = [
   ["get", "/reports/inventory", `Stock movement per item (opening/in/out/closing, wastage) + vendor purchases ?from&to&${fmt}`, "Reports"],
   ["get", "/reports/delivery", `Delivery orders, avg delivery time (assigned→delivered), per agent ?from&to&${fmt}`, "Reports"],
   ["get", "/reports/outlets/overview", `Multi-outlet dashboard ?date&${fmt} (all outlets for super admin; not outlet-scoped)`, "Reports"],
+  ["get", "/reports/owner-summary", "Owner home: today so far vs same weekday last week per outlet (sales, voids, refunds, big discounts, cash drawer, unapproved approvals, top items, low stock); not outlet-scoped", "Reports"],
 
   // Admin
   ["get", "/admin/report-schedules", "Report schedules of the outlet (?all=1 for super admin)", "Admin"],
@@ -28,7 +29,6 @@ export const ops: Op[] = [
   ["put", "/admin/settings/{scope}/{key}", "Write a setting. Body: {value} validated per key (SETTING_SCHEMAS)", "Admin"],
   ["post", "/admin/backups", "Create a gzipped NDJSON backup of all tables (admin:backup)", "Admin"],
   ["get", "/admin/backups", "List backups", "Admin"],
-  ["get", "/admin/backups/{file}", "Download a backup file", "Admin"],
   ["post", "/admin/backups/{file}/restore", 'Restore a backup (truncates all tables). Body: {confirm: "RESTORE"}; refuses on migration mismatch', "Admin"],
   ["get", "/admin/table-counts", "Row count per table (verify backups/restores)", "Admin"],
   ["get", "/admin/export", "Full data export ?format=json|csv-zip (super admin; secrets redacted)", "Admin"],

@@ -90,7 +90,7 @@ export function NotificationBell() {
         {unread > 0 ? <BellRinging size={24} weight={open ? "fill" : "regular"} /> : <Bell size={24} weight={open ? "fill" : "regular"} />}
         {unread > 0 && (
           <span
-            className="absolute right-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold text-white ring-2 ring-surface"
+            className="absolute right-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-fg ring-2 ring-surface"
             data-testid="notification-badge"
             aria-hidden
           >

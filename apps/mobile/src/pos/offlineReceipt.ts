@@ -9,6 +9,8 @@ import { isNonGst, type LocalBill } from "./localBill";
  */
 export function buildProvisionalReceipt(opts: {
   clientOrderId: string;
+  /** Final number from this phone's offline series (Phase 3.4); otherwise a provisional OFF-… one */
+  invoiceNumber?: string | null;
   lines: CartLine[];
   bill: LocalBill;
   outlet: Outlet;
@@ -22,7 +24,7 @@ export function buildProvisionalReceipt(opts: {
   const nonGst = isNonGst(outlet);
   return {
     documentType: bill.documentType,
-    invoiceNumber: `OFF-${opts.clientOrderId.slice(0, 8).toUpperCase()}`,
+    invoiceNumber: opts.invoiceNumber ?? `OFF-${opts.clientOrderId.slice(0, 8).toUpperCase()}`,
     issuedAt: opts.createdAt,
     outlet: {
       name: outlet.name,

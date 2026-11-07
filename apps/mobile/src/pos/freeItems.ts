@@ -9,6 +9,7 @@
  */
 import type { FreeItemSuggestion, Menu } from "../lib/types";
 import { freeLineKey, type FreeTarget } from "./cart";
+import { isItemOut, isVariantOut } from "./stock";
 
 /** Badge text on a free line, e.g. "FREE · Samosa combo" or "50% OFF · Samosa combo". */
 export const freeBadge = (percent: number, offerName: string) => `${percent >= 100 ? "FREE" : `${percent}% OFF`} · ${offerName}`;
@@ -20,9 +21,9 @@ export function freeTargets(suggestions: FreeItemSuggestion[] | undefined, menu:
   const out: FreeTarget[] = [];
   for (const s of suggestions) {
     const item = byId.get(s.menuItemId);
-    if (!item || item.status !== "AVAILABLE" || s.quantity <= 0) continue;
+    if (!item || item.status !== "AVAILABLE" || isItemOut(item) || s.quantity <= 0) continue;
     const variant = s.variantId ? item.variants.find((v) => v.id === s.variantId) ?? null : null;
-    if (s.variantId && !variant) continue;
+    if ((s.variantId && !variant) || isVariantOut(item, s.variantId)) continue;
     out.push({
       key: freeLineKey(s.offerId, s.menuItemId, s.variantId),
       item,

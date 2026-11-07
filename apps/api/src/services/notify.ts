@@ -1,4 +1,6 @@
-import { prisma } from "../db";
+import { getWaConfig, sendWhatsApp } from "./whatsapp";
+import { platformPrisma, prisma } from "../db";
+import { outboxTask } from "../lib/outbox";
 import { currentBusinessId } from "../lib/tenant";
 import { env } from "../env";
 import { emitToUser } from "../realtime";
@@ -80,10 +82,12 @@ export async function notify(userIds: string[], title: string, body: string, kin
   for (const r of rows) emitToUser(r.userId, "notification", { id: r.id, title, body, kind, link, outletId, createdAt, read: false });
   const idByUser = Object.fromEntries(rows.map((r) => [r.userId, { id: r.id }]));
   // External channels are best-effort and never block / fail the caller.
-  void deliverExternal(ids, title, body, kind, link, outletId, idByUser).catch((e) => console.error("[notify] external delivery failed", e));
+  // External channels via the outbox: survives a crash and never blocks / fails the caller.
+  await outboxTask(platformPrisma, "notify.external", { userIds: ids, title, body, kind, link, outletId, idByUser });
 }
 
-async function deliverExternal(
+/** Outbox task "notify.external": push / SMS / email / WhatsApp for a notification. */
+export async function deliverExternal(
   userIds: string[],
   title: string,
   body: string,
@@ -108,7 +112,19 @@ async function deliverExternal(
           .catch((e) => console.warn("[notify] email", e)));
       }
     }
-    if (prefs.whatsapp) console.info(`[notify] whatsapp channel enabled for ${kind} — staff WhatsApp alerts are not implemented yet`);
+    if (prefs.whatsapp) {
+      // Staff alerts go only through the business's WhatsApp API (there is nobody to open a click-to-chat link).
+      const cfg = await getWaConfig();
+      if (cfg.provider !== "NONE" && cfg.staffAlerts) {
+        for (const u of users) {
+          jobs.push(
+            sendWhatsApp({ to: u.phone, text: `${title} - ${body}`, purpose: "staff_alert", tag: `alert_${kind}`, params: [{ name: "title", value: title }, { name: "body", value: body }] }, cfg)
+              .then((r) => r.method !== "sent" && console.warn(`[notify] whatsapp staff alert not sent: ${r.error ?? "no provider"}`))
+              .catch((e) => console.warn("[notify] whatsapp", e)),
+          );
+        }
+      }
+    }
   }
   await Promise.all(jobs);
 }

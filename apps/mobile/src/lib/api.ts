@@ -9,6 +9,9 @@ import * as secure from "./secure";
 import type {
   ActiveOffer,
   AttendanceCalendar,
+  ChannelBoard,
+  ChannelBoardOrder,
+  ChannelRequest,
   CustomerList,
   CustomerLookupResult,
   CustomerProfile,
@@ -25,6 +28,7 @@ import type {
   LowStockAlerts,
   NotificationList,
   OutletsOverview,
+  OwnerSummary,
   PromotionPreview,
   PurchaseDetail,
   PurchaseRow,
@@ -51,6 +55,7 @@ import type {
   Receipt,
   SyncResult,
   Tokens,
+  MfaChallenge,
   UpiQrResponse,
   WhatsAppShareResponse,
 } from "./types";
@@ -95,6 +100,8 @@ export function errorMessage(e: unknown, fallback = "Something went wrong"): str
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {
+  /** Idempotency-Key for mutations (generated per call when omitted; reused on the auth retry) */
+  idempotencyKey?: string;
   body?: unknown;
   query?: Record<string, string | number | undefined>;
   /** Attach the bearer token (default true) */
@@ -218,7 +225,34 @@ class ApiClient {
     if (token) h.Authorization = `Bearer ${token}`;
     const outlet = opts.outletId ?? this.outletId;
     if (outlet) h["X-Outlet-Id"] = outlet;
+    if (opts.idempotencyKey) h["Idempotency-Key"] = opts.idempotencyKey;
     return h;
+  }
+
+  /** Upload a photo from the device (multipart field "file"); returns its URL. */
+  async uploadImage(uri: string, name = "photo.jpg", type = "image/jpeg"): Promise<string> {
+    const token = await this.freshAccessToken();
+    const form = new FormData();
+    // React Native's FormData takes { uri, name, type } for local files.
+    form.append("file", { uri, name, type } as unknown as Blob);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
+    let res: Response;
+    try {
+      res = await fetch(this.buildUrl("/uploads/image"), {
+        method: "POST",
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}`, ...(this.outletId && { "X-Outlet-Id": this.outletId }) },
+        body: form,
+        signal: controller.signal,
+      });
+    } catch {
+      throw new ApiError("Couldn't upload the photo. Check your connection.", 0);
+    } finally {
+      clearTimeout(timer);
+    }
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !data.url) throw new ApiError(data.error ?? `Upload failed (${res.status})`, res.status);
+    return data.url;
   }
 
   /** One HTTP round-trip with no auth recovery. */
@@ -267,6 +301,8 @@ class ApiClient {
 
   private async authed<T>(method: Method, path: string, opts: RequestOptions): Promise<T> {
     if (opts.auth === false) return this.raw<T>(method, path, opts);
+    // One key per call, reused by the refresh-and-retry below, so a mutation never runs twice.
+    if (method !== "GET" && !opts.idempotencyKey) opts = { ...opts, idempotencyKey: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` };
     const token = await this.freshAccessToken();
     try {
       return await this.raw<T>(method, path, opts, token);
@@ -323,15 +359,21 @@ export interface ClockInput {
   accuracy?: number;
   pin?: string;
   outletId?: string;
+  /** The phone reports the location as fake (Android mock location) */
+  mocked?: boolean;
+  /** Selfie uploaded just before clocking in (when the hotel requires it) */
+  selfieUrl?: string;
 }
 
 export const endpoints = {
   // Auth
   requestOtp: (phone: string) => api.post<OtpRequestResponse>("/auth/otp/request", { phone }, { auth: false }),
   verifyOtp: (phone: string, code: string, deviceId: string) =>
-    api.post<Tokens>("/auth/otp/verify", { phone, code, deviceId }, { auth: false }),
+    api.post<Tokens | MfaChallenge>("/auth/otp/verify", { phone, code, deviceId }, { auth: false }),
   passwordLogin: (email: string, password: string) =>
-    api.post<Tokens>("/auth/login", { email, password }, { auth: false }),
+    api.post<Tokens | MfaChallenge>("/auth/login", { email, password }, { auth: false }),
+  verifyTwoFactor: (mfaToken: string, input: { code?: string; recoveryCode?: string }, deviceId: string) =>
+    api.post<Tokens>("/auth/2fa/verify", { mfaToken, deviceId, ...input }, { auth: false }),
   logout: (refreshToken: string) => api.post<void>("/auth/logout", { refreshToken }, { auth: false }),
   me: () => api.get<Me>("/auth/me"),
 
@@ -384,6 +426,7 @@ export const endpoints = {
   dailyReport: (date?: string) => api.get<DailyReport>("/reports/daily", { query: { date } }),
   salesReport: (from: string, to: string) =>
     api.get<SalesReport>("/reports/sales", { query: { from, to, groupBy: "day" } }),
+  ownerSummary: () => api.get<OwnerSummary>("/reports/owner-summary"),
   outletsOverview: (date?: string) => api.get<OutletsOverview>("/reports/outlets/overview", { query: { date } }),
 
   // Tables & running tabs
@@ -466,6 +509,15 @@ export const endpoints = {
   purchases: (status?: "DRAFT" | "RECEIVED") => api.get<PurchaseRow[]>("/inventory/purchases", { query: { status, limit: 50 } }),
   purchase: (id: string) => api.get<PurchaseDetail>(`/inventory/purchases/${id}`),
   receivePurchase: (id: string) => api.post<PurchaseDetail>(`/inventory/purchases/${id}/receive`, {}),
+
+  // Sales channels (CHANNELS module): aggregator / online order board + QR / online requests to confirm
+  channelBoard: () => api.get<ChannelBoard>("/channels/board"),
+  channelPacked: (orderId: string) => api.post<ChannelBoardOrder>(`/channels/board/${encodeURIComponent(orderId)}/packed`, {}),
+  channelHandover: (orderId: string, riderName?: string) =>
+    api.post<ChannelBoardOrder>(`/channels/board/${encodeURIComponent(orderId)}/handover`, riderName ? { riderName } : {}),
+  channelRequests: () => api.get<ChannelRequest[]>("/storefront/requests"),
+  acceptChannelRequest: (id: string) => api.post<unknown>(`/storefront/requests/${encodeURIComponent(id)}/accept`, {}),
+  rejectChannelRequest: (id: string, reason: string) => api.post<unknown>(`/storefront/requests/${encodeURIComponent(id)}/reject`, { reason }),
 
   // Notifications
   notifications: (q: { unread?: boolean; before?: string | null; limit?: number } = {}) =>

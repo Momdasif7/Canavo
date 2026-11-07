@@ -9,11 +9,14 @@ import { MODULE_INFO, businessCreateSchema, type BusinessCreateInput, type Modul
 import { errorMessage } from "@/lib/api";
 import { platformApi } from "@/lib/platform";
 import type { BusinessCreateResult } from "@/lib/types-platform";
+import { LinkSentNotice } from "@/components/platform/OwnerDialogs";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Toggle } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/States";
+import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { ModuleChips, ModulePicker } from "@/components/platform/modules";
 
 const STEPS = ["Business", "Modules", "Owner", "First outlet", "Review"] as const;
@@ -29,7 +32,6 @@ interface WizardState {
   ownerName: string;
   ownerPhone: string;
   ownerEmail: string;
-  ownerPassword: string;
   withOutlet: boolean;
   outletName: string;
   outletAddress: string;
@@ -47,7 +49,6 @@ const INITIAL: WizardState = {
   ownerName: "",
   ownerPhone: "",
   ownerEmail: "",
-  ownerPassword: "",
   withOutlet: true,
   outletName: "",
   outletAddress: "",
@@ -65,7 +66,7 @@ function toInput(w: WizardState): unknown {
     email: opt(w.email),
     notes: opt(w.notes),
     modules: w.modules,
-    owner: { name: w.ownerName.trim(), phone: w.ownerPhone.trim(), email: opt(w.ownerEmail), password: w.ownerPassword || undefined },
+    owner: { name: w.ownerName.trim(), phone: w.ownerPhone.trim(), email: opt(w.ownerEmail) },
     outlet: w.withOutlet
       ? { name: w.outletName.trim(), address: w.outletAddress.trim(), stateCode: w.stateCode, gstEnabled: w.gstEnabled }
       : undefined,
@@ -84,7 +85,6 @@ const STEP_FIELDS: Record<Step, string[]> = {
 const FIELD_LABELS: Record<string, string> = { owner: "Owner", outlet: "Outlet", modules: "Modules" };
 
 function stepError(w: WizardState, step: Step): string | null {
-  if (step === 2 && !w.ownerPassword) return "Set a password so the owner can sign in";
   if (step === 2 && !w.ownerEmail.trim()) return "The owner signs in with an email address";
   const parsed = businessCreateSchema.safeParse(toInput(w));
   if (parsed.success) return null;
@@ -96,7 +96,20 @@ function stepError(w: WizardState, step: Step): string | null {
   return `${label}: ${issue.message}`;
 }
 
+/** Onboarding is for super admins; platform support users only look. */
 export default function NewBusinessPage() {
+  const { me } = useSession();
+  if (me && !canManagePlatform(me)) {
+    return (
+      <PageContainer>
+        <Alert tone="warning">Only a super admin can add businesses. Platform support accounts can only view them.</Alert>
+      </PageContainer>
+    );
+  }
+  return <NewBusinessWizard />;
+}
+
+function NewBusinessWizard() {
   const router = useRouter();
   const [w, setW] = useState<WizardState>(INITIAL);
   const [step, setStep] = useState<Step>(0);
@@ -140,9 +153,12 @@ export default function NewBusinessPage() {
           <CheckCircle size={56} weight="duotone" className="mx-auto text-secondary" />
           <h1 className="mt-3 text-2xl font-extrabold">{done.business.name} is live</h1>
           <p className="mt-1 text-sm text-muted">
-            {done.owner.name} can sign in with <b>{done.owner.email}</b>
-            {done.outlet ? <> and start billing at {done.outlet.name}.</> : <>. Add an outlet next.</>}
+            {done.owner.name} signs in with <b>{done.owner.email}</b> after setting a password from the link
+            {done.outlet ? <>, then starts billing at {done.outlet.name}.</> : <>. Add an outlet next.</>}
           </p>
+          <div className="mt-4 text-left">
+            <LinkSentNotice delivery={done.invite} who={done.owner.email ?? `+91 ${done.owner.phone}`} />
+          </div>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             <Button variant="outline" onClick={() => router.push("/platform/businesses")}>
               All businesses
@@ -171,7 +187,7 @@ export default function NewBusinessPage() {
               aria-current={i === step ? "step" : undefined}
               className={clsx(
                 "flex min-h-[40px] items-center gap-2 rounded-full border px-3 text-sm font-semibold",
-                i === step ? "border-primary bg-primary text-white" : i < step ? "border-secondary/40 bg-secondary-50 text-secondary-700 dark:bg-secondary/20 dark:text-green-200" : "border-line text-muted",
+                i === step ? "border-primary bg-primary text-primary-fg" : i < step ? "border-secondary/40 bg-secondary-50 text-secondary-700 dark:bg-secondary/20 dark:text-green-200" : "border-line text-muted",
               )}
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs">{i < step ? <Check size={12} weight="bold" /> : i + 1}</span>
@@ -223,8 +239,8 @@ export default function NewBusinessPage() {
                   onChange={(e) => set("ownerPhone", e.target.value.replace(/\D/g, ""))}
                 />
                 <Input label="Owner email (login)" type="email" autoComplete="off" value={w.ownerEmail} onChange={(e) => set("ownerEmail", e.target.value)} />
-                <Input label="Temporary password" type="password" autoComplete="new-password" placeholder="Min. 8 characters" value={w.ownerPassword} onChange={(e) => set("ownerPassword", e.target.value)} />
               </div>
+              <p className="text-xs text-muted">The owner gets a link by email (or SMS) to set their own password. You never see it. Until then they can sign in with an OTP on their mobile.</p>
             </>
           )}
 

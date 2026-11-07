@@ -8,6 +8,7 @@ import { errorMessage } from "@/lib/api";
 import { loadMenu } from "@/lib/offline";
 import type { Menu, MenuItem } from "@/lib/types";
 import { useSession } from "@/components/providers/SessionProvider";
+import { useSocketEvent } from "@/components/providers/SocketProvider";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button, IconButton } from "@/components/ui/Button";
 import { FoodMark } from "@/components/ui/FoodMark";
@@ -37,6 +38,8 @@ export function useMenu() {
   useEffect(() => {
     void reload();
   }, [reload]);
+  // Availability changed (manual toggle, or an ingredient ran out / was restocked).
+  useSocketEvent("menu:changed", () => void reload());
   return { menu, error, reload };
 }
 
@@ -120,6 +123,7 @@ export function MenuPickerDialog({
       await onConfirm(lines);
     } catch (e) {
       setSubmitError(errorMessage(e));
+      if (/out of stock/i.test(errorMessage(e))) void reload();
     } finally {
       setBusy(false);
     }

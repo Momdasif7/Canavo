@@ -1,23 +1,33 @@
 import { Router } from "express";
-import { can, outletSchema, shiftSchema } from "@canavo/shared";
+import { outletSchema, shiftSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { emitToOutlet } from "../realtime";
 import { requireBusinessId } from "../lib/tenant";
 import { badRequest, forbidden, param, parse } from "../lib/http";
-import { authenticate, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 
 export const outletsRouter = Router();
 outletsRouter.use(authenticate);
 
 /** Fields that change how bills are taxed/numbered: need settings:billing. */
-const BILLING_FIELDS = ["gstEnabled", "invoicePrefix", "compositionScheme", "pricesIncludeTax"] as const;
+const BILLING_FIELDS = ["gstEnabled", "invoicePrefix", "compositionScheme", "pricesIncludeTax", "flatDiscountsIncludeTax"] as const;
 
 /**
  * Cross-field GST rules on the resulting outlet state. Composition is a
  * registered mode, so it needs GST on; GST on without a GSTIN is allowed (with
  * a warning) so a business can switch on before the GSTIN is entered.
  */
+/** Every date screen formats with the outlet's timezone: an unknown IANA name would make them all fail. */
+function assertTimezone(tz: string | undefined) {
+  if (tz === undefined) return;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+  } catch {
+    throw badRequest("Validation failed", { fieldErrors: { timezone: ["Unknown timezone, e.g. Asia/Kolkata"] } });
+  }
+}
+
 function gstRules(o: { gstEnabled: boolean; compositionScheme: boolean; gstin: string | null }): string[] {
   if (o.compositionScheme && !o.gstEnabled) throw badRequest("Composition scheme requires GST to be enabled");
   const warnings: string[] = [];
@@ -45,7 +55,7 @@ const BASIC_OUTLET_FIELDS = {
   deliveryEnabled: true,
 } as const;
 
-const outletSelect = (req: Express.Request) => (can(req.user!.role, "settings:view") ? undefined : BASIC_OUTLET_FIELDS);
+const outletSelect = (req: Express.Request) => (userCan(req, "settings:view") ? undefined : BASIC_OUTLET_FIELDS);
 
 outletsRouter.get("/", async (req, res) => {
   // Platform super admins have no outlets (they don't see hotel data).
@@ -54,6 +64,7 @@ outletsRouter.get("/", async (req, res) => {
 
 outletsRouter.post("/", requirePermission("outlet:manage"), async (req, res) => {
   const data = parse(outletSchema, req.body);
+  assertTimezone(data.timezone);
   const warnings = gstRules({ gstEnabled: data.gstEnabled, compositionScheme: data.compositionScheme, gstin: data.gstin || null });
   const outlet = await prisma.outlet.create({
     data: {
@@ -76,9 +87,12 @@ outletsRouter.get("/current", requireOutlet, async (req, res) => {
 
 outletsRouter.patch("/current", requireOutlet, requirePermission("settings:outlet"), async (req, res) => {
   const data = parse(outletSchema.partial(), req.body);
-  if (BILLING_FIELDS.some((f) => data[f] !== undefined) && !can(req.user!.role, "settings:billing")) {
+  assertTimezone(data.timezone);
+  if (BILLING_FIELDS.some((f) => data[f] !== undefined) && !userCan(req, "settings:billing")) {
     throw forbidden("You don't have permission to change billing / GST settings");
   }
+  // The approval limit guards managers' own discounts: only the owner changes it (Phase 3.3).
+  if (data.approvalDiscountPercent !== undefined && !userCan(req, "outlet:manage")) throw forbidden("Only the owner can change the approval limit");
   const current = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
   // Turning GST off also ends the composition scheme (it is a GST registration type).
   if (data.gstEnabled === false) data.compositionScheme = false;

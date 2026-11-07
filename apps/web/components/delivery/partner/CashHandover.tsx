@@ -30,7 +30,7 @@ export function CashHandover() {
     <div className={clsx("mx-auto max-w-2xl space-y-4 transition-opacity", q.loading && "opacity-70")}>
       <Card className={clsx("p-5", has ? "border-primary/50 bg-primary-50 dark:bg-primary/15" : "")} data-testid="cash-to-hand-over">
         <div className="flex items-center gap-4">
-          <span className={clsx("flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl", has ? "bg-primary text-white" : "bg-surface-2 text-muted")}>
+          <span className={clsx("flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl", has ? "bg-primary text-primary-fg" : "bg-surface-2 text-muted")}>
             <Storefront size={34} weight="fill" />
           </span>
           <div className="min-w-0">

@@ -135,7 +135,7 @@ export function ItemForm({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const { me, outletId } = useSession();
+  const { me, outletId, outlet } = useSession();
   const open = itemId !== null;
   // Business tax rates; on older servers (404) we fall back to the fixed GST slab select.
   const taxRates = useApiQuery<TaxRate[]>(open && outletId ? `tax-rates:${me?.business?.id ?? outletId}` : null, fetchTaxRates);
@@ -241,6 +241,13 @@ export function ItemForm({
 
   const parents = categories.filter((c) => !c.parentId);
 
+  // 0% GST safeguard (Phase 3.6): warn on GST-registered outlets.
+  const effectiveRate = (() => {
+    const r = rates ? (form.taxRateId ? rates.find((x) => x.id === form.taxRateId) : defaultRate) : undefined;
+    return r ? (r.igst || r.cgst + r.sgst) : Number(form.gstRate);
+  })();
+  const zeroGstOnRegisteredOutlet = Boolean(outlet?.gstEnabled !== false && !outlet?.compositionScheme) && effectiveRate === 0;
+
   return (
     <Dialog
       open={open}
@@ -327,6 +334,12 @@ export function ItemForm({
             )}
             <Input label="HSN / SAC" maxLength={8} value={form.hsnCode} onChange={(e) => set("hsnCode", e.target.value)} />
           </div>
+          {zeroGstOnRegisteredOutlet && (
+            <Alert tone="warning">
+              This item will be billed at <b>0% GST</b>, but your outlet is GST-registered. Restaurant food is normally taxed (usually 5%). Keep 0% only if this item is
+              really exempt.
+            </Alert>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold">Food type</span>

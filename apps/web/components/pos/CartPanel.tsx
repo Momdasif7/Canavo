@@ -31,12 +31,16 @@ export interface CartTotals {
   grandTotal: number;
   /** Promotions applied by the server (pre-tax amounts) */
   applied: { kind: string; label: string; amount: number }[];
+  /** Phase 3.7: offers / coupon checked by the server and why each was (not) used */
+  comparison?: { label: string; saving: number; applied: boolean; note: string }[];
   /** Manual discount part (pre-tax) when known */
   manualDiscount?: number;
 }
 
 interface Props {
   lines: CartLine[];
+  /** Line key → why it can't be billed (item / size ran out) */
+  stockWarnings?: Map<string, string>;
   meta: CartMeta;
   totals: CartTotals;
   /** Preview request in flight */
@@ -161,7 +165,7 @@ export function CartPanel(p: Props) {
         ) : (
           <ul className="divide-y divide-line">
             {lines.map((l) => (
-              <li key={l.key} className={clsx("px-3 py-2.5", l.free && "bg-secondary-50/60 dark:bg-secondary/10")} data-testid={l.free ? "free-line" : "cart-line"} data-item={l.name}>
+              <li key={l.key} className={clsx("px-3 py-2.5", l.free && "bg-secondary-50/60 dark:bg-secondary/10", p.stockWarnings?.has(l.key) && "bg-red-50/40 dark:bg-red-500/5")} data-testid={l.free ? "free-line" : "cart-line"} data-item={l.name}>
                 <div className="flex items-start gap-2">
                   <FoodMark type={l.foodType} size={12} className="mt-1.5" />
                   <div className="min-w-0 flex-1">
@@ -227,6 +231,16 @@ export function CartPanel(p: Props) {
                   </IconButton>
                 </div>
                 )}
+                {p.stockWarnings?.get(l.key) && (
+                  <p
+                    className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-200"
+                    role="alert"
+                    data-testid="line-stock-warning"
+                  >
+                    <Warning size={14} weight="fill" className="mt-px shrink-0" />
+                    {p.stockWarnings.get(l.key)}
+                  </p>
+                )}
                 {(noteOpen === l.key || l.notes) && (
                   <input
                     autoFocus={noteOpen === l.key}
@@ -289,6 +303,23 @@ export function CartPanel(p: Props) {
               </li>
             ))}
           </ul>
+        )}
+        {(totals.comparison ?? []).some((c) => !c.applied) && (
+          <details className="mb-2 text-xs">
+            <summary className="cursor-pointer font-semibold text-muted">Why this offer? ({totals.comparison!.length} checked)</summary>
+            <ul className="mt-1 space-y-0.5">
+              {totals.comparison!.map((c) => (
+                <li key={c.label} className="flex justify-between gap-2">
+                  <span className={c.applied ? "font-semibold" : "text-muted"}>
+                    {c.applied ? "✓ " : ""}
+                    {c.label}
+                    <span className="block font-normal text-muted">{c.note}</span>
+                  </span>
+                  <span className="tabular shrink-0">−{formatINR(c.saving)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         <dl className="tabular space-y-0.5 text-sm">
           <Row label={`Subtotal (${itemCount} item${itemCount === 1 ? "" : "s"})`} value={formatINR(totals.subtotal)} />

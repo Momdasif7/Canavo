@@ -1,4 +1,4 @@
-import { can, type Permission } from "@canavo/shared";
+import { can, type ModuleKey, type Permission } from "@canavo/shared";
 import type { Me } from "@/lib/types";
 import {
   BookOpenText,
@@ -18,12 +18,15 @@ import {
   SquaresFour,
   Tag,
   UserList,
+  WhatsappLogo,
   UsersThree,
   ArrowsLeftRight,
   Storefront,
   type Icon,
 } from "@phosphor-icons/react";
-import { Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
+import { Briefcase, IdentificationBadge } from "@phosphor-icons/react";
+import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
+import { ForkKnife, Clock, Repeat, QrCode, PlugsConnected, Tote } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
 
 export interface NavItem {
@@ -36,6 +39,8 @@ export interface NavItem {
   allOf?: Permission[];
   /** Hidden when the session has any of these (e.g. partner screens for managers) */
   noneOf?: Permission[];
+  /** Also needs this business module (for entries gated by permissions that exist without it) */
+  module?: ModuleKey;
   /**
    * Where the screen works: "business" (default) needs an outlet / business
    * context, "platform" is for platform admins only, "any" works in both.
@@ -66,9 +71,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Platform",
     icon: ShieldStar,
     items: [
-      { href: "/platform", label: "Overview", icon: Gauge, anyOf: ["platform:manage"], scope: "platform" },
-      { href: "/platform/businesses", label: "Businesses", icon: Buildings, anyOf: ["platform:manage"], scope: "platform" },
-      { href: "/platform/admins", label: "Platform admins", icon: ShieldStar, anyOf: ["platform:manage"], scope: "platform" },
+      { href: "/platform", label: "Overview", icon: Gauge, anyOf: ["platform:view"], scope: "platform" },
+      { href: "/platform/businesses", label: "Businesses", icon: Buildings, anyOf: ["platform:view"], scope: "platform" },
+      { href: "/platform/admins", label: "Platform admins", icon: ShieldStar, anyOf: ["platform:view"], scope: "platform" },
     ],
   },
   {
@@ -94,9 +99,14 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Billing & orders",
     icon: CashRegister,
     items: [
-      { href: "/pos", label: "POS", icon: CashRegister, anyOf: ["order:create"] },
+      // Waiters take orders on the Tables screen; the POS is for whoever collects payment.
+      { href: "/pos", label: "POS", icon: CashRegister, anyOf: ["order:create"], allOf: ["payment:collect"] },
       { href: "/tables", label: "Tables", icon: SquaresFour, anyOf: ["table:serve", "table:manage"] },
+      // Phase 6 (CHANNELS): Zomato / Swiggy / online-page orders — pack and hand to the rider.
+      { href: "/online-orders", label: "Online orders", icon: Tote, anyOf: ["channel:manage", "order:create"], module: "CHANNELS" },
       { href: "/bills", label: "Bills", icon: Receipt, anyOf: ["bills:view"] },
+      { href: "/cash-drawer", label: "Cash drawer", icon: Vault, anyOf: ["payment:collect"] },
+      { href: "/gift-cards", label: "Gift cards", icon: Gift, anyOf: ["payment:collect"] },
       { href: "/reservations", label: "Reservations", icon: CalendarPlus, anyOf: ["reservation:manage"] },
     ],
   },
@@ -107,6 +117,20 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/kitchen", label: "Kitchen display", icon: CookingPot, anyOf: ["kot:view"] },
       { href: "/menu", label: "Menu", icon: BookOpenText, anyOf: ["menu:manage"] },
+    ],
+  },
+  {
+    // Phase 5 (CANTEEN module): institutional canteens and corporate catering.
+    id: "canteen",
+    label: "Canteen",
+    icon: ForkKnife,
+    items: [
+      { href: "/canteen/accounts", label: "Corporate accounts", icon: Briefcase, anyOf: ["canteen:manage"] },
+      { href: "/canteen/members", label: "Members & cards", icon: IdentificationBadge, anyOf: ["canteen:manage"] },
+      { href: "/canteen/slots", label: "Meal slots", icon: Clock, anyOf: ["canteen:manage"] },
+      { href: "/canteen/preorders", label: "Pre-orders", icon: CalendarPlus, anyOf: ["canteen:manage"] },
+      { href: "/canteen/production", label: "Production plan", icon: ClipboardText, anyOf: ["canteen:manage"] },
+      { href: "/canteen/subscriptions", label: "Meal plans", icon: Repeat, anyOf: ["canteen:manage"] },
     ],
   },
   {
@@ -159,6 +183,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/staff", label: "Staff", icon: UsersThree, anyOf: ["staff:view"] },
       { href: "/attendance", label: "Attendance", icon: CalendarCheck, anyOf: ["attendance:manage"] },
+      // Every employee who clocks in: own calendar and leave requests (managers use it for their own leave too).
+      { href: "/my-attendance", label: "My attendance & leave", icon: CalendarCheck, anyOf: ["attendance:self"] },
     ],
   },
   {
@@ -169,6 +195,12 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/settings", label: "Outlet settings", icon: GearSix, anyOf: ["settings:view"] },
       { href: "/settings/taxes", label: "GST & Taxes", icon: Percent, anyOf: ["settings:billing"], allOf: ["settings:view"] },
+      { href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
+      // Phase 6.3/6.4 (CHANNELS): QR table ordering + the outlet's own online ordering page.
+      { href: "/settings/online-ordering", label: "Online ordering", icon: QrCode, anyOf: ["channel:manage"] },
+      // Phase 6.1 (CHANNELS): Zomato / Swiggy through an order hub
+      { href: "/settings/channels", label: "Channels", icon: PlugsConnected, anyOf: ["channel:manage"] },
+      { href: "/settings/support", label: "Support access", icon: Lifebuoy, anyOf: ["outlet:manage"] },
       { href: "/outlets", label: "Outlets", icon: Storefront, anyOf: ["outlet:manage"] },
     ],
   },
@@ -180,7 +212,7 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Session facts the nav needs. */
 export interface NavContext {
-  me: Pick<Me, "role" | "permissions" | "platformAdmin">;
+  me: Pick<Me, "role" | "permissions" | "platformAdmin"> & Partial<Pick<Me, "modules">>;
   /** null = platform admin (always in the platform console; they can't open a hotel) */
   outletId: string | null;
 }
@@ -197,7 +229,10 @@ const scopeOk = (item: NavItem, ctx: NavContext) => {
   return true;
 };
 
+const moduleOk = (item: NavItem, ctx: NavContext) => !item.module || Boolean(ctx.me.modules?.includes(item.module));
+
 const permsOk = (item: NavItem, ctx: NavContext) =>
+  moduleOk(item, ctx) &&
   (!item.anyOf.length || item.anyOf.some((p) => has(ctx, p))) &&
   (item.allOf ?? []).every((p) => has(ctx, p)) &&
   !(item.noneOf ?? []).some((p) => has(ctx, p));
@@ -214,14 +249,17 @@ export function navGroupsFor(ctx: NavContext): NavGroup[] {
 
 export function firstAllowedRoute(ctx: NavContext): string {
   // Platform admins land on the console; owners and managers on the dashboard,
-  // cashiers on the POS, kitchen on the KDS, delivery partners on their runs,
-  // inventory staff on Stock. `settings:outlet` marks management roles (always on).
+  // cashiers on the POS, waiters on Tables, kitchen on the KDS, delivery partners on their runs,
+  // accountants / auditors on the dashboard, inventory staff on Stock.
+  // `settings:outlet` marks management roles (always on).
   if (ctx.me.platformAdmin) return "/platform";
   const order: [boolean, string][] = [
     [has(ctx, "report:view") && has(ctx, "settings:outlet"), "/dashboard"],
-    [has(ctx, "order:create"), "/pos"],
+    [has(ctx, "order:create") && has(ctx, "payment:collect"), "/pos"],
+    [has(ctx, "table:serve"), "/tables"],
     [has(ctx, "kot:view"), "/kitchen"],
     [isDeliveryPartner(ctx), "/delivery"],
+    [has(ctx, "report:view") && has(ctx, "bills:view"), "/dashboard"],
     [has(ctx, "inventory:view") || has(ctx, "inventory:manage"), "/inventory"],
     [has(ctx, "report:view"), "/dashboard"],
   ];
@@ -256,7 +294,8 @@ export type RouteAccess = "ok" | "role" | "module" | "needs-business";
 export function routeAccess(pathname: string, ctx: NavContext): RouteAccess {
   const items = navItemsFor(pathname);
   // /admin itself just redirects to the first admin section the session may use.
-  if (!items.length) return inPlatformConsole(ctx) && !pathname.startsWith("/platform") && pathname !== "/admin" ? "needs-business" : "ok";
+  // /account/* (own password, devices, 2FA) is for every signed-in user, platform admins included.
+  if (!items.length) return inPlatformConsole(ctx) && !pathname.startsWith("/platform") && !pathname.startsWith("/account") && pathname !== "/admin" ? "needs-business" : "ok";
   if (items.some((i) => navAllowed(i, ctx))) return "ok";
   if (!items.some((i) => scopeOk(i, ctx))) return inPlatformConsole(ctx) ? "needs-business" : "role";
   // The role could use it if only the business's modules are missing.

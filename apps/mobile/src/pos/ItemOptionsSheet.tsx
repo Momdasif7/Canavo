@@ -6,6 +6,7 @@ import { AppText, Button, Row, VegMark } from "../components/ui";
 import { inr } from "../lib/format";
 import type { MenuItem, PricedOption } from "../lib/types";
 import { radius, space, TAP, useTheme } from "../theme";
+import { isVariantOut, ranOut } from "./stock";
 
 /** Pick a size (variant) and add-ons before adding an item to the cart. */
 export function ItemOptionsSheet({
@@ -23,12 +24,23 @@ export function ItemOptionsSheet({
   const [qty, setQty] = useState(1);
 
   useEffect(() => {
-    setVariant(item?.variants[0] ?? null);
+    // First size that's in stock (sizes in unavailableVariantIds can't be billed).
+    setVariant(item ? item.variants.find((v) => !isVariantOut(item, v.id)) ?? null : null);
     setAddons([]);
     setQty(1);
-  }, [item]);
+    // Reset only when a different item opens; a menu refresh passes a new object for the same item.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id]);
+
+  // The chosen size ran out while the sheet was open (menu refreshed): move to one still in stock.
+  useEffect(() => {
+    if (item && variant && isVariantOut(item, variant.id)) setVariant(item.variants.find((v) => !isVariantOut(item, v.id)) ?? null);
+  }, [item, variant]);
 
   if (!item) return null;
+  const reason = ranOut(item);
+  // Every size out → nothing to add (the grid normally blocks the item already).
+  const noSize = item.variants.length > 0 && !variant;
   const unit = (variant?.price ?? item.price) + addons.reduce((s, a) => s + a.price, 0);
   const toggleAddon = (a: PricedOption) =>
     setAddons((cur) => (cur.some((x) => x.id === a.id) ? cur.filter((x) => x.id !== a.id) : [...cur, a]));
@@ -49,16 +61,26 @@ export function ItemOptionsSheet({
             <AppText variant="h3">Size</AppText>
             {item.variants.map((v) => {
               const on = variant?.id === v.id;
+              const out = isVariantOut(item, v.id);
               return (
                 <Pressable
                   key={v.id}
                   onPress={() => setVariant(v)}
+                  disabled={out}
                   accessibilityRole="radio"
-                  accessibilityState={{ checked: on }}
-                  style={[styles.option, { borderColor: on ? t.primary : t.border, backgroundColor: t.surface }]}
+                  accessibilityState={{ checked: on, disabled: out }}
+                  accessibilityLabel={out ? `${v.name}, out of stock${reason ? `, ${reason}` : ""}` : undefined}
+                  style={[styles.option, { borderColor: on ? t.primary : t.border, backgroundColor: t.surface, opacity: out ? 0.55 : 1 }]}
                 >
-                  <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={22} color={on ? t.primary : t.textMuted} />
-                  <AppText style={{ flex: 1, fontWeight: "600" }}>{v.name}</AppText>
+                  <Ionicons name={out ? "close-circle-outline" : on ? "radio-button-on" : "radio-button-off"} size={22} color={out ? t.danger : on ? t.primary : t.textMuted} />
+                  <View style={{ flex: 1 }}>
+                    <AppText style={{ fontWeight: "600" }}>{v.name}</AppText>
+                    {out ? (
+                      <AppText variant="small" color={t.danger} numberOfLines={2}>
+                        Out of stock{reason ? ` · ${reason}` : ""}
+                      </AppText>
+                    ) : null}
+                  </View>
                   <AppText variant="price">{inr(v.price)}</AppText>
                 </Pressable>
               );
@@ -100,7 +122,12 @@ export function ItemOptionsSheet({
               <Ionicons name="add" size={24} color={t.text} />
             </Pressable>
           </Row>
-          <Button title={`Add · ${inr(unit * qty)}`} onPress={() => onAdd(item, variant, addons, qty)} style={{ flex: 1, marginLeft: space.md }} />
+          <Button
+            title={noSize ? "Out of stock" : `Add · ${inr(unit * qty)}`}
+            disabled={noSize}
+            onPress={() => onAdd(item, variant, addons, qty)}
+            style={{ flex: 1, marginLeft: space.md }}
+          />
         </Row>
       </ScrollView>
     </Sheet>

@@ -1,0 +1,31 @@
+-- audit-log-count
+-- calls during capture: 4; server-side max 34.6 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all" FROM (SELECT "AuditLog"."id" FROM "AuditLog" WHERE "AuditLog"."businessId" = $1 OFFSET $2) AS "sub"
+-- params: $1 = 'biz1', $2 = '0'
+
+==== BEFORE (29.747 ms, median of 3)
+Aggregate  (cost=9165.01..9165.02 rows=1 width=8) (actual time=29.718..29.719 rows=1 loops=1)
+  Buffers: shared hit=770 read=1
+  ->  Index Only Scan using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..8224.82 rows=75215 width=32) (actual time=0.038..25.598 rows=150249 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::text
+        Heap Fetches: 0
+        Buffers: shared hit=770 read=1
+Planning:
+  Buffers: shared hit=142
+Planning Time: 0.274 ms
+Execution Time: 29.747 ms
+
+==== AFTER (31.004 ms, median of 3)
+Aggregate  (cost=9165.01..9165.02 rows=1 width=8) (actual time=30.960..30.961 rows=1 loops=1)
+  Buffers: shared hit=771
+  ->  Index Only Scan using "AuditLog_businessId_createdAt_idx" on "AuditLog"  (cost=0.42..8224.82 rows=75215 width=32) (actual time=0.022..26.922 rows=150249 loops=1)
+        Index Cond: ("businessId" = 'biz1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platform'::text
+        Heap Fetches: 0
+        Buffers: shared hit=771
+Planning:
+  Buffers: shared hit=142
+Planning Time: 0.367 ms
+Execution Time: 31.004 ms

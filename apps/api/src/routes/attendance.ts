@@ -1,12 +1,12 @@
 import { Router } from "express";
 import ExcelJS from "exceljs";
 import { z } from "zod";
-import { attendanceManualSchema, attendanceRegisterSchema, attendanceUpdateSchema, can, clockSchema, leaveRequestSchema, ROLE_LABELS } from "@canavo/shared";
+import { attendanceManualSchema, attendanceRegisterSchema, attendanceUpdateSchema, clockSchema, leaveRequestSchema, ROLE_LABELS } from "@canavo/shared";
 import { prisma } from "../db";
 import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
 import { audit } from "../lib/audit";
-import { addDays } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { addDays, isValidYmd as isRealDate } from "../lib/time";
+import { authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
 import { canManageAttendanceOf, clockIn, clockOut, dayOutcome, manualRecordFields, upsertManualAttendance } from "../services/attendance";
 import { notify, outletManagers } from "../services/notify";
 import { alertAttendanceMarked } from "../services/alerts";
@@ -14,7 +14,11 @@ import { alertAttendanceMarked } from "../services/alerts";
 export const attendanceRouter = Router();
 attendanceRouter.use(authenticate, requireModule("ATTENDANCE"));
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// A real calendar date: "2025-13-01" would crash date maths (500) and "2025-02-30" would be stored as a work date.
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealDate, "Not a real date");
+function assertRealDates(...dates: string[]) {
+  if (!dates.every(isRealDate)) throw badRequest("Validation failed", { formErrors: ["Not a real date"] });
+}
 const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
 function monthRange(month: string) {
@@ -55,7 +59,14 @@ attendanceRouter.get("/me/status", async (req, res) => {
 attendanceRouter.get("/calendar", async (req, res) => {
   const month = parse(monthSchema, req.query.month);
   const userId = String(req.query.userId ?? req.user!.id);
-  if (userId !== req.user!.id && !can(req.user!.role, "attendance:manage")) throw forbidden();
+  if (userId !== req.user!.id) {
+    if (!userCan(req, "attendance:manage")) throw forbidden();
+    // Managers see staff of their own outlets only (as everywhere else in attendance); owners the whole business.
+    if (req.user!.role !== "BUSINESS_OWNER") {
+      const inScope = await prisma.user.findFirst({ where: { id: userId, outlets: { some: { outletId: { in: req.user!.outletIds } } } }, select: { id: true } });
+      if (!inScope) throw notFound("Staff member");
+    }
+  }
   const { from, to } = monthRange(month);
   const [records, leaves] = await Promise.all([
     prisma.staffAttendance.findMany({ where: { userId, workDate: { gte: from, lte: to } }, orderBy: { clockInAt: "asc" } }),
@@ -216,6 +227,7 @@ attendanceRouter.get("/salary", requireOutlet, requirePermission("attendance:man
 // ---------- Leave ----------
 attendanceRouter.post("/leaves", requirePermission("attendance:self"), async (req, res) => {
   const data = parse(leaveRequestSchema, req.body);
+  assertRealDates(data.fromDate, data.toDate);
   const leave = await prisma.leaveRequest.create({ data: { ...data, userId: req.user!.id } });
   const managers = new Set<string>();
   for (const outletId of req.user!.outletIds) (await outletManagers(outletId)).forEach((m) => managers.add(m));
@@ -225,12 +237,13 @@ attendanceRouter.post("/leaves", requirePermission("attendance:self"), async (re
 });
 
 attendanceRouter.get("/leaves", async (req, res) => {
-  const manage = can(req.user!.role, "attendance:manage") && req.query.scope === "outlet";
+  const manage = userCan(req, "attendance:manage") && req.query.scope === "outlet";
   if (manage) {
     const outletIds = req.user!.role === "SUPER_ADMIN" && req.header("x-outlet-id") ? [req.header("x-outlet-id")!] : req.user!.outletIds;
     return res.json(
       await prisma.leaveRequest.findMany({
-        where: { user: { outlets: { some: { outletId: { in: outletIds } } } } },
+        // Owners also see other owners' leave (owners aren't assigned to outlets, so a manager never would).
+        where: req.user!.role === "BUSINESS_OWNER" ? { user: { businessId: req.user!.businessId } } : { user: { outlets: { some: { outletId: { in: outletIds } } } } },
         include: { user: { select: { id: true, name: true, role: true } } },
         orderBy: { createdAt: "desc" },
         take: 200,
@@ -243,7 +256,13 @@ attendanceRouter.get("/leaves", async (req, res) => {
 attendanceRouter.patch("/leaves/:id", requirePermission("attendance:manage"), async (req, res) => {
   const { status } = parse(z.object({ status: z.enum(["APPROVED", "REJECTED"]) }), req.body);
   // Managers may review leave for staff in any of their outlets (matches the ?scope=outlet listing).
-  const scope = req.user!.role === "SUPER_ADMIN" ? {} : { user: { outlets: { some: { outletId: { in: req.user!.outletIds } } } } };
+  // Owners review anyone in the business, including another owner; managers only staff of their outlets.
+  const scope =
+    req.user!.role === "SUPER_ADMIN"
+      ? {}
+      : req.user!.role === "BUSINESS_OWNER"
+        ? { user: { businessId: req.user!.businessId } }
+        : { user: { outlets: { some: { outletId: { in: req.user!.outletIds } } } } };
   const leave = await prisma.leaveRequest.findFirst({ where: { id: param(req, "id"), ...scope } });
   if (!leave) throw notFound("Leave request");
   if (leave.userId === req.user!.id) throw forbidden("You cannot approve your own leave");
@@ -320,6 +339,7 @@ async function loadTarget(req: Express.Request, userId: string) {
 /** Add / correct attendance for one employee on one day. */
 attendanceRouter.post("/manual", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
   const data = parse(attendanceManualSchema, req.body);
+  assertRealDates(data.date);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { id: true, timezone: true } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   if (data.date > today) throw badRequest("Attendance can't be marked for a future date");
@@ -330,6 +350,7 @@ attendanceRouter.post("/manual", requireOutlet, requirePermission("attendance:ma
 /** Mark the whole register for a date (e.g. "everyone present 9:00–18:00"). */
 attendanceRouter.post("/register", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
   const { date, entries } = parse(attendanceRegisterSchema, req.body);
+  assertRealDates(date);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { id: true, timezone: true } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: outlet.timezone }).format(new Date());
   if (date > today) throw badRequest("Attendance can't be marked for a future date");

@@ -10,27 +10,35 @@ import { formatDate } from "@/lib/format";
 import { platformApi } from "@/lib/platform";
 import type { BusinessDetail, BusinessOwner } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { useToast } from "@/components/providers/ToastProvider";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Toggle, Input, Textarea } from "@/components/ui/Input";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
-import { BusinessStatusBadge, ModulePicker } from "@/components/platform/modules";
-import { AddOwnerDialog, ResetOwnerPasswordDialog } from "@/components/platform/OwnerDialogs";
+import { BusinessStatusBadge, ModuleChips, ModulePicker } from "@/components/platform/modules";
+import { AddOwnerDialog, SendResetLinkDialog } from "@/components/platform/OwnerDialogs";
 
-type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt">;
+type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt"> & {
+  features?: BusinessDetail["features"];
+};
 
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
+  const { me } = useSession();
+  // Platform support users see everything here read-only (Phase 4.2).
+  const readOnly = !canManagePlatform(me);
   const detail = useApiQuery<BusinessDetail>(`platform-business:${id}`, () => platformApi.get<BusinessDetail>(`/platform/businesses/${id}`));
   const [statusOpen, setStatusOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<BusinessOwner | null>(null);
+  const [resetting2fa, setResetting2fa] = useState<BusinessOwner | null>(null);
   const b = detail.data;
 
   /** Merge a PATCH response (business columns only) into the loaded detail. */
@@ -63,9 +71,11 @@ export default function BusinessDetailPage() {
           </span>
         }
         actions={
-          <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
-            {suspended ? "Reactivate" : "Suspend"}
-          </Button>
+          readOnly ? undefined : (
+            <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
+              {suspended ? "Reactivate" : "Suspend"}
+            </Button>
+          )
         }
       />
       {suspended && (
@@ -76,11 +86,12 @@ export default function BusinessDetailPage() {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_440px]">
         <div className="space-y-5">
-          <ModulesCard business={b} onSaved={applyUpdate} />
-          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} />
+          <ModulesCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
+          <FeaturesCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
+          <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} onReset2fa={setResetting2fa} readOnly={readOnly} />
         </div>
         <div className="space-y-5">
-          <DetailsCard business={b} onSaved={applyUpdate} />
+          <DetailsCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
           <OutletsCard business={b} />
         </div>
       </div>
@@ -114,17 +125,33 @@ export default function BusinessDetailPage() {
           void detail.reload();
         }}
       />
-      <ResetOwnerPasswordDialog
-        businessId={b.id}
-        owner={resetting}
-        onClose={() => setResetting(null)}
-        onDone={() => toast("Password reset — the owner has been signed out", "success")}
+      <SendResetLinkDialog businessId={b.id} owner={resetting} onClose={() => setResetting(null)} />
+      <ConfirmDialog
+        open={resetting2fa !== null}
+        title="Reset two-step login"
+        description={
+          resetting2fa
+            ? `Only when ${resetting2fa.name} has lost both their phone and their recovery codes. Their two-step login is turned off and they're signed out everywhere; they sign in with their password and can turn it on again.`
+            : undefined
+        }
+        confirmLabel="Reset two-step login"
+        onClose={() => setResetting2fa(null)}
+        onConfirm={async () => {
+          try {
+            await platformApi.post(`/platform/businesses/${b.id}/owners/${resetting2fa!.id}/reset-2fa`, {});
+          } catch (e) {
+            throw new Error(errorMessage(e));
+          }
+          toast(`Two-step login reset for ${resetting2fa!.name}`, "success");
+          setResetting2fa(null);
+          void detail.reload();
+        }}
       />
     </PageContainer>
   );
 }
 
-function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+function ModulesCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
   const toast = useToast();
   const [modules, setModules] = useState<ModuleKey[]>(business.modules);
   const [note, setNote] = useState<string | null>(null);
@@ -156,7 +183,7 @@ function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved:
         title="Modules"
         subtitle="Features this business pays for. Turning one off hides it for every user immediately."
         action={
-          <div className="flex gap-2">
+          readOnly ? undefined : <div className="flex gap-2">
             {dirty && (
               <Button variant="ghost" onClick={() => setModules(business.modules)} disabled={saving}>
                 Reset
@@ -170,20 +197,65 @@ function ModulesCard({ business, onSaved }: { business: BusinessDetail; onSaved:
       />
       <div className="space-y-3 p-5">
         {error && <Alert>{error}</Alert>}
-        <ModulePicker
-          value={modules}
-          note={note}
-          onChange={(m, n) => {
-            setModules(m);
-            setNote(n);
-          }}
-        />
+        {readOnly ? (
+          <ModuleChips modules={business.modules} />
+        ) : (
+          <ModulePicker
+            value={modules}
+            note={note}
+            onChange={(m, n) => {
+              setModules(m);
+              setNote(n);
+            }}
+          />
+        )}
       </div>
     </Card>
   );
 }
 
-function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void }) {
+/** Per-hotel feature flags: new capabilities stay off until switched on here. */
+function FeaturesCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const entries = Object.entries(business.featureCatalog ?? {});
+  if (!entries.length) return null;
+  const flip = async (key: string, on: boolean) => {
+    setBusy(key);
+    try {
+      const updated = await platformApi.patch<BusinessMeta>(`/platform/businesses/${business.id}`, { features: { [key]: on } });
+      onSaved(updated);
+      toast(`${business.featureCatalog[key]!.label} ${on ? "switched on" : "switched off"}`, "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader title="Feature switches" subtitle="New capabilities are off for existing hotels until you switch them on. A switch only works when its modules are enabled." />
+      <ul className="divide-y divide-line">
+        {entries.map(([key, f]) => {
+          const missing = f.requires.filter((m) => !business.modules.includes(m));
+          const on = Boolean(business.features?.[key]);
+          return (
+            <li key={key} className="flex items-start justify-between gap-4 p-5">
+              <div className="min-w-0">
+                <p className="font-semibold">{f.label}</p>
+                <p className="mt-0.5 text-sm text-muted">{f.description}</p>
+                {missing.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Needs the {missing.join(", ")} module — no effect until it&apos;s enabled.</p>}
+              </div>
+              <Toggle checked={on} disabled={readOnly || busy === key} onChange={(v) => void flip(key, v)} label={f.label} />
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+function DetailsCard({ business, onSaved, readOnly }: { business: BusinessDetail; onSaved: (u: BusinessMeta) => void; readOnly: boolean }) {
   const toast = useToast();
   const init = () => ({
     name: business.name,
@@ -233,12 +305,12 @@ function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved:
       <CardHeader
         title="Details"
         action={
-          <Button size="sm" icon={<FloppyDisk size={18} />} onClick={save} loading={saving} disabled={!dirty}>
+          readOnly ? undefined : <Button size="sm" icon={<FloppyDisk size={18} />} onClick={save} loading={saving} disabled={!dirty}>
             Save
           </Button>
         }
       />
-      <div className="space-y-4 p-5">
+      <fieldset disabled={readOnly} className="space-y-4 p-5">
         {error && <Alert>{error}</Alert>}
         <Input label="Business name" maxLength={120} value={form.name} onChange={(e) => set("name", e.target.value)} />
         <Input label="Legal name" maxLength={200} value={form.legalName} onChange={(e) => set("legalName", e.target.value)} />
@@ -247,7 +319,7 @@ function DetailsCard({ business, onSaved }: { business: BusinessDetail; onSaved:
           <Input label="Email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </div>
         <Textarea label="Notes (internal)" maxLength={1000} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
-      </div>
+      </fieldset>
     </Card>
   );
 }
@@ -272,16 +344,30 @@ function OutletsCard({ business }: { business: BusinessDetail }) {
   );
 }
 
-function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail; onCreate: () => void; onReset: (o: BusinessOwner) => void }) {
+function OwnersCard({
+  business,
+  onCreate,
+  onReset,
+  onReset2fa,
+  readOnly,
+}: {
+  business: BusinessDetail;
+  onCreate: () => void;
+  onReset: (o: BusinessOwner) => void;
+  onReset2fa: (o: BusinessOwner) => void;
+  readOnly: boolean;
+}) {
   return (
     <Card>
       <CardHeader
         title="Owners"
         subtitle="The owner creates managers, cashiers, kitchen, delivery and inventory staff from their own login."
         action={
-          <Button icon={<UserPlus size={20} />} onClick={onCreate}>
-            Add owner
-          </Button>
+          readOnly ? undefined : (
+            <Button icon={<UserPlus size={20} />} onClick={onCreate}>
+              Add owner
+            </Button>
+          )
         }
       />
       {business.owners.length === 0 ? (
@@ -293,7 +379,7 @@ function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail;
               <Th>Name</Th>
               <Th>Status</Th>
               <Th>Since</Th>
-              <Th className="text-right">Actions</Th>
+              {!readOnly && <Th className="text-right">Actions</Th>}
             </tr>
           </THead>
           <tbody>
@@ -307,14 +393,26 @@ function OwnersCard({ business, onCreate, onReset }: { business: BusinessDetail;
                   </p>
                 </Td>
                 <Td>
-                  <Badge tone={u.status === "ACTIVE" ? "success" : "neutral"}>{u.status.toLowerCase()}</Badge>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge tone={u.status === "ACTIVE" ? "success" : "neutral"}>{u.status.toLowerCase()}</Badge>
+                    {u.totpEnabledAt && <Badge tone="info">2-step on</Badge>}
+                  </div>
                 </Td>
                 <Td className="whitespace-nowrap text-muted">{formatDate(u.createdAt)}</Td>
-                <Td className="text-right">
-                  <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
-                    Reset password
-                  </Button>
-                </Td>
+                {!readOnly && (
+                  <Td className="text-right">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {u.totpEnabledAt && (
+                        <Button size="sm" variant="ghost" onClick={() => onReset2fa(u)}>
+                          Reset 2-step
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" icon={<Key size={18} />} onClick={() => onReset(u)}>
+                        Send reset link
+                      </Button>
+                    </div>
+                  </Td>
+                )}
               </tr>
             ))}
           </tbody>

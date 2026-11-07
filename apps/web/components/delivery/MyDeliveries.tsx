@@ -43,6 +43,8 @@ interface Done {
   customer: string;
   cash: number;
   waLink?: string;
+  /** The delivered update already went to the customer through the WhatsApp provider */
+  autoSent?: boolean;
 }
 
 /** Delivery partner portal: assigned runs by ETA with one big action each. No payment options — cash or already paid. */
@@ -116,7 +118,7 @@ export function MyDeliveries() {
       const res = await api.patch<Delivery>(`/delivery/${d.id}/status`, { status: to });
       replace(res);
       void run.reload();
-      toast(`${res.order.invoiceNumber}: ${STATUS_LABEL[to]}`, "success");
+      toast(`${res.order.invoiceNumber}: ${STATUS_LABEL[to]}${res.customerMessage?.autoSent ? " · Customer notified on WhatsApp" : ""}`, "success");
       if (to === "OUT_FOR_DELIVERY" && !sharing && typeof navigator !== "undefined" && navigator.geolocation) {
         autoShared.current = true;
         setSharing(true);
@@ -136,7 +138,7 @@ export function MyDeliveries() {
       const res = await api.post<DeliveryCompleteResult>(`/delivery/${d.id}/complete`, { cashCollected: due });
       remove(d.id);
       void run.reload();
-      setDone({ invoice: res.order.invoiceNumber, customer: d.customerName, cash: res.cashCollected, waLink: res.customerMessage?.waLink });
+      setDone({ invoice: res.order.invoiceNumber, customer: d.customerName, cash: res.cashCollected, waLink: res.customerMessage?.waLink, autoSent: !!res.customerMessage?.autoSent });
       toast(res.cashCollected > 0 ? `${res.order.invoiceNumber} delivered · ${formatINR(res.cashCollected)} cash collected` : `${res.order.invoiceNumber} delivered`, "success");
       void load();
     } catch (e) {
@@ -368,7 +370,11 @@ function DoneBanner({ done, onClose }: { done: Done; onClose: () => void }) {
             </Link>
           </p>
         )}
-        {done.waLink && (
+        {done.autoSent ? (
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-green-700 dark:text-green-300" data-testid="wa-auto-sent">
+            <WhatsappLogo size={18} weight="fill" /> Customer notified on WhatsApp
+          </p>
+        ) : done.waLink && (
           <a
             href={done.waLink}
             target="_blank"

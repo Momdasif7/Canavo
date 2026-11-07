@@ -15,7 +15,7 @@ export interface AccessProfile {
 export const hasPermission = (me: AccessProfile, p: Permission) => me.permissions.includes(p);
 export const hasModule = (me: AccessProfile, m: ModuleKey) => me.modules == null || me.modules.includes(m);
 
-export type TabName = "index" | "bill" | "tables" | "deliveries" | "cash" | "history" | "kot" | "stock" | "reports" | "more";
+export type TabName = "index" | "bill" | "tables" | "deliveries" | "cash" | "history" | "kot" | "online" | "stock" | "reports" | "more";
 
 /** Delivery partner: own deliveries only (no delivery board, bills or settings). */
 export const isDeliveryPartner = (me: AccessProfile) => hasPermission(me, "delivery:own") && !hasPermission(me, "delivery:manage");
@@ -25,6 +25,17 @@ export const canViewBills = (me: AccessProfile) => hasPermission(me, "bills:view
 
 /** Settings screens (outlet info, printer…). */
 export const canViewSettings = (me: AccessProfile) => hasPermission(me, "settings:view");
+
+/** Online / aggregator order board (`GET /channels/board`): CHANNELS module + billing, kitchen or channel managers. */
+export const canViewChannelBoard = (me: AccessProfile) =>
+  hasModule(me, "CHANNELS") && (hasPermission(me, "order:create") || hasPermission(me, "kot:view") || hasPermission(me, "channel:manage"));
+
+/** QR / online orders waiting for staff to accept (the API's `canHandle`: table:serve or order:create). */
+export const canHandleChannelRequests = (me: AccessProfile) =>
+  hasModule(me, "CHANNELS") && (hasPermission(me, "table:serve") || hasPermission(me, "order:create"));
+
+/** "Online" tab: the board and/or the confirmation queue. */
+export const canViewOnlineOrders = (me: AccessProfile) => canViewChannelBoard(me) || canHandleChannelRequests(me);
 
 /** Bottom tabs, in display order. Home and More are always present. */
 export function visibleTabs(me: AccessProfile): TabName[] {
@@ -37,6 +48,7 @@ export function visibleTabs(me: AccessProfile): TabName[] {
   // Delivery agents get their own tabs; managers reach the delivery board from More.
   if (isDeliveryPartner(me)) tabs.push("deliveries", "cash", "history");
   if (can("kot:view")) tabs.push("kot");
+  if (canViewOnlineOrders(me)) tabs.push("online");
   // Kitchen / inventory staff (or an inventory-only business) get a Stock tab; billing roles use More.
   if (can("inventory:view") && !can("order:create")) tabs.push("stock");
   if (can("report:view")) tabs.push("reports");

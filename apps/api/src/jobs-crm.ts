@@ -32,7 +32,7 @@ export async function runCrmDaily(now = new Date(), opts: { force?: boolean } = 
   return results;
 }
 
-async function runCrmDailyForBusiness(now: Date, opts: { force?: boolean }) {
+export async function runCrmDailyForBusiness(now: Date, opts: { force?: boolean }) {
   const DAILY_KEY = dailyKey();
   const outlet = await prisma.outlet.findFirst({ orderBy: { createdAt: "asc" }, select: { timezone: true, name: true } });
   if (!outlet) return null;
@@ -103,6 +103,8 @@ async function wish(
   let code: string | null = null;
   let offerText = "";
   if (cfg.birthdayCouponEnabled) {
+    // A config saved before the 100 % cap (QA Phase 7, D4) must not make a coupon worth more than the bill.
+    const couponValue = cfg.birthdayCouponType === "PERCENT" ? Math.min(cfg.birthdayCouponValue, 100) : cfg.birthdayCouponValue;
     code = await uniqueCode(occasion === "birthday" ? "BDAY" : "ANNV");
     await prisma.coupon.create({
       data: {
@@ -110,7 +112,7 @@ async function wish(
         code,
         description: `${occasion === "birthday" ? "Birthday" : "Anniversary"} coupon for ${c.name ?? ""} ${c.phone}`.replace(/\s+/g, " "),
         discountType: cfg.birthdayCouponType,
-        value: cfg.birthdayCouponValue,
+        value: couponValue,
         maxDiscount: cfg.birthdayCouponType === "PERCENT" ? cfg.birthdayCouponMaxDiscount : null,
         usageLimit: 1,
         perCustomerLimit: 1,
@@ -120,7 +122,7 @@ async function wish(
       },
     });
     const value =
-      cfg.birthdayCouponType === "PERCENT" ? `${cfg.birthdayCouponValue}% off` : `${formatINR(cfg.birthdayCouponValue)} off`;
+      cfg.birthdayCouponType === "PERCENT" ? `${couponValue}% off` : `${formatINR(couponValue)} off`;
     offerText = ` Enjoy ${value} on your next visit with code ${code} (valid 7 days).`;
   }
   const greeting = occasion === "birthday" ? "Happy Birthday" : "Happy Anniversary";

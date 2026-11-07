@@ -2,22 +2,26 @@
  * Response shapes of the CANAVO API as consumed by the web app.
  * Dates arrive as ISO strings; all money is integer paise.
  */
-import type { DeliveryStatusValue, ModuleKey, Permission, Role } from "@canavo/shared";
+import type { Brand, DeliveryStatusValue, ModuleKey, OrderChannel, Permission, Role, UserPreferences } from "@canavo/shared";
 
 export type FoodType = "VEG" | "NON_VEG" | "EGG";
 export type ItemStatus = "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN";
 export type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "PRE_ORDER";
 export type OrderStatus = "OPEN" | "PAID" | "CANCELLED";
-export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA";
+export type PaymentMode = "CASH" | "UPI" | "CARD" | "KHATA" | "GIFT_CARD" | "CORPORATE" | "WALLET" | "MEAL_TOKEN" | "ONLINE";
 export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
 export type KotStatus = "RECEIVED" | "PREPARING" | "READY" | "SERVED";
 export type StaffStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 export type SalaryType = "DAILY" | "MONTHLY";
 
 export interface Session {
+  /** In cookie mode: memory only, re-obtained from the httpOnly cookie after a reload */
   accessToken: string;
-  refreshToken: string;
+  /** Storage mode only; in cookie mode the refresh token lives in an httpOnly cookie */
+  refreshToken?: string;
   expiresIn: number;
+  /** "cookie" = refresh token in an httpOnly cookie (Phase 2.7) */
+  sessionMode?: "cookie";
 }
 
 export interface OutletRef {
@@ -87,8 +91,12 @@ export interface Me {
   role: Role;
   photoUrl: string | null;
   shift: Shift | null;
-  /** Platform operator (super admin outside any business) */
+  /** Platform operator (super admin or platform support, outside any business) */
   platformAdmin: boolean;
+  /** Which platform role (support users can only look); null inside a business */
+  platformRole?: "SUPER_ADMIN" | "PLATFORM_SUPPORT" | null;
+  /** The business's custom role this user has, if any (narrows `role`) */
+  customRole?: { id: string; name: string; baseRole: Role } | null;
   /** Business the session acts in; always null for a platform admin (they never open a hotel) */
   business: BusinessRef | null;
   /** Enabled modules; null = platform context */
@@ -97,6 +105,25 @@ export interface Me {
   outlets: OutletRef[];
   /** Effective permissions = role ∩ enabled modules. Gate UI on these. */
   permissions: Permission[];
+  /** Effective per-hotel feature flags (on + required modules enabled) */
+  features?: Partial<Record<string, boolean>>;
+  /** Two-step login is on for this account */
+  twoFactorEnabled?: boolean;
+  /** Platform admin inside a hotel under the owner's support grant (read-only) */
+  support?: { grantId: string; businessId: string; businessName: string; expiresAt: string; readOnly: true } | null;
+  /** The hotel requires two-step login for this role and it isn't on yet (only Account → Security works) */
+  twoFactorSetupRequired?: boolean;
+  /** The business's brand look (CANAVO defaults outside a business); missing in a cached /auth/me from older builds */
+  brand?: Brand;
+  /** This user's own appearance preferences */
+  preferences?: UserPreferences;
+}
+
+/** First step of sign-in when two-step login is on: exchange the ticket + a code at /auth/2fa/verify. */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
 }
 
 export interface Outlet {
@@ -117,6 +144,10 @@ export interface Outlet {
   geofenceMeters: number;
   timezone: string;
   invoicePrefix: string;
+  /** D1 (Phase 3.6): flat ₹ discounts are GST-inclusive (default: pre-tax) */
+  flatDiscountsIncludeTax?: boolean;
+  /** Phase 3.3: manual discount above this % needs a manager PIN (APPROVAL_PINS) */
+  approvalDiscountPercent?: number;
   pricesIncludeTax: boolean;
   compositionScheme: boolean;
   serviceChargeEnabled: boolean;
@@ -166,7 +197,16 @@ export interface MenuItem {
   taxRate?: TaxRateRef | null;
   hsnCode: string;
   imageUrl: string | null;
+  /** Effective status at this outlet: OUT_OF_STOCK also when an ingredient ran out (see stockOut) */
   status: ItemStatus;
+  /** Status a manager set (outlet override or the item's own) — edit this, never the effective `status` */
+  manualStatus?: ItemStatus;
+  /** Automatically out of stock because an ingredient ran out; comes back when restocked */
+  stockOut?: boolean;
+  /** Ingredient names that ran out, e.g. "Pav buns" */
+  stockOutReason?: string | null;
+  /** Sizes that are out of stock while the others still sell */
+  unavailableVariantIds?: string[];
   hasOverride: boolean;
   allergens: string[];
   availableFrom: string | null;
@@ -182,6 +222,8 @@ export type RawMenuItem = Omit<MenuItem, "basePrice" | "hasOverride">;
 export interface Menu {
   categories: MenuCategory[];
   items: MenuItem[];
+  /** POS menu with CANTEEN meal slots: the slot open now (null between slots); absent without slots */
+  mealSlot?: { id: string; name: string; startTime: string; endTime: string } | null;
 }
 
 export interface Payment {
@@ -240,6 +282,9 @@ export interface Kot {
   status: KotStatus;
   items: KotItem[];
   printedAt: string | null;
+  preparingAt?: string | null;
+  readyAt?: string | null;
+  servedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   order?: {
@@ -251,6 +296,7 @@ export interface Kot {
     status: OrderStatus;
     scheduledFor?: string | null;
     customerName?: string | null;
+    channel?: string;
   } | null;
   /** Running-tab KOTs */
   session?: { id: string; tableLabel: string; table?: { label: string } } | null;
@@ -259,6 +305,11 @@ export interface Kot {
 export interface Order {
   id: string;
   clientOrderId: string | null;
+  /** Phase 6: where the order came from (POS = counter) and the channel's own order id */
+  channel?: OrderChannel;
+  channelOrderId?: string | null;
+  /** Total of credit notes issued against this bill (Phase 3.1) */
+  refundedAmount?: number;
   outletId: string;
   cashierId: string;
   invoiceNumber: string;
@@ -298,6 +349,8 @@ export interface Order {
   customerId?: string | null;
   scheduledFor?: string | null;
   tableSessionId?: string | null;
+  /** Phase 5 (CANTEEN): meal slot of the bill */
+  mealSlotId?: string | null;
   items: OrderItem[];
   payments: Payment[];
   kots?: Kot[];
@@ -344,9 +397,19 @@ export interface PaymentStatusResponse {
   payments: Payment[];
 }
 
-export interface ShareResult {
+export type WhatsAppProvider = "NONE" | "META" | "WATI";
+
+/** Any WhatsApp send: "sent" by the business's provider, or "link" = open waLink (click-to-chat). */
+export interface WhatsAppSendResult {
   method: "sent" | "link";
+  provider?: WhatsAppProvider;
   waLink: string;
+  messageId?: string;
+  /** Provider error when the API send failed and the link is the fallback */
+  error?: string;
+}
+
+export interface ShareResult extends WhatsAppSendResult {
   receiptUrl: string;
 }
 
@@ -369,6 +432,13 @@ export interface DailyReport {
   serviceCharge: number;
   orders: number;
   cancelledOrders: number;
+  /** Bills voided on this day */
+  voids: { count: number; amount: number };
+  /** Credit notes issued on this day */
+  refunds: { count: number; amount: number };
+  salesAfterRefunds: number;
+  /** Cash shifts closed on this day: counted − expected (negative = short) */
+  cashDifference: { shifts: number; amount: number };
   averageOrderValue: number;
   byOrderType: Record<string, { orders: number; amount: number }>;
   byPaymentMode: Record<string, { count: number; amount: number }>;
@@ -393,7 +463,20 @@ export interface Staff {
   salaryAmount: number;
   shiftId: string | null;
   createdAt: string;
+  /** Two-step login turned on (null = off) */
+  totpEnabledAt?: string | null;
+  /** Custom role narrowing `role` (Phase 4.2) */
+  customRoleId?: string | null;
   outlets: { outletId: string }[];
+}
+
+/** A business's own role: a named subset of a built-in base role's permissions. */
+export interface CustomRole {
+  id: string;
+  name: string;
+  baseRole: Role;
+  permissions: Permission[];
+  staffCount?: number;
 }
 
 export interface StaffPerformance {
@@ -415,6 +498,12 @@ export interface AttendanceRecord {
   clockInAt: string;
   clockOutAt: string | null;
   clockInDistance: number;
+  /** GPS accuracy (m) at clock-in */
+  clockInAccuracy?: number | null;
+  clockInMocked?: boolean;
+  clockInSelfieUrl?: string | null;
+  /** MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY — for the manager to review */
+  clockInFlags?: string[];
   workedMinutes: number | null;
   overtimeMinutes: number;
   lateByMinutes: number;
@@ -540,4 +629,18 @@ export interface NotificationPage {
   unread: number;
   hasMore: boolean;
   nextBefore: string | null;
+}
+
+/** Credit note (refund) against a paid bill (Phase 3.1). */
+export interface CreditNote {
+  id: string;
+  orderId: string;
+  number: string;
+  reason: string;
+  note: string | null;
+  refundMode: "CASH" | "UPI" | "CARD" | "KHATA";
+  items: { orderItemId: string; name: string; quantity: number; total: number }[];
+  amount: number;
+  restocked: boolean;
+  createdAt: string;
 }

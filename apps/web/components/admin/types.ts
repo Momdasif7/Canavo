@@ -26,6 +26,8 @@ export interface BackupFile {
   size: number;
   createdAt: string;
   kind: "auto" | "manual";
+  /** local = this server only; offsite = off-site copy only (written by the worker); both */
+  location?: "local" | "offsite" | "both";
 }
 
 export interface BackupResult {
@@ -74,4 +76,13 @@ export interface AadhaarResponse {
   userId: string;
   aadhaar: string | null;
   revealed?: boolean;
+  /** The full number is on file (encrypted); otherwise only the last 4 digits */
+  fullStored?: boolean;
+  mode?: "LAST4" | "FULL";
+  consent?: { at: string; byId: string | null; version: string | null } | null;
+}
+
+export interface AadhaarSettings {
+  mode: "LAST4" | "FULL";
+  fullNumbersStored: number;
 }

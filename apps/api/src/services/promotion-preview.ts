@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { computeBill, type OrderCreateInput } from "@canavo/shared";
+import { withTaxMode, computeBill, type OrderCreateInput } from "@canavo/shared";
 import { prisma } from "../db";
 import { badRequest, HttpError } from "../lib/http";
 import { evaluatePromotions, getLoyaltyConfig, redeemableNow } from "./promotions";
@@ -78,7 +78,7 @@ export async function previewPromotions(req: Request, input: OrderCreateInput) {
       lineDiscount: (l.line.discount ?? 0) + (promo.lineDiscounts[i] ?? 0),
     })),
     taxConfigForOutlet(outlet, { interState: input.interState, orderType: input.orderType, extraCharges: service.extraCharges }),
-    [...(input.discount ? [input.discount] : []), ...promo.billDiscounts],
+    [...(input.discount ? [withTaxMode(input.discount, outlet.flatDiscountsIncludeTax)] : []), ...promo.billDiscounts],
   );
 
   const cfg = await getLoyaltyConfig();
@@ -109,6 +109,8 @@ export async function previewPromotions(req: Request, input: OrderCreateInput) {
     warnings,
     suggestions,
     applied: promo.applied,
+    /** Phase 3.7: every offer / coupon checked, what it would save, and why it was (not) used */
+    comparison: promo.comparison,
     promoDiscount: promo.applied.reduce((s, a) => s + a.amount, 0),
     couponCode: promo.couponCode ?? null,
     pointsRedeemed: promo.pointsRedeemed,

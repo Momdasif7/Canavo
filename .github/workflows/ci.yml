@@ -18,6 +18,11 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U canavo" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo?schema=public
       JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdef0123456789
@@ -32,10 +37,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build -w @canavo/shared
+      - run: npm run lint
       - run: npm test
       - run: npm run typecheck
       - run: npx prisma migrate deploy
         working-directory: apps/api
+      # Real-Postgres integration suite: runs as a NON-superuser role so row-level security is enforced;
+      # covers RLS, outbox crash recovery, pg-boss double-run, idempotency, atomic tab split, Redis adapter.
+      - run: npm run test:integration -w @canavo/api
+        env:
+          IT_DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo_it?schema=public
+          IT_APP_DATABASE_URL: postgresql://canavo_app_it:canavo_app_it@localhost:5432/canavo_it?schema=public
+          IT_REDIS_URL: redis://localhost:6379
       - run: npm run build
 
   mobile-typecheck:

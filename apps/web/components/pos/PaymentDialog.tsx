@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Bank, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Trash, WifiSlash } from "@phosphor-icons/react";
+import { Bank, Briefcase, Gift, CheckCircle, CreditCard, HandCoins, Money, Notebook, Plus, QrCode, SplitHorizontal, Ticket, Trash, Wallet, WifiSlash } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { api, errorMessage, isNetworkError } from "@/lib/api";
 import { PAYMENT_MODE_LABELS, parseRupees, rupeesInput } from "@/lib/format";
@@ -13,13 +13,14 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/States";
+import { useSession } from "@/components/providers/SessionProvider";
 import { UpiQrPanel } from "./UpiQrPanel";
 
 export type Checkout =
   | { kind: "online"; order: Order }
   | { kind: "offline"; total: number; customerPhone?: string };
 
-type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "COD";
+type Tab = "CASH" | "UPI" | "CARD" | "SPLIT" | "KHATA" | "GIFT" | "WALLET" | "TOKEN" | "COD";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "CASH", label: "Cash", icon: <Money size={22} /> },
@@ -27,7 +28,22 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "CARD", label: "Card", icon: <CreditCard size={22} /> },
   { id: "SPLIT", label: "Split", icon: <SplitHorizontal size={22} /> },
   { id: "KHATA", label: "Khata", icon: <Notebook size={22} /> },
+  { id: "GIFT", label: "Gift card", icon: <Gift size={22} /> },
+  { id: "WALLET", label: "Wallet", icon: <Wallet size={22} /> },
+  { id: "TOKEN", label: "Meal token", icon: <Ticket size={22} /> },
 ];
+
+/** Canteen member on the bill (Phase 5.2): wallet and meal tokens. */
+interface MemberMoney {
+  walletBalance: number;
+  tokens: { id: string; mealSlotId: string | null; balance: number; value: number }[];
+}
+
+/**
+ * Modes the counter can't pick by hand: the company's share is added at billing; tokens / gift cards
+ * have their own tabs; "Paid online" is recorded by the channel that took the money (Phase 6).
+ */
+const SPLIT_HIDDEN: PaymentMode[] = ["GIFT_CARD", "CORPORATE", "MEAL_TOKEN", "ONLINE"];
 
 interface SplitRow {
   id: number;
@@ -82,6 +98,17 @@ export function PaymentDialog({
   const [tab, setTab] = useState<Tab>("CASH");
   const [tendered, setTendered] = useState("");
   const [reference, setReference] = useState("");
+  // Phase 3.8: card details, tip, gift card
+  const [cardLast4, setCardLast4] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [tip, setTip] = useState("");
+  const [giftCode, setGiftCode] = useState("");
+  const [gift, setGift] = useState<{ balance: number; usable: boolean; message: string | null } | null>(null);
+  const [giftRestMode, setGiftRestMode] = useState<PaymentMode>("CASH");
+  const [memberMoney, setMemberMoney] = useState<MemberMoney | null>(null);
+  const [restMode, setRestMode] = useState<PaymentMode>("CASH");
+  const [tokenCount, setTokenCount] = useState(1);
+  const { me } = useSession();
   const [split, setSplit] = useState<SplitRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +132,15 @@ export function PaymentDialog({
     setAdvanceApplied(false);
     setTendered("");
     setReference("");
+    setCardLast4("");
+    setAuthCode("");
+    setTip("");
+    setGiftCode("");
+    setGift(null);
     setError(null);
+    setMemberMoney(null);
+    setRestMode("CASH");
+    setTokenCount(1);
     if (suggestedSplit && suggestedSplit.length > 1) {
       setTab("SPLIT");
       setSplit(suggestedSplit.map((a, i) => ({ id: i + 1, mode: "CASH" as PaymentMode, amount: rupeesInput(a) })));
@@ -119,6 +154,20 @@ export function PaymentDialog({
     // Reset only when a new checkout opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkout]);
+
+  // Canteen member on the bill: load their wallet and meal tokens (Phase 5.2).
+  const memberId = checkout?.kind === "online" && me?.modules?.includes("CANTEEN") ? checkout.order.customerId : null;
+  useEffect(() => {
+    if (!memberId) return;
+    let cancelled = false;
+    api
+      .get<MemberMoney>(`/canteen/members/${memberId}`)
+      .then((m) => !cancelled && setMemberMoney({ walletBalance: m.walletBalance, tokens: m.tokens }))
+      .catch(() => !cancelled && setMemberMoney(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [memberId, checkout]);
 
   /** Record the reservation advance as a payment (reference "ADVANCE"). */
   const applyAdvance = async () => {
@@ -149,14 +198,71 @@ export function PaymentDialog({
   const splitRemaining = amount - splitTotal;
   const suggestions = useMemo(() => cashSuggestions(amount), [amount]);
 
+  const tipPaise = !offline && (tab === "CASH" || tab === "CARD") ? (parseRupees(tip) ?? 0) : 0;
+  const giftUse = gift?.usable ? Math.min(gift.balance, amount) : 0;
+  // Meal tokens for this bill's slot first, then any-slot tokens (same order as the server).
+  const slotId = liveOrder?.mealSlotId ?? null;
+  const tokenAcc = memberMoney?.tokens.find((t) => t.balance > 0 && slotId && t.mealSlotId === slotId) ?? memberMoney?.tokens.find((t) => t.balance > 0 && t.mealSlotId === null);
+  const tokenCover = tokenAcc ? (tokenCount >= tokenAcc.balance ? tokenAcc.value : Math.round(tokenAcc.value / tokenAcc.balance) * tokenCount) : 0;
+  const tokenUse = Math.min(tokenCover, amount);
+  const walletUse = Math.min(memberMoney?.walletBalance ?? 0, amount);
+  const corporatePaid = (liveOrder?.payments ?? []).filter((p) => p.mode === "CORPORATE" && p.status === "SUCCESS");
+  const tabs = TABS.filter((t) => {
+    if (t.id === "GIFT") return Boolean(me?.features?.GIFT_CARDS) && !offline;
+    if (t.id === "WALLET") return !offline && !!memberMoney;
+    if (t.id === "TOKEN") return !offline && !!tokenAcc;
+    return true;
+  });
+
+  const checkGift = async () => {
+    setGift(null);
+    try {
+      const c = await api.get<{ balance: number; active: boolean; expired: boolean }>(`/gift-cards/code/${encodeURIComponent(giftCode.trim())}`);
+      const problem = !c.active ? "This card is blocked" : c.expired ? "This card has expired" : c.balance <= 0 ? "No balance left" : null;
+      setGift({ balance: c.balance, usable: !problem, message: problem });
+    } catch (e) {
+      setGift({ balance: 0, usable: false, message: errorMessage(e) });
+    }
+  };
+
   /** Payments for the active tab, or an error string. */
   const build = (): { payments: QueuedPayment[]; tendered?: number } | string => {
     switch (tab) {
       case "CASH":
-        if (tenderedPaise !== null && tenderedPaise < amount) return "Cash received is less than the amount due";
-        return { payments: [{ mode: "CASH", amount }], tendered: tenderedPaise ?? amount };
+        if (tenderedPaise !== null && tenderedPaise < amount + tipPaise) return "Cash received is less than the amount due";
+        return { payments: [{ mode: "CASH", amount, ...(tipPaise > 0 && { tip: tipPaise }) }], tendered: tenderedPaise ?? amount + tipPaise };
       case "CARD":
-        return { payments: [{ mode: "CARD", amount }] };
+        if (cardLast4 && !/^\d{4}$/.test(cardLast4)) return "Enter the card's last 4 digits";
+        return {
+          payments: [{ mode: "CARD", amount, ...(tipPaise > 0 && { tip: tipPaise }), ...(cardLast4 && { cardLast4 }), ...(authCode.trim() && { authCode: authCode.trim() }) }],
+        };
+      case "GIFT": {
+        if (!gift?.usable) return "Check the gift card first";
+        const rest = amount - giftUse;
+        return {
+          payments: [
+            { mode: "GIFT_CARD", amount: giftUse, giftCardCode: giftCode.trim() },
+            ...(rest > 0 ? [{ mode: giftRestMode, amount: rest }] : []),
+          ],
+          ...(rest > 0 && giftRestMode === "CASH" && { tendered: rest }),
+        };
+      }
+      case "WALLET": {
+        if (walletUse <= 0) return "The wallet is empty";
+        const rest = amount - walletUse;
+        return {
+          payments: [{ mode: "WALLET", amount: walletUse }, ...(rest > 0 ? [{ mode: restMode, amount: rest }] : [])],
+          ...(rest > 0 && restMode === "CASH" && { tendered: rest }),
+        };
+      }
+      case "TOKEN": {
+        if (!tokenAcc || tokenUse <= 0) return "No meal tokens for this meal";
+        const rest = amount - tokenUse;
+        return {
+          payments: [{ mode: "MEAL_TOKEN", amount: tokenUse, tokens: tokenCount }, ...(rest > 0 ? [{ mode: restMode, amount: rest }] : [])],
+          ...(rest > 0 && restMode === "CASH" && { tendered: rest }),
+        };
+      }
       case "UPI":
         return { payments: [{ mode: "UPI", amount }] };
       case "COD":
@@ -183,7 +289,7 @@ export function PaymentDialog({
       setError(built);
       return;
     }
-    const cashPart = built.payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
+    const cashPart = built.payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount + (p.tip ?? 0), 0);
     const changeDue = built.tendered !== undefined ? built.tendered - cashPart : 0;
     if (checkout.kind === "offline") {
       onPaidOffline(built.payments, built.tendered, changeDue);
@@ -292,6 +398,16 @@ export function PaymentDialog({
         </div>
       )}
 
+      {corporatePaid.length > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200" data-testid="corporate-share">
+          <Briefcase size={18} className="shrink-0" />
+          <span>
+            {corporatePaid[0]!.reference ?? "The company"} pays <strong className="tabular">{formatINR(corporatePaid.reduce((s, p) => s + p.amount, 0))}</strong> (billed monthly) · the
+            employee pays the amount due.
+          </span>
+        </div>
+      )}
+
       {offline && (
         <div className="mb-4">
           <Alert tone="warning">
@@ -329,8 +445,8 @@ export function PaymentDialog({
         </button>
       )}
 
-      <div role="tablist" className="mb-4 grid grid-cols-5 gap-1.5">
-        {TABS.map((t) => (
+      <div role="tablist" className={clsx("mb-4 grid gap-1.5", tabs.length > 6 ? "grid-cols-4" : tabs.length > 5 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-5")}>
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -342,7 +458,7 @@ export function PaymentDialog({
             }}
             className={clsx(
               "flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border text-sm font-semibold transition-colors",
-              tab === t.id ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:border-primary/60",
+              tab === t.id ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface text-fg hover:border-primary/60",
             )}
           >
             {t.icon}
@@ -412,16 +528,123 @@ export function PaymentDialog({
         ))}
 
       {tab === "CARD" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            label="Card last 4 digits (optional)"
+            inputMode="numeric"
+            maxLength={4}
+            value={cardLast4}
+            onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))}
+            prefix={<CreditCard size={18} />}
+            disabled={offline}
+          />
+          <Input
+            label="Approval code (optional)"
+            maxLength={20}
+            value={authCode}
+            onChange={(e) => setAuthCode(e.target.value.toUpperCase())}
+            prefix={<Bank size={18} />}
+            disabled={offline}
+            hint={offline ? "Card details can be added later from Bills." : "From the card machine slip; used to match the bank settlement."}
+          />
+        </div>
+      )}
+
+      {!offline && (tab === "CASH" || tab === "CARD") && (
         <Input
-          label="Card reference (optional)"
-          placeholder="Last 4 digits / approval code"
-          maxLength={100}
-          value={reference}
-          onChange={(e) => setReference(e.target.value)}
-          prefix={<Bank size={18} />}
-          disabled={offline}
-          hint={offline ? "Reference can be added later from Bills." : "Swipe on the card machine, then collect."}
+          label="Tip (optional)"
+          inputMode="decimal"
+          prefix="₹"
+          value={tip}
+          onChange={(e) => setTip(e.target.value.replace(/[^\d.]/g, ""))}
+          wrapperClassName="mt-3 max-w-[200px]"
+          hint="On top of the bill. Not part of sales; no GST."
         />
+      )}
+
+      {tab === "GIFT" && (
+        <div className="space-y-3">
+          <div className="flex items-end gap-2">
+            <Input
+              label="Gift card code"
+              wrapperClassName="flex-1"
+              value={giftCode}
+              onChange={(e) => {
+                setGiftCode(e.target.value.toUpperCase());
+                setGift(null);
+              }}
+              placeholder="GC-XXXXX-XXXXX"
+            />
+            <Button variant="outline" disabled={giftCode.trim().length < 6} onClick={() => void checkGift()}>
+              Check
+            </Button>
+          </div>
+          {gift && !gift.usable && <Alert>{gift.message}</Alert>}
+          {gift?.usable && (
+            <div className="space-y-2 text-sm">
+              <p>
+                Balance <strong className="tabular">{formatINR(gift.balance)}</strong> · uses <strong className="tabular">{formatINR(giftUse)}</strong>
+              </p>
+              {amount - giftUse > 0 && (
+                <label className="flex items-center gap-2">
+                  Pay the rest ({formatINR(amount - giftUse)}) by
+                  <select value={giftRestMode} onChange={(e) => setGiftRestMode(e.target.value as PaymentMode)} className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold">
+                    {(["CASH", "UPI", "CARD"] as PaymentMode[]).map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_MODE_LABELS[m]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(tab === "WALLET" || tab === "TOKEN") && memberMoney && (
+        <div className="space-y-2 text-sm">
+          {tab === "WALLET" ? (
+            <p>
+              Wallet balance <strong className="tabular">{formatINR(memberMoney.walletBalance)}</strong> · uses <strong className="tabular">{formatINR(walletUse)}</strong>
+            </p>
+          ) : (
+            tokenAcc && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span>
+                  {tokenAcc.balance} token{tokenAcc.balance === 1 ? "" : "s"} left · use
+                </span>
+                <select
+                  aria-label="Tokens to use"
+                  value={tokenCount}
+                  onChange={(e) => setTokenCount(Number(e.target.value))}
+                  className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold"
+                >
+                  {Array.from({ length: Math.min(tokenAcc.balance, 10) }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <span>
+                  covers <strong className="tabular">{formatINR(tokenUse)}</strong>
+                </span>
+              </div>
+            )
+          )}
+          {amount - (tab === "WALLET" ? walletUse : tokenUse) > 0 && (
+            <label className="flex items-center gap-2">
+              Pay the rest ({formatINR(amount - (tab === "WALLET" ? walletUse : tokenUse))}) by
+              <select value={restMode} onChange={(e) => setRestMode(e.target.value as PaymentMode)} className="rounded-lg border border-line bg-surface px-2 py-1 font-semibold">
+                {(["CASH", "UPI", "CARD"] as PaymentMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       )}
 
       {tab === "KHATA" && (
@@ -446,7 +669,7 @@ export function PaymentDialog({
                 onChange={(e) => setSplit((rows) => rows.map((r) => (r.id === row.id ? { ...r, mode: e.target.value as PaymentMode } : r)))}
                 className="min-h-tap w-32 rounded-xl border border-line bg-surface px-3 font-semibold"
               >
-                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => (
+                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).filter((m) => !SPLIT_HIDDEN.includes(m) && (m !== "WALLET" || (!!memberMoney && !offline))).map((m) => (
                   <option key={m} value={m}>
                     {PAYMENT_MODE_LABELS[m]}
                   </option>

@@ -60,6 +60,8 @@ export interface BusinessOwner {
   email: string | null;
   status: StaffStatus;
   createdAt: string;
+  /** Two-step login turned on (null = off) */
+  totpEnabledAt?: string | null;
 }
 
 export interface BusinessOutlet {
@@ -73,6 +75,10 @@ export interface BusinessOutlet {
 export interface BusinessDetail extends BusinessBase {
   outlets: BusinessOutlet[];
   owners: BusinessOwner[];
+  /** Per-hotel feature flags that are on */
+  features: Partial<Record<string, boolean>>;
+  /** Every flag the platform offers: label, description, required modules */
+  featureCatalog: Record<string, { label: string; description: string; requires: ModuleKey[] }>;
 }
 
 /** POST /platform/businesses response */
@@ -80,4 +86,12 @@ export interface BusinessCreateResult {
   business: BusinessBase;
   outlet: { id: string; name: string } | null;
   owner: PlatformUser;
+  invite: LinkDelivery;
+}
+
+/** Where a password setup/reset link went (devLink only outside production). */
+export interface LinkDelivery {
+  channel: "email" | "sms" | "none";
+  devLink?: string;
+  expiresAt: string;
 }

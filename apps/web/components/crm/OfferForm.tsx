@@ -80,6 +80,7 @@ interface FormState {
   startTime: string;
   endTime: string;
   priority: string;
+  combinable: boolean;
   item: ItemDiscountState;
   bxgy: BxgyState;
   combo: ComboState;
@@ -101,6 +102,7 @@ function initialState(offer: Offer | undefined): FormState {
     startTime: offer?.startTime ?? "",
     endTime: offer?.endTime ?? "",
     priority: String(offer?.priority ?? 0),
+    combinable: offer?.combinable ?? false,
     item: { target: targetOf(undefined), discountType: "PERCENT", value: "" },
     bxgy: { buy: targetOf(undefined), buyQty: "2", get: targetOf(undefined), getQty: "1", getDiscountPercent: "100", maxSets: "" },
     combo: { items: [{ menuItemId: "", quantity: "1" }], price: "" },
@@ -225,6 +227,7 @@ export function OfferForm({
       startTime: form.startTime || null,
       endTime: form.endTime || null,
       priority: num(form.priority || "0"),
+      combinable: form.combinable,
       config: buildConfig(form),
     };
     const parsed = offerCreateSchema.safeParse(payload);
@@ -416,7 +419,7 @@ export function OfferForm({
                     onClick={() => set("daysOfWeek", on ? form.daysOfWeek.filter((x) => x !== i) : [...form.daysOfWeek, i])}
                     className={clsx(
                       "min-h-tap min-w-[56px] rounded-xl border px-3 text-sm font-semibold transition-colors",
-                      on ? "border-primary bg-primary text-white" : "border-line hover:bg-surface-2",
+                      on ? "border-primary bg-primary text-primary-fg" : "border-line hover:bg-surface-2",
                     )}
                   >
                     {d}
@@ -448,7 +451,7 @@ export function OfferForm({
                   <label key={o.id} className={clsx("flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border px-3", on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line")}>
                     <input
                       type="checkbox"
-                      className="h-5 w-5 accent-[#FF6B35]"
+                      className="h-5 w-5 accent-primary"
                       checked={on}
                       onChange={() => set("outletIds", on ? form.outletIds.filter((x) => x !== o.id) : [...form.outletIds, o.id])}
                     />
@@ -465,6 +468,12 @@ export function OfferForm({
             value={form.priority}
             error={e("priority")}
             onChange={(ev) => set("priority", signedDigits(ev.target.value))}
+          />
+          <Toggle
+            label="Can combine with other offers"
+            description="Off (default): one offer per bill, the one that saves most. On: this offer also applies on top, on items no other offer has discounted."
+            checked={form.combinable}
+            onChange={(v) => set("combinable", v)}
           />
         </section>
       </div>

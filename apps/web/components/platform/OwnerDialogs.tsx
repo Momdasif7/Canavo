@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ownerPasswordResetSchema, platformUserCreateSchema } from "@canavo/shared";
+import { platformUserCreateSchema } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { platformApi } from "@/lib/platform";
-import type { BusinessOwner } from "@/lib/types-platform";
+import type { BusinessOwner, LinkDelivery } from "@/lib/types-platform";
+import { LinkSentNotice } from "@/components/account/LinkSentNotice";
+
+export { LinkSentNotice };
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -14,10 +17,9 @@ interface OwnerForm {
   name: string;
   phone: string;
   email: string;
-  password: string;
 }
 
-const EMPTY: OwnerForm = { name: "", phone: "", email: "", password: "" };
+const EMPTY: OwnerForm = { name: "", phone: "", email: "" };
 
 /**
  * Platform admin: add an owner login to a business (POST /platform/businesses/:id/users).
@@ -39,11 +41,13 @@ export function AddOwnerDialog({
   const [form, setForm] = useState<OwnerForm>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invite, setInvite] = useState<LinkDelivery | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
     setForm(EMPTY);
+    setInvite(null);
   }, [open]);
 
   const set = <K extends keyof OwnerForm>(k: K, v: OwnerForm[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -53,21 +57,19 @@ export function AddOwnerDialog({
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim() || undefined,
-      password: form.password || undefined,
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       return setError(`${issue.path.join(".") || "Owner"}: ${issue.message}`);
     }
     if (!parsed.data.email) return setError("The owner signs in with an email address");
-    if (!parsed.data.password) return setError("Set a password so the owner can sign in");
     setSaving(true);
     setError(null);
     try {
-      const { name, phone, email, password } = parsed.data;
-      const user = await platformApi.post<BusinessOwner>(`/platform/businesses/${businessId}/users`, { name, phone, email, password });
+      const { name, phone, email } = parsed.data;
+      const { invite: sent, ...user } = await platformApi.post<BusinessOwner & { invite: LinkDelivery }>(`/platform/businesses/${businessId}/users`, { name, phone, email });
       onCreated(user);
-      onClose();
+      setInvite(sent);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -82,16 +84,23 @@ export function AddOwnerDialog({
       title="Add owner"
       description={`New owner login for ${businessName}. Owners manage every outlet, staff account and setting of the business.`}
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={save} loading={saving}>
-            Add owner
-          </Button>
-        </>
+        invite ? (
+          <Button onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={save} loading={saving}>
+              Add owner
+            </Button>
+          </>
+        )
       }
     >
+      {invite ? (
+        <LinkSentNotice delivery={invite} who={form.email || `+91 ${form.phone}`} />
+      ) : (
       <div className="space-y-4">
         {error && <Alert>{error}</Alert>}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -106,52 +115,41 @@ export function AddOwnerDialog({
             onChange={(e) => set("phone", e.target.value.replace(/\D/g, ""))}
           />
           <Input label="Email (login)" type="email" autoComplete="off" value={form.email} onChange={(e) => set("email", e.target.value)} />
-          <Input label="Temporary password" type="password" autoComplete="new-password" placeholder="Min. 8 characters" value={form.password} onChange={(e) => set("password", e.target.value)} />
         </div>
-        <p className="text-xs text-muted">The owner creates managers, cashiers, kitchen, delivery and inventory staff from their own login.</p>
+        <p className="text-xs text-muted">
+          The owner gets a link by email (or SMS) to set their own password; you never see it. Until then they can sign in with an OTP on their mobile. The owner creates managers, cashiers,
+          kitchen, delivery and inventory staff from their own login.
+        </p>
       </div>
+      )}
     </Dialog>
   );
 }
 
-/** Platform admin: set a new password for a locked-out owner (signs them out everywhere). */
-export function ResetOwnerPasswordDialog({
-  businessId,
-  owner,
-  onClose,
-  onDone,
-}: {
-  businessId: string;
-  owner: BusinessOwner | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [saving, setSaving] = useState(false);
+/**
+ * Platform admin: send a locked-out owner a password reset link. The platform never sets or
+ * sees the password; the owner's sessions end when they set the new one.
+ */
+export function SendResetLinkDialog({ businessId, owner, onClose }: { businessId: string; owner: BusinessOwner | null; onClose: () => void }) {
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<LinkDelivery | null>(null);
 
   useEffect(() => {
-    setPassword("");
-    setConfirm("");
     setError(null);
+    setSent(null);
   }, [owner]);
 
-  const save = async () => {
+  const send = async () => {
     if (!owner) return;
-    const parsed = ownerPasswordResetSchema.safeParse({ password });
-    if (!parsed.success) return setError(parsed.error.issues[0].message);
-    if (password !== confirm) return setError("The passwords don't match");
-    setSaving(true);
+    setSending(true);
     setError(null);
     try {
-      await platformApi.post<{ ok: true }>(`/platform/businesses/${businessId}/owners/${owner.id}/reset-password`, parsed.data);
-      onDone();
-      onClose();
+      setSent(await platformApi.post<LinkDelivery>(`/platform/businesses/${businessId}/owners/${owner.id}/reset-link`, {}));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
-      setSaving(false);
+      setSending(false);
     }
   };
 
@@ -160,23 +158,33 @@ export function ResetOwnerPasswordDialog({
       open={owner !== null}
       onClose={onClose}
       size="sm"
-      title="Reset password"
-      description={owner ? `Set a new password for ${owner.name}. They're signed out on every device and sign in again with it.` : undefined}
+      title="Send password reset link"
+      description={owner ? `${owner.name} gets a one-time link to set a new password. You never see it.` : undefined}
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={save} loading={saving} disabled={!password || !confirm}>
-            Reset password
-          </Button>
-        </>
+        sent ? (
+          <Button onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={send} loading={sending}>
+              Send link
+            </Button>
+          </>
+        )
       }
     >
       <div className="space-y-4">
         {error && <Alert>{error}</Alert>}
-        <Input label="New password" type="password" autoComplete="new-password" placeholder="Min. 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <Input label="Confirm password" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        {sent && owner ? (
+          <LinkSentNotice delivery={sent} who={owner.email ?? owner.phone} />
+        ) : (
+          <p className="text-sm text-muted">
+            The link goes to the owner&apos;s email ({owner?.email ?? "none"}) or, without email, by SMS to +91 {owner?.phone}. It expires in 30 minutes. When they set the new password,
+            they&apos;re signed out on every other device.
+          </p>
+        )}
       </div>
     </Dialog>
   );

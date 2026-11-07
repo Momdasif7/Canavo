@@ -16,7 +16,7 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={clsx("flex items-start justify-between gap-3 border-b border-line px-5 py-4", className)}>
+    <div className={clsx("ui-card-header flex items-start justify-between gap-3 border-b border-line px-5 py-4", className)}>
       <div>
         <h2 className="text-base font-bold text-fg">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}

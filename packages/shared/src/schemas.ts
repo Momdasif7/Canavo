@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ROLES } from "./rbac";
+import { newPasswordSchema } from "./password";
+import { CUSTOM_ROLE_BASES, PERMISSIONS, ROLES } from "./rbac";
 
 export const indianPhone = z
   .string()
@@ -56,6 +57,10 @@ export const outletSchema = z.object({
   gstEnabled: z.boolean().default(true),
   /** Registered legal name printed on tax invoices; empty clears it */
   legalName: z.string().trim().max(200).nullable().optional(),
+  /** D1: flat ₹ discounts (coupons, flat offers, points, manual flat) are GST-inclusive */
+  flatDiscountsIncludeTax: z.boolean().optional(),
+  /** Manual discount above this % of the bill needs a manager PIN (APPROVAL_PINS); owner only */
+  approvalDiscountPercent: z.number().int().min(0).max(100).optional(),
 });
 export type OutletInput = z.infer<typeof outletSchema>;
 
@@ -64,7 +69,7 @@ const staffBaseSchema = z.object({
   name: z.string().min(2).max(100),
   phone: indianPhone,
   email: z.string().email().optional(),
-  password: z.string().min(8).optional(),
+  password: newPasswordSchema.optional(),
   pin: z.string().regex(/^\d{4,6}$/).optional(),
   role: z.enum(ROLES),
   /** Business owners work across all outlets and need none */
@@ -72,6 +77,8 @@ const staffBaseSchema = z.object({
   salaryType: z.enum(["DAILY", "MONTHLY"]).default("MONTHLY"),
   salaryAmount: paise.default(0),
   shiftId: z.string().optional(),
+  /** Custom role (Phase 4.2): must belong to the business and be based on `role`; null clears it */
+  customRoleId: z.string().nullable().optional(),
 });
 export const staffCreateSchema = staffBaseSchema.refine(
   (s) => s.role === "BUSINESS_OWNER" || s.role === "SUPER_ADMIN" || s.outletIds.length > 0,
@@ -80,6 +87,15 @@ export const staffCreateSchema = staffBaseSchema.refine(
 export const staffUpdateSchema = staffBaseSchema
   .partial()
   .extend({ status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).optional() });
+
+/** A business's custom role: a name, a built-in base role and the base role's permissions to keep. */
+export const customRoleSchema = z.object({
+  name: z.string().trim().min(2, "Give the role a name").max(50),
+  baseRole: z.enum(CUSTOM_ROLE_BASES),
+  permissions: z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length),
+});
+export const customRoleUpdateSchema = customRoleSchema.partial();
+export type CustomRoleInput = z.infer<typeof customRoleSchema>;
 
 export const shiftSchema = z.object({
   name: z.string().min(1).max(50),
@@ -94,6 +110,10 @@ export const clockSchema = z.object({
   accuracy: z.number().nonnegative().optional(),
   pin: z.string().regex(/^\d{4,6}$/).optional(),
   outletId: z.string().optional(),
+  /** The phone says the location is fake (Android "mock location" apps) */
+  mocked: z.boolean().optional(),
+  /** Selfie uploaded via POST /uploads/image just before clocking in (feature CLOCK_IN_SELFIE) */
+  selfieUrl: z.string().url().max(500).optional(),
 });
 
 /** Manager / owner attendance entry for one employee on one day. Times are HH:MM in outlet time. */
@@ -210,7 +230,75 @@ export type TaxRateInput = z.infer<typeof taxRateSchema>;
 
 // ---------- Orders & payments ----------
 export const ORDER_TYPES = ["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"] as const;
-export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA"] as const;
+/** Phase 6: where an order came from */
+export const ORDER_CHANNELS = ["POS", "QR", "ONLINE", "ZOMATO", "SWIGGY", "ONDC", "OTHER"] as const;
+export type OrderChannel = (typeof ORDER_CHANNELS)[number];
+export const ORDER_CHANNEL_LABELS: Record<OrderChannel, string> = {
+  POS: "Counter",
+  QR: "QR table",
+  ONLINE: "Online",
+  ZOMATO: "Zomato",
+  SWIGGY: "Swiggy",
+  ONDC: "ONDC",
+  OTHER: "Other app",
+};
+/** Phase 6.1: statuses we push to an aggregator (through the hub) */
+export const CHANNEL_PUSH_STATUSES = ["ACCEPTED", "FOOD_READY", "DISPATCHED", "DELIVERED", "CANCELLED"] as const;
+export type ChannelPushStatus = (typeof CHANNEL_PUSH_STATUSES)[number];
+
+/** Phase 6: which adapter talks to the outlet's order hub (one connection per outlet) */
+export const CHANNEL_PROVIDERS = ["HUB", "URBANPIPER"] as const;
+export type ChannelProvider = (typeof CHANNEL_PROVIDERS)[number];
+export const CHANNEL_PROVIDER_LABELS: Record<ChannelProvider, string> = { HUB: "Generic order hub", URBANPIPER: "UrbanPiper" };
+
+/** Phase 6: orders shown on the Online orders (packing) board */
+export const BOARD_CHANNELS = ["ZOMATO", "SWIGGY", "ONDC", "OTHER", "ONLINE"] as const satisfies readonly OrderChannel[];
+export const CHANNEL_BOARD_STAGES = ["NEW", "PREPARING", "PACKED", "HANDED_OVER", "CANCELLED"] as const;
+export type ChannelBoardStage = (typeof CHANNEL_BOARD_STAGES)[number];
+/** One order on GET /channels/board (money in paise, times ISO). */
+export interface ChannelBoardOrder {
+  orderId: string;
+  invoiceNumber: string;
+  channel: string;
+  channelOrderId: string | null;
+  stage: ChannelBoardStage;
+  customerName: string | null;
+  items: { name: string; quantity: number; notes: string | null }[];
+  total: number;
+  paid: boolean;
+  /** We deliver (our delivery partner), not the aggregator's rider */
+  weDeliver: boolean;
+  placedAt: string;
+  packedAt: string | null;
+  handedOverAt: string | null;
+  rider: { name: string | null; phone: string | null; pickupCode: string | null; eta: string | null; arrived: boolean } | null;
+}
+/** GET /channels/board/:orderId/slip — packing slip / bag label */
+export interface ChannelPackingSlip extends ChannelBoardOrder {
+  outletName: string;
+  printedAt: string;
+  /** What the rider / partner collects at the door, paise (0 = paid online) */
+  amountDue: number;
+}
+/** POST /channels/board/:orderId/handover */
+export const channelHandoverSchema = z.object({ riderName: z.string().trim().max(100).optional() });
+/** PUT /channels/board/settings */
+export const channelBoardSettingsSchema = z.object({ autoPrint: z.boolean() });
+
+/** Settings → Channels: the outlet's hub connection. Secrets are only replaced when sent. */
+export const channelConnectionSchema = z.object({
+  provider: z.enum(CHANNEL_PROVIDERS).default("HUB"),
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().trim().url().max(300),
+  externalStoreId: z.string().trim().min(1).max(100),
+  apiKey: z.string().trim().min(1).max(500).optional(),
+  webhookSecret: z.string().trim().min(8).max(500).optional(),
+  /** Commission % per source channel (estimate for reports) */
+  commission: z.record(z.enum(ORDER_CHANNELS), z.number().min(0).max(100)).default({}),
+});
+export type ChannelConnectionInput = z.infer<typeof channelConnectionSchema>;
+
+export const PAYMENT_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "CORPORATE", "WALLET", "MEAL_TOKEN", "ONLINE"] as const;
 
 export const orderItemInputSchema = z.object({
   menuItemId: z.string(),
@@ -220,6 +308,10 @@ export const orderItemInputSchema = z.object({
   notes: z.string().max(200).optional(),
   discount: paise.optional(),
 });
+
+/** A manager's approval typed on the cashier's device (Phase 3.3, feature APPROVAL_PINS). */
+export const approvalSchema = z.object({ approverId: z.string().min(1), pin: z.string().regex(/^\d{4,6}$/) });
+export type ApprovalInputBody = z.infer<typeof approvalSchema>;
 
 export const orderCreateSchema = z.object({
   /** Client-generated UUID; makes offline sync idempotent */
@@ -239,6 +331,14 @@ export const orderCreateSchema = z.object({
   notes: z.string().max(300).optional(),
   /** When offline, the time the bill was actually raised */
   createdAt: z.string().datetime().optional(),
+  /** Manager approval for a discount above the outlet's limit (APPROVAL_PINS) */
+  approval: approvalSchema.optional(),
+  /** Phase 5 (CANTEEN): meal slot of a pre-order; counter bills get the slot open at billing time */
+  mealSlotId: z.string().optional(),
+  /** Phase 5.1 (CANTEEN): canteen member eating (card scan); the company's share is added as a CORPORATE payment */
+  memberId: z.string().min(1).optional(),
+  /** Offline bill numbered from this device's series (OFFLINE_INVOICE_SERIES), e.g. "INVA1-2026-00007" */
+  offlineInvoiceNumber: z.string().max(16).optional(),
   /** Promotions & loyalty */
   couponCode: z.string().trim().toUpperCase().max(30).optional(),
   redeemPoints: z.number().int().positive().optional(),
@@ -271,6 +371,15 @@ export const paymentSchema = z.object({
         mode: z.enum(PAYMENT_MODES),
         amount: paise.refine((v) => v > 0, "Amount must be positive"),
         reference: z.string().max(100).optional(),
+        /** Phase 3.8: tip on top (not part of the bill), paise */
+        tip: paise.optional(),
+        /** CARD: last 4 digits and the terminal's approval code */
+        cardLast4: z.string().regex(/^\d{4}$/, "Last 4 digits of the card").optional(),
+        authCode: z.string().trim().max(20).optional(),
+        /** GIFT_CARD: the card's code */
+        giftCardCode: z.string().trim().toUpperCase().max(30).optional(),
+        /** MEAL_TOKEN: tokens used (default 1) */
+        tokens: z.number().int().min(1).max(20).optional(),
       }),
     )
     .min(1),
@@ -284,4 +393,72 @@ export const kotStatusSchema = z.object({
 
 export const receiptShareSchema = z.object({
   phone: indianPhone,
+});
+
+// ---------- Refunds / credit notes (Phase 3.1) ----------
+export const REFUND_REASONS = ["WRONG_ITEM", "QUALITY", "NOT_DELIVERED", "OVERCHARGED", "CUSTOMER_CHANGED_MIND", "OTHER"] as const;
+export type RefundReason = (typeof REFUND_REASONS)[number];
+export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
+  WRONG_ITEM: "Wrong item served",
+  QUALITY: "Food quality",
+  NOT_DELIVERED: "Not delivered / not served",
+  OVERCHARGED: "Overcharged",
+  CUSTOMER_CHANGED_MIND: "Customer changed mind",
+  OTHER: "Other",
+};
+export const REFUND_MODES = ["CASH", "UPI", "CARD", "KHATA", "GIFT_CARD", "WALLET", "CORPORATE"] as const;
+
+/** Refund some items (and quantities) of a paid bill, or a value only (e.g. overcharge). */
+export const refundSchema = z
+  .object({
+    reason: z.enum(REFUND_REASONS),
+    note: z.string().trim().max(300).optional(),
+    refundMode: z.enum(REFUND_MODES),
+    items: z.array(z.object({ orderItemId: z.string().min(1), quantity: z.number().int().positive() })).optional(),
+    /** Value-only credit (no items), paise incl. tax */
+    amount: paise.optional(),
+    /** Put the refunded items' ingredients back into stock (food not made / returned unopened) */
+    restock: z.boolean().default(false),
+    approval: approvalSchema.optional(),
+  })
+  .refine((v) => Boolean(v.items?.length) !== Boolean(v.amount), "Refund either items or an amount")
+  .refine((v) => v.reason !== "OTHER" || (v.note?.length ?? 0) >= 3, "Describe the reason");
+export type RefundInput = z.infer<typeof refundSchema>;
+
+// ---------- Cash shifts (Phase 3.2) ----------
+export const shiftOpenSchema = z.object({ openingFloat: paise });
+export const cashMovementSchema = z.object({
+  type: z.enum(["PAY_IN", "PAY_OUT"]),
+  amount: z.number().int().positive(),
+  reason: z.string().trim().min(3).max(200),
+  approval: approvalSchema.optional(),
+});
+export const shiftCloseSchema = z.object({
+  countedCash: paise,
+  /** Optional count by note/coin value in rupees, e.g. { "500": 3, "10": 12 } */
+  denominations: z.record(z.string().regex(/^\d+$/), z.number().int().nonnegative()).optional(),
+  note: z.string().trim().max(300).optional(),
+});
+
+// ---------- Gift cards (Phase 3.8, closed-loop) ----------
+export const giftCardIssueSchema = z.object({
+  /** Value loaded on the card, paise (₹50 – ₹50,000) */
+  value: z.number().int().min(5000).max(5_000_000),
+  /** How the customer paid for it */
+  soldMode: z.enum(["CASH", "UPI", "CARD"]),
+  /** Leave empty to generate one */
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{6,30}$/, "6–30 letters, digits or -").optional(),
+  customerName: z.string().trim().max(100).optional(),
+  customerPhone: indianPhone.optional(),
+  expiresAt: z.string().datetime().optional(),
+});
+export type GiftCardIssueInput = z.infer<typeof giftCardIssueSchema>;
+
+/** Settlement file rows from the bank / card acquirer (Phase 3.8): date, amount (₹), reference. */
+export const settlementUploadSchema = z.object({
+  mode: z.enum(["CARD", "UPI"]),
+  rows: z
+    .array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: paise, reference: z.string().trim().max(100).optional() }))
+    .min(1)
+    .max(5000),
 });

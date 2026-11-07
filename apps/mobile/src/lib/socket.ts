@@ -16,7 +16,8 @@ export interface ServerEvents {
   notification: (n: NotificationEvent) => void;
   /** Read state changed on another device: one notification or all of them */
   "notification:read": (p: { id?: string; all?: boolean }) => void;
-  "menu:changed": (p: { id: string }) => void;
+  /** Menu edited (`id`), imported, or items ran out / came back in stock (`ids`, `stock: true`) */
+  "menu:changed": (p: { id?: string; ids?: string[]; stock?: boolean; import?: boolean }) => void;
   /** GST / pricing settings of the outlet changed (e.g. GST switched off) */
   "outlet:updated": (p: { id: string; fields: string[] }) => void;
   /** Floor/tab changed (open, items, bill, transfer, merge, close, KOT status…) */
@@ -28,6 +29,12 @@ export interface ServerEvents {
   /** A partner's GPS report (`{ agentId, lat, lng, … }`) */
   "delivery:location": (p: unknown) => void;
   "inventory:low": (p: LowStockEvent) => void;
+  /** A bill was cancelled (e.g. an online order rejected) */
+  "order:cancelled": (p: { id: string }) => void;
+  /** QR / online order request: new, accepted or rejected */
+  "channel:request": (p: { id: string; action: string }) => void;
+  /** An online / aggregator order moved on the channel board */
+  "channel:board": (p: { orderId: string; stage: string }) => void;
 }
 
 type EventName = keyof ServerEvents;

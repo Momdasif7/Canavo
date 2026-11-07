@@ -16,7 +16,7 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
-import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
+import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { CRM_TEMPLATES, sendCustomerMessage } from "../services/customer-messages";
 import { getLoyaltyConfig, loyaltySetting, redeemableNow } from "../services/promotions";
@@ -142,6 +142,8 @@ customersRouter.put("/loyalty/config", requirePermission("customer:manage"), asy
   const next = parse(loyaltyConfigSchema, { ...current, ...body });
   const t = next.tierThresholds;
   if (!(t.SILVER <= t.GOLD && t.GOLD <= t.PLATINUM)) throw badRequest("Tier thresholds must be Silver ≤ Gold ≤ Platinum");
+  // Like coupon create / PATCH: a percentage coupon can't be more than 100 % (QA Phase 7, D4).
+  if (next.birthdayCouponType === "PERCENT" && next.birthdayCouponValue > 100) throw badRequest("A percentage birthday coupon can be at most 100%");
   await prisma.setting.upsert({
     where: { scope_key: loyaltySetting() },
     create: { ...loyaltySetting(), value: next },
@@ -163,7 +165,7 @@ customersRouter.post("/", requirePermission("customer:view"), async (req, res) =
     throw forbidden("Only managers can set a khata limit");
   }
   const existing = await prisma.customer.findFirst({ where: { phone: data.phone } });
-  if (existing) throw badRequest(`Customer with phone ${data.phone} already exists`, { id: existing.id });
+  if (existing) throw new HttpError(409, `Customer with phone ${data.phone} already exists`, { id: existing.id });
   const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, businessId: requireBusinessId() } });
   await audit(req, "customer.create", "Customer", customer.id);
   res.status(201).json(customer);
@@ -181,9 +183,11 @@ customersRouter.get("/:id", requirePermission("customer:view"), async (req, res)
       select: {
         id: true, invoiceNumber: true, outletId: true, createdAt: true, status: true, orderType: true,
         grandTotal: true, promoDiscount: true, couponCode: true, pointsRedeemed: true,
-        _count: { select: { items: true } },
+        // Not `_count`: Prisma counts a relation by grouping the WHOLE OrderItem table (~0.4 s at 1M
+        // lines, QA Phase 7); loading the 10 bills' line ids is an index lookup.
+        items: { select: { id: true } },
       },
-    }),
+    }).then((rows) => rows.map(({ items, ...o }) => ({ ...o, _count: { items: items.length } }))),
     prisma.order.groupBy({ by: ["status"], where: { customerId: c.id }, _count: true, _sum: { grandTotal: true } }),
     prisma.loyaltyTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.khataTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "desc" }, take: 30 }),
@@ -291,7 +295,7 @@ customersRouter.patch("/:id", requirePermission("customer:manage"), async (req, 
   const c = await getCustomer(param(req, "id"));
   const data = parse(customerUpdateSchema, req.body);
   if (data.phone && data.phone !== c.phone && (await prisma.customer.findFirst({ where: { phone: data.phone } }))) {
-    throw badRequest(`Another customer already uses ${data.phone}`);
+    throw conflict(`Another customer already uses ${data.phone}`);
   }
   const updated = await prisma.customer.update({
     where: { id: c.id },
@@ -317,10 +321,14 @@ customersRouter.post("/:id/loyalty/adjust", requirePermission("customer:manage")
     const c = await tx.customer.findUnique({ where: { id } });
     if (!c) throw notFound("Customer");
     if (c.points + points < 0) throw badRequest(`Customer has only ${c.points} points`);
+    // Compare-and-set: two deductions at the same moment used to both pass the check above and
+    // leave the customer with negative points (QA Phase 7).
+    const moved = await tx.customer.updateMany({ where: { id, ...(points < 0 && { points: { gte: -points } }) }, data: { points: { increment: points } } });
+    if (!moved.count) throw badRequest(`Customer has fewer than ${-points} points now`);
     const txn = await tx.loyaltyTransaction.create({
       data: { customerId: id, type: "ADJUST", points, note: `${note} (by ${req.user!.name})`, createdById: req.user!.id },
     });
-    const customer = await tx.customer.update({ where: { id }, data: { points: { increment: points } } });
+    const customer = await tx.customer.findUniqueOrThrow({ where: { id } });
     await audit(req, "loyalty.adjust", "Customer", id, { points, note, before: c.points, after: customer.points }, tx);
     return { customer, transaction: txn };
   });
@@ -336,6 +344,10 @@ customersRouter.post("/:id/khata/settle", requirePermission("payment:collect"), 
     if (!c) throw notFound("Customer");
     if (c.khataBalance <= 0) throw badRequest("No outstanding khata balance");
     if (amount > c.khataBalance) throw badRequest(`Amount exceeds outstanding ${formatINR(c.khataBalance)}`);
+    // Compare-and-set: two settlements of the full balance at once used to both pass the check
+    // above — the cash was collected twice and the balance went negative (QA Phase 7).
+    const moved = await tx.customer.updateMany({ where: { id, khataBalance: { gte: amount } }, data: { khataBalance: { decrement: amount } } });
+    if (!moved.count) throw badRequest("The outstanding khata changed meanwhile — reload and try again");
     const txn = await tx.khataTransaction.create({
       data: {
         customerId: id,
@@ -347,7 +359,7 @@ customersRouter.post("/:id/khata/settle", requirePermission("payment:collect"), 
         createdById: req.user!.id,
       },
     });
-    const customer = await tx.customer.update({ where: { id }, data: { khataBalance: { decrement: amount } } });
+    const customer = await tx.customer.findUniqueOrThrow({ where: { id } });
     await audit(req, "khata.settle", "Customer", id, { amount, mode, balanceAfter: customer.khataBalance }, tx);
     return { customer, transaction: txn };
   });

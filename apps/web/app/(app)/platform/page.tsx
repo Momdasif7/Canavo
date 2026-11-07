@@ -6,10 +6,12 @@ import { platformApi } from "@/lib/platform";
 import type { BusinessListItem, PlatformSummary } from "@/lib/types-platform";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
+import { canManagePlatform } from "@/lib/roles";
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessTable } from "@/components/platform/BusinessTable";
+import { SupportGrantsCard } from "@/components/platform/SupportGrantsCard";
 
 /** Platform console home: account totals across every business, plus the newest clients. */
 export default function PlatformHome() {
@@ -24,9 +26,11 @@ export default function PlatformHome() {
         title="Platform console"
         subtitle={`Welcome, ${me?.name ?? "admin"}. Manage CANAVO client businesses, their modules and owner logins.`}
         actions={
-          <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-white shadow-sm hover:bg-primary-600">
-            <Plus size={20} /> New business
-          </Link>
+          canManagePlatform(me) ? (
+            <Link href="/platform/businesses/new" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-fg shadow-sm hover:bg-primary-600">
+              <Plus size={20} /> New business
+            </Link>
+          ) : undefined
         }
       />
       {summary.loading && !s ? (
@@ -45,8 +49,10 @@ export default function PlatformHome() {
 
       <p className="mb-5 flex items-start gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm text-muted">
         <LockSimple size={18} className="mt-0.5 shrink-0 text-primary" />
-        Hotel data (sales, bills, staff, customers, reports) is private to each hotel and isn&apos;t visible here.
+        Hotel data (sales, bills, staff, customers, reports) is private to each hotel and isn&apos;t visible here, except read-only when its owner grants support access.
       </p>
+
+      <SupportGrantsCard />
 
       <Card>
         <CardHeader

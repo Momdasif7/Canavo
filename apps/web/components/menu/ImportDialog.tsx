@@ -165,7 +165,7 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="font-bold">
-                    <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-white">1</span>
+                    <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-fg">1</span>
                     Download the template
                   </h3>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
@@ -186,7 +186,7 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
 
             <section>
               <h3 className="mb-2 font-bold">
-                <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-white">2</span>
+                <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-fg">2</span>
                 Upload the filled sheet
               </h3>
               <label
@@ -240,7 +240,7 @@ function Preview({ file, result }: { file: File | null; result: ImportResult }) 
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-1 font-bold">
-          <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-white">3</span>
+          <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-fg">3</span>
           Check and import
         </h3>
         {file && <span className="truncate text-sm text-muted">{file.name}</span>}

@@ -75,7 +75,7 @@ export function MenuBrowser({
                 e.stopPropagation();
                 setQuery("");
               }
-              if (e.key === "Enter" && visibleItems[0] && !outside(visibleItems[0])) onSelect(visibleItems[0]);
+              if (e.key === "Enter" && visibleItems[0] && visibleItems[0].status === "AVAILABLE" && !outside(visibleItems[0])) onSelect(visibleItems[0]);
             }}
             placeholder="Search menu…  ( / )"
             aria-label="Search menu"
@@ -147,7 +147,7 @@ function CategoryTab({ active, small, onClick, children }: { active: boolean; sm
       className={clsx(
         "shrink-0 whitespace-nowrap rounded-xl border font-semibold transition-colors",
         small ? "min-h-[40px] px-3 text-sm" : "min-h-tap px-4",
-        active ? (small ? "border-secondary bg-secondary text-white" : "border-primary bg-primary text-white") : "border-line bg-surface text-fg hover:border-primary/60",
+        active ? (small ? "border-secondary bg-secondary text-white" : "border-primary bg-primary text-primary-fg") : "border-line bg-surface text-fg hover:border-primary/60",
       )}
     >
       {children}

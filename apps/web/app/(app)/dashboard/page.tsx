@@ -79,6 +79,27 @@ function Report({ r }: { r: DailyReport }) {
         />
       </div>
 
+      {/* Exceptions: money that left or went missing (see the Exceptions report for details). */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+        <Kpi label="Voided bills" value={formatINR(r.voids.amount)} note={`${r.voids.count} bill${r.voids.count === 1 ? "" : "s"} voided`} tone={r.voids.count ? "warn" : undefined} />
+        <Kpi
+          label="Refunds"
+          value={formatINR(r.refunds.amount)}
+          note={`${r.refunds.count} refund${r.refunds.count === 1 ? "" : "s"} · Sales after refunds ${formatINR(r.salesAfterRefunds)}`}
+          tone={r.refunds.count ? "warn" : undefined}
+        />
+        <Kpi
+          label="Cash difference"
+          value={`${r.cashDifference.amount > 0 ? "+" : ""}${formatINR(r.cashDifference.amount)}`}
+          note={
+            r.cashDifference.shifts
+              ? `${r.cashDifference.shifts} cash shift${r.cashDifference.shifts === 1 ? "" : "s"} closed · ${r.cashDifference.amount < 0 ? "short" : r.cashDifference.amount > 0 ? "over" : "matched"}`
+              : "No cash shift closed"
+          }
+          tone={r.cashDifference.amount ? "warn" : undefined}
+        />
+      </div>
+
       <Card>
         <CardHeader title="Sales by hour" subtitle="Paid bills, grand total" />
         <div className="p-4">{r.orders ? <HourlyChart hourly={r.hourly} /> : <EmptyState title="No sales yet" />}</div>
@@ -178,18 +199,21 @@ function Kpi({
   vsYesterday,
   vsLastWeek,
   note,
+  tone,
 }: {
   label: string;
   value: string;
   vsYesterday?: number | null;
   vsLastWeek?: number | null;
   note?: string;
+  /** "warn" colours the value when something needs a look */
+  tone?: "warn";
 }) {
   const hasCompare = vsYesterday !== undefined || vsLastWeek !== undefined;
   return (
     <Card className="p-5">
       <p className="text-sm font-semibold text-muted">{label}</p>
-      <p className="tabular mt-1 text-2xl font-extrabold tracking-tight md:text-3xl">{value}</p>
+      <p className={clsx("tabular mt-1 text-2xl font-extrabold tracking-tight md:text-3xl", tone === "warn" && "text-red-600 dark:text-red-300")}>{value}</p>
       {hasCompare && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           <Change value={vsYesterday} label="vs yesterday" />
@@ -230,7 +254,7 @@ function Breakdown({ rows, countLabel }: { rows: { label: string; amount: number
 }
 
 function HourlyChart({ hourly }: { hourly: DailyReport["hourly"] }) {
-  const { theme } = useTheme();
+  const { theme, accent } = useTheme();
   const dark = theme === "dark";
   // Trim to trading hours: first to last hour with sales, padded, at least 7:00–22:00.
   const data = useMemo(() => {
@@ -269,7 +293,7 @@ function HourlyChart({ hourly }: { hourly: DailyReport["hourly"] }) {
               );
             }}
           />
-          <Bar dataKey="amount" fill="#FF6B35" radius={[4, 4, 0, 0]} maxBarSize={36} />
+          <Bar dataKey="amount" fill={accent} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>
       </ResponsiveContainer>
     </div>

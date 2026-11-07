@@ -18,6 +18,7 @@ import { ImageUpload } from "@/components/ui/ImageUpload";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { SettingsTabs } from "@/components/settings/SettingsTabs";
+import { MoneyControlsCard } from "@/components/settings/MoneyControlsCard";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
 
@@ -31,6 +32,7 @@ export default function SettingsPage() {
         <OutletSettings />
         <div className="space-y-5">
           <PrinterSettings />
+          <MoneyControlsCard />
           {can("staff:view") && <Shifts />}
         </div>
       </div>

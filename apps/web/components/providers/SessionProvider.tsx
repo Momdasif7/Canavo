@@ -2,7 +2,19 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Permission } from "@canavo/shared";
-import { api, errorMessage, getOutletId, getSession, isNetworkError, logout as apiLogout, setBusinessId, setOutletId, subscribeSession } from "@/lib/api";
+import {
+  api,
+  errorMessage,
+  getOutletId,
+  getSession,
+  getSupportBusinessId,
+  isNetworkError,
+  logout as apiLogout,
+  setBusinessId,
+  setOutletId,
+  setSupportBusinessId,
+  subscribeSession,
+} from "@/lib/api";
 import { cacheGet, cachePut, loadOutlet } from "@/lib/offline";
 import type { Me, Outlet } from "@/lib/types";
 
@@ -25,6 +37,10 @@ interface SessionValue {
   setOutlet: (id: string | null) => Promise<Me | null>;
   /** Re-fetch /auth/me (e.g. after creating an outlet or when modules change). */
   refreshMe: () => Promise<Me | null>;
+  /** Platform admin: open a hotel's read-only support view (the owner's grant must be active) */
+  enterSupport: (businessId: string) => Promise<Me | null>;
+  /** Leave the support view, back to the platform console */
+  exitSupport: () => Promise<Me | null>;
   reloadOutlet: () => Promise<void>;
   /** Effective permission check (role ∩ business modules), from /auth/me */
   can: (p: Permission) => boolean;
@@ -84,6 +100,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         if (active !== saved) user = await fetchMe(active);
         void cachePut(ME_CACHE, user);
       } catch (e) {
+        if (!isNetworkError(e) && getSupportBusinessId()) {
+          // The support grant ended (or was revoked): back to the platform console.
+          setSupportBusinessId(null);
+          setOutletId(null);
+          if (!cancelled) setAttempt((a) => a + 1);
+          return;
+        }
         if (isNetworkError(e)) {
           user = await cacheGet<Me>(ME_CACHE);
           if (user) active = pickOutlet(user, saved);
@@ -161,6 +184,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const refreshMe = useCallback(() => switchTo(getOutletId(), true), [switchTo]);
 
+  const enterSupport = useCallback(
+    async (businessId: string) => {
+      setSupportBusinessId(businessId);
+      setOutletId(null);
+      try {
+        return await switchTo(null);
+      } catch (e) {
+        setSupportBusinessId(null);
+        await switchTo(null).catch(() => null);
+        throw e;
+      }
+    },
+    [switchTo],
+  );
+
+  const exitSupport = useCallback(async () => {
+    setSupportBusinessId(null);
+    setOutletId(null);
+    return switchTo(null);
+  }, [switchTo]);
+
   const logout = useCallback(async () => {
     await apiLogout();
   }, []);
@@ -175,12 +219,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       switching,
       setOutlet: (id) => switchTo(id),
       refreshMe,
+      enterSupport,
+      exitSupport,
       reloadOutlet,
       can: (p) => Boolean(me?.permissions?.includes(p)),
       logout,
       retry: () => setAttempt((a) => a + 1),
     }),
-    [status, error, me, outletId, outlet, switching, switchTo, refreshMe, reloadOutlet, logout],
+    [status, error, me, outletId, outlet, switching, switchTo, refreshMe, enterSupport, exitSupport, reloadOutlet, logout],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

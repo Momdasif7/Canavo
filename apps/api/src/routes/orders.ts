@@ -1,32 +1,62 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import type { Prisma } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import {
   formatINR,
   formatReceiptText,
+  approvalSchema,
   orderCreateSchema,
+  ORDER_CHANNELS,
+  ORDER_CHANNEL_LABELS,
+  refundSchema,
   paymentSchema,
   receiptShareSchema,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { env, isProd } from "../env";
 import { audit } from "../lib/audit";
-import { badRequest, conflict, notFound, param, parse, publicApiUrl } from "../lib/http";
+import { retryTransaction } from "../lib/tx-retry";
+import { badRequest, conflict, forbidden, notFound, param, parse, publicApiUrl } from "../lib/http";
 import { startOfLocalDay } from "../lib/time";
-import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
-import { amountPaid, buildReceipt, createOrder, getOrder, settleIfPaid } from "../services/billing";
+import { authenticate, requireAnyPermission, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
+import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
+import { createCreditNote } from "../services/credit-notes";
+import { assertCashShiftOpen, lockOpenShift } from "../services/cash-shifts";
+import { redeemGiftCard } from "../services/gift-cards";
+import { seriesForDevice } from "../services/offline-series";
+import { featureOn, moduleEnabled } from "../lib/tenant";
+import { redeemTokens, spendWallet } from "../services/canteen";
+import { amountPaid, assertConfirmable, buildReceipt, createOrder, getOrder, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
+import { sendExport } from "../services/report-export";
 import { renderReceiptPdf } from "../services/pdf";
 import { shareReceipt } from "../services/whatsapp";
 import { emitToOutlet } from "../realtime";
 import { notify } from "../services/notify";
-import { onOrderCancelled, onPaymentsRecorded } from "../services/promotions";
-import { onOrderCancelledService } from "../services/service-context";
-import { restoreStockForOrder } from "../services/inventory";
+import { onPaymentsRecorded } from "../services/promotions";
 import { alertOrderCancelled } from "../services/alerts";
+import { cancelOrderInTx } from "../services/order-cancel";
+import { queueChannelStatus } from "../services/channels/service";
 
 export const ordersRouter = Router();
+
+/** Test-only (NODE_ENV=test): runs at the end of the payment transaction, before commit. */
+export const paymentTestHooks: { beforeCommit?: () => Promise<void> } = {};
 ordersRouter.use(authenticate, requireOutlet, requireModule("BILLING"));
+
+/** This device's offline invoice series (Phase 3.4, OFFLINE_INVOICE_SERIES). */
+ordersRouter.post("/offline-series", requirePermission("order:create"), async (req, res) => {
+  if (!featureOn("OFFLINE_INVOICE_SERIES")) return res.json({ enabled: false });
+  const { deviceId } = parse(z.object({ deviceId: z.string().trim().min(8).max(200) }), req.body);
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { invoicePrefix: true } });
+  res.json({ enabled: true, ...(await seriesForDevice(req.outletId!, deviceId, outlet.invoicePrefix)) });
+});
+
+/** Managers / owners who can approve at this outlet with their PIN (Phase 3.3). */
+ordersRouter.get("/approvers", requireAnyPermission("order:create", "payment:collect", "order:cancel"), async (req, res) => {
+  res.json({ enabled: approvalsOn(), discountLimitPercent: (await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { approvalDiscountPercent: true } })).approvalDiscountPercent, approvers: await approversFor(req.outletId!, req.businessId!) });
+});
 
 ordersRouter.post("/", requirePermission("order:create"), async (req, res) => {
   const { order, duplicate } = await createOrder(req, parse(orderCreateSchema, req.body));
@@ -57,20 +87,46 @@ ordersRouter.post("/sync", requirePermission("order:create"), async (req, res) =
   res.json({ results });
 });
 
-ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
-  const q = parse(
-    z.object({
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      status: z.enum(["OPEN", "PAID", "CANCELLED"]).optional(),
-      search: z.string().optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    }),
-    req.query,
-  );
-  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
-  const where = {
+// ---------- Bills list: filters shared by the list, its summary and its export ----------
+const ymdDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const billFilterSchema = z.object({
+  /** One day (kept for older clients); use from/to for a range */
+  date: ymdDate.optional(),
+  from: ymdDate.optional(),
+  to: ymdDate.optional(),
+  status: z.enum(["OPEN", "PAID", "CANCELLED"]).optional(),
+  /** COD = delivery orders paid cash on delivery */
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "KHATA", "ONLINE", "COD"]).optional(),
+  orderType: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY", "PRE_ORDER"]).optional(),
+  /** Phase 6: where the order came from (POS, QR, ONLINE, ZOMATO, SWIGGY, …) */
+  channel: z.enum(ORDER_CHANNELS).optional(),
+  search: z.string().trim().max(100).optional(),
+});
+const MAX_RANGE_DAYS = 366;
+
+async function billWhere(req: Express.Request, q: z.infer<typeof billFilterSchema>) {
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { timezone: true } });
+  const from = q.from ?? q.date;
+  const to = q.to ?? q.from ?? q.date;
+  if (from && to && from > to) throw badRequest("'from' date is after 'to' date");
+  let createdAt: { gte?: Date; lt: Date } | undefined;
+  if (from && to) {
+    const gte = startOfLocalDay(from, outlet.timezone);
+    const lt = new Date(startOfLocalDay(to, outlet.timezone).getTime() + 86_400_000);
+    if ((lt.getTime() - gte.getTime()) / 86_400_000 > MAX_RANGE_DAYS) throw badRequest(`Pick at most ${MAX_RANGE_DAYS} days`);
+    createdAt = { gte, lt };
+  } else if (to) {
+    // 'to' alone: everything up to the end of that day (it used to be ignored — every bill came back).
+    createdAt = { lt: new Date(startOfLocalDay(to, outlet.timezone).getTime() + 86_400_000) };
+  }
+  return {
     outletId: req.outletId,
     ...(q.status && { status: q.status }),
+    ...(q.orderType && { orderType: q.orderType }),
+    ...(q.channel && { channel: q.channel }),
+    ...(q.paymentMode === "COD"
+      ? { delivery: { is: { cod: true } } }
+      : q.paymentMode && { payments: { some: { mode: q.paymentMode, status: "SUCCESS" as const } } }),
     ...(q.search && {
       OR: [
         { invoiceNumber: { contains: q.search, mode: "insensitive" as const } },
@@ -78,21 +134,98 @@ ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
         { customerName: { contains: q.search, mode: "insensitive" as const } },
       ],
     }),
-    ...(q.date && {
-      createdAt: {
-        gte: startOfLocalDay(q.date, outlet.timezone),
-        lt: new Date(startOfLocalDay(q.date, outlet.timezone).getTime() + 86_400_000),
-      },
-    }),
+    ...(createdAt && { createdAt }),
   };
-  res.json(
-    await prisma.order.findMany({
-      where,
-      include: { items: true, payments: true, cashier: { select: { id: true, name: true } }, delivery: { select: { id: true, status: true, cod: true, agentId: true, cashSettledAt: true, agent: { select: { id: true, name: true } } } } },
-      orderBy: { createdAt: "desc" },
-      take: q.limit,
+}
+
+const billInclude = {
+  items: true,
+  payments: true,
+  cashier: { select: { id: true, name: true } },
+  delivery: { select: { id: true, status: true, cod: true, agentId: true, cashSettledAt: true, agent: { select: { id: true, name: true } } } },
+} as const;
+
+ordersRouter.get("/", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(
+    billFilterSchema.extend({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).max(100_000).default(0),
     }),
+    req.query,
   );
+  const where = await billWhere(req, q);
+  res.json(await prisma.order.findMany({ where, include: billInclude, orderBy: { createdAt: "desc" }, skip: q.offset, take: q.limit }));
+});
+
+/** Totals for the filtered bills: count, amounts, collected by payment mode (cancelled bills counted apart). */
+ordersRouter.get("/summary", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(billFilterSchema, req.query);
+  const where = await billWhere(req, q);
+  const [all, byStatus, byMode, cod, refunds] = await Promise.all([
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where, _count: true, _sum: { grandTotal: true } }),
+    // Only money actually received: failed / pending UPI QR attempts don't count (BUG-004)
+    prisma.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", order: { ...where, status: { not: "CANCELLED" } } }, _sum: { amount: true }, _count: true }),
+    prisma.order.aggregate({ where: { ...where, status: { not: "CANCELLED" }, delivery: { is: { cod: true } } }, _count: true, _sum: { grandTotal: true } }),
+    // Refunds on the listed bills (Phase 3.1)
+    prisma.order.aggregate({ where: { ...where, refundedAmount: { gt: 0 } }, _count: true, _sum: { refundedAmount: true } }),
+  ]);
+  const st = (s: string) => byStatus.find((b) => b.status === s);
+  res.json({
+    count: all,
+    billed: (st("OPEN")?._sum.grandTotal ?? 0) + (st("PAID")?._sum.grandTotal ?? 0),
+    paidCount: st("PAID")?._count ?? 0,
+    openCount: st("OPEN")?._count ?? 0,
+    openAmount: st("OPEN")?._sum.grandTotal ?? 0,
+    cancelledCount: st("CANCELLED")?._count ?? 0,
+    cancelledAmount: st("CANCELLED")?._sum.grandTotal ?? 0,
+    byMode: Object.fromEntries(byMode.map((m) => [m.mode, { amount: m._sum.amount ?? 0, count: m._count }])),
+    cod: { count: cod._count, amount: cod._sum.grandTotal ?? 0 },
+    refunds: { count: refunds._count, amount: refunds._sum.refundedAmount ?? 0 },
+  });
+});
+
+/** The filtered bills as an Excel file (up to 10,000 rows). */
+ordersRouter.get("/export", requirePermission("bills:view"), async (req, res) => {
+  const q = parse(billFilterSchema, req.query);
+  const where = await billWhere(req, q);
+  const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId }, select: { name: true, timezone: true } });
+  const rows = await prisma.order.findMany({ where, include: billInclude, orderBy: { createdAt: "desc" }, take: 10_000 });
+  const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: outlet.timezone, dateStyle: "medium", timeStyle: "short" });
+  const modes = (o: (typeof rows)[number]) => [...new Set(o.payments.filter((p) => p.status === "SUCCESS").map((p) => p.mode))].join(" + ") || (o.delivery?.cod ? "COD" : "");
+  const range = q.from || q.date ? `${q.from ?? q.date}${q.to && q.to !== (q.from ?? q.date) ? ` to ${q.to}` : ""}` : "all dates";
+  await audit(req, "bills.export", "Order", undefined, { rows: rows.length, ...q });
+  await sendExport(res, "xlsx", `bills_${(q.from ?? q.date ?? "all")}${q.to ? `_${q.to}` : ""}`, [
+    {
+      title: `Bills · ${outlet.name}`,
+      subtitle: range,
+      columns: [
+        { key: "invoice", header: "Invoice", width: 18 },
+        { key: "date", header: "Date & time", width: 20 },
+        { key: "type", header: "Type", width: 11 },
+        { key: "channel", header: "Channel", width: 11 },
+        { key: "customer", header: "Customer", width: 18 },
+        { key: "phone", header: "Phone", width: 13 },
+        { key: "mode", header: "Payment", width: 14 },
+        { key: "status", header: "Status", width: 11 },
+        { key: "cashier", header: "Cashier", width: 14 },
+        { key: "total", header: "Total", type: "money", width: 12 },
+      ],
+      rows: rows.map((o) => ({
+        invoice: o.invoiceNumber,
+        date: when(o.createdAt),
+        type: o.orderType.replace("_", "-"),
+        channel: ORDER_CHANNEL_LABELS[o.channel as keyof typeof ORDER_CHANNEL_LABELS] ?? o.channel,
+        customer: o.customerName ?? "",
+        phone: o.customerPhone ?? "",
+        mode: modes(o),
+        status: o.status,
+        cashier: o.cashier?.name ?? "",
+        total: o.status === "CANCELLED" ? 0 : o.grandTotal,
+      })),
+      totals: true,
+    },
+  ]);
 });
 
 ordersRouter.get("/:id", requirePermission("order:view"), async (req, res) => {
@@ -100,24 +233,47 @@ ordersRouter.get("/:id", requirePermission("order:view"), async (req, res) => {
   res.json({ ...order, amountPaid: amountPaid(order), balance: Math.max(0, order.grandTotal - amountPaid(order)) });
 });
 
-ordersRouter.post("/:id/cancel", requirePermission("order:cancel"), async (req, res) => {
-  const { reason } = parse(z.object({ reason: z.string().min(3).max(200) }), req.body);
+/**
+ * Void a bill. Needs order:cancel as before; with APPROVAL_PINS on, a cashier can also void
+ * with a manager's PIN, and every void is logged as an approval (Phase 3.3).
+ */
+ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:collect"), async (req, res) => {
+  if (!canActWithApproval(req, "order:cancel", "payment:collect")) throw forbidden("Insufficient permissions");
+  const { reason, approval } = parse(z.object({ reason: z.string().min(3).max(200), approval: approvalSchema.optional() }), req.body);
   const order = await getOrder(param(req, "id"), req.outletId!);
   if (order.status === "CANCELLED") throw conflict("Order already cancelled");
-  const updated = await prisma.$transaction(async (tx) => {
-    const u = await tx.order.update({
-      where: { id: order.id },
-      data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason },
-    });
-    await onOrderCancelled(tx, order.id);
-    await onOrderCancelledService(tx, order.id);
-    await restoreStockForOrder(tx, order.id);
-    await audit(req, "order.cancel", "Order", order.id, { reason, wasPaid: order.status === "PAID", invoiceNumber: order.invoiceNumber }, tx);
+  if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
+  const updated = await retryTransaction(async (tx) => {
+    // Re-check on the locked bill: a double tap / a refund at the same moment must not void it twice.
+    const fresh = await lockOrder(tx, order.id, req.outletId!);
+    if (fresh.status === "CANCELLED") throw conflict("Order already cancelled");
+    if (fresh.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
+    await lockOpenShift(tx, req.outletId!); // cash handed back is in this shift's Z-report or the next (QA Phase 7)
+    if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: fresh.grandTotal, reason, approval }, tx);
+    const u = await cancelOrderInTx(tx, req, fresh, reason);
+    // Phase 6.1: an aggregator order is cancelled on the channel too (outbox: retried until the hub answers).
+    await queueChannelStatus(tx, order.id, "CANCELLED", reason);
     return u;
   });
   emitToOutlet(req.outletId!, "order:cancelled", { id: order.id });
   void alertOrderCancelled(req.outletId!, order.id, req.user!, reason);
   res.json(updated);
+});
+
+/**
+ * Refund (credit note) on a paid bill (Phase 3.1). Same people who can void: order:cancel, or
+ * with APPROVAL_PINS on, a cashier with a manager's PIN.
+ */
+ordersRouter.post("/:id/refunds", requireAnyPermission("order:cancel", "payment:collect"), async (req, res) => {
+  if (!canActWithApproval(req, "order:cancel", "payment:collect")) throw forbidden("Insufficient permissions");
+  const note = await createCreditNote(req, param(req, "id"), parse(refundSchema, req.body));
+  emitToOutlet(req.outletId!, "order:refunded", { id: note.orderId, creditNote: note.number });
+  res.status(201).json(note);
+});
+
+ordersRouter.get("/:id/credit-notes", requirePermission("order:view"), async (req, res) => {
+  const order = await getOrder(param(req, "id"), req.outletId!);
+  res.json(await prisma.creditNote.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } }));
 });
 
 // ---------- Payments ----------
@@ -131,23 +287,60 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
   if (payments.some((p) => p.mode === "KHATA") && !order.customerPhone) {
     throw badRequest("Khata (credit) needs a customer phone number on the bill");
   }
-  const cashPart = payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount, 0);
+  // Cash tips go into the drawer too, so the customer's cash covers amount + tip.
+  const cashPart = payments.filter((p) => p.mode === "CASH").reduce((s, p) => s + p.amount + (p.tip ?? 0), 0);
   if (tendered !== undefined && tendered < cashPart) throw badRequest("Cash tendered is less than cash amount");
+  // Offline bills already happened: their payments sync even if no shift is open now.
+  if (!order.syncedOffline) await assertCashShiftOpen(req.outletId!, payments.map((p) => p.mode));
 
-  const paid = await prisma.$transaction(async (tx) => {
-    await tx.payment.createMany({
-      data: payments.map((p) => ({
-        orderId: order.id,
-        mode: p.mode,
-        amount: p.amount,
-        reference: p.reference,
-        status: "SUCCESS" as const,
-        confirmedAt: new Date(),
-      })),
-    });
+  if (payments.some((p) => p.mode === "GIFT_CARD") && !featureOn("GIFT_CARDS")) throw badRequest("Gift cards are not enabled for this hotel");
+  if (payments.some((p) => p.mode === "GIFT_CARD" && !p.giftCardCode)) throw badRequest("Enter the gift card code");
+  // Phase 5 (CANTEEN): the company's share is added when the bill is made, never typed at the counter.
+  // Phase 6: "Paid online" is money a channel took (aggregator / online page), not something typed at the counter.
+  if (payments.some((p) => p.mode === "ONLINE") && order.channel === "POS") throw badRequest("Paid online is only for orders from an online channel");
+  if (payments.some((p) => p.mode === "CORPORATE")) throw badRequest("The company's share is added automatically when the member's card is on the bill");
+  if (payments.some((p) => p.mode === "WALLET" || p.mode === "MEAL_TOKEN")) {
+    if (!moduleEnabled("CANTEEN")) throw badRequest("Canteen is not enabled for this business");
+    if (!order.customerId) throw badRequest("Wallet and meal tokens need the member's card on the bill");
+  }
+
+  const paid = await retryTransaction(async (tx) => {
+    // Two tills collecting at once: re-check on the locked bill so it is never paid twice.
+    const fresh = await lockOrder(tx, order.id, req.outletId!);
+    // Hold the open cash shift: a close at this moment waits for this payment (QA Phase 7) — and if it
+    // closed meanwhile, cash is refused again when a shift is required.
+    await lockOpenShift(tx, req.outletId!);
+    if (!order.syncedOffline) await assertCashShiftOpen(req.outletId!, payments.map((p) => p.mode), tx);
+    if (fresh.status !== "OPEN") throw conflict(`Order is ${fresh.status.toLowerCase()}`);
+    const freshBalance = fresh.grandTotal - amountPaid(fresh);
+    if (total > freshBalance) throw badRequest(`Payment ${formatINR(total)} exceeds balance ${formatINR(freshBalance)}`);
+    for (const p of payments) {
+      // Gift cards are spent with a compare-and-set inside this transaction (Phase 3.8).
+      const card = p.mode === "GIFT_CARD" ? await redeemGiftCard(tx, p.giftCardCode!, p.amount, { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id }) : null;
+      const ctx = { outletId: req.outletId!, orderId: order.id, invoiceNumber: order.invoiceNumber, userId: req.user!.id };
+      if (p.mode === "WALLET") await spendWallet(tx, order.customerId!, p.amount, ctx);
+      if (p.mode === "MEAL_TOKEN") await redeemTokens(tx, { ...ctx, customerId: order.customerId!, mealSlotId: order.mealSlotId, tokens: p.tokens ?? 1, amount: p.amount });
+      await tx.payment.create({
+        data: {
+          orderId: order.id,
+          mode: p.mode,
+          amount: p.amount,
+          reference: p.reference,
+          tip: p.tip ?? 0,
+          cardLast4: p.mode === "CARD" ? p.cardLast4 : undefined,
+          authCode: p.mode === "CARD" ? p.authCode : undefined,
+          giftCardId: card?.id,
+          tokens: p.mode === "MEAL_TOKEN" ? (p.tokens ?? 1) : undefined,
+          status: "SUCCESS" as const,
+          confirmedAt: new Date(),
+        },
+      });
+    }
     await onPaymentsRecorded(tx, order.id, payments, req.user!.id);
     await audit(req, "payment.collect", "Order", order.id, { payments, tendered }, tx);
-    return settleIfPaid(order.id, tx);
+    const settled = await settleIfPaid(order.id, tx);
+    if (process.env.NODE_ENV === "test") await paymentTestHooks.beforeCommit?.();
+    return settled;
   });
   const updated = await getOrder(order.id, req.outletId!);
   if (paid) emitToOutlet(req.outletId!, "order:paid", { id: order.id, invoiceNumber: order.invoiceNumber });
@@ -201,7 +394,11 @@ ordersRouter.post("/:id/payments/:paymentId/confirm", requirePermission("payment
   const payment = order.payments.find((p) => p.id === param(req, "paymentId"));
   if (!payment) throw notFound("Payment");
   if (payment.status !== "PENDING") throw conflict(`Payment is ${payment.status.toLowerCase()}`);
-  const paid = await prisma.$transaction(async (tx) => {
+  const paid = await retryTransaction(async (tx) => {
+    // Re-check on the locked bill: a QR left on screen after the bill was settled another way
+    // (or confirmed twice at once) used to be added on top — the bill counted as paid twice (QA Phase 7).
+    await assertConfirmable(tx, order.id, payment.id, req.outletId!);
+    await lockOpenShift(tx, req.outletId!); // a close at this moment waits for it (QA Phase 7)
     await tx.payment.update({ where: { id: payment.id }, data: { status: "SUCCESS", confirmedAt: new Date(), reference } });
     await audit(req, "payment.manual_confirm", "Payment", payment.id, { reference }, tx);
     return settleIfPaid(order.id, tx);
@@ -222,7 +419,7 @@ ordersRouter.post("/:id/cod", requirePermission("payment:collect"), async (req, 
   if (order.status !== "OPEN") throw conflict(order.status === "PAID" ? "This order is already paid" : "Order was cancelled");
   if (order.delivery.status === "DELIVERED" || order.delivery.status === "CANCELLED") throw conflict(`Delivery is ${order.delivery.status.toLowerCase()}`);
   const due = order.grandTotal - amountPaid(order);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     // Any QR shown at the counter is no longer valid once it's COD.
     if (cod) await tx.payment.updateMany({ where: { orderId: order.id, status: "PENDING" }, data: { status: "FAILED" } });
     await tx.delivery.update({ where: { id: order.delivery!.id }, data: { cod } });

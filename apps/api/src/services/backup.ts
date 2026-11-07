@@ -10,14 +10,19 @@
  */
 import path from "node:path";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readdir, stat, unlink } from "node:fs/promises";
+import { readdir, rename, stat, unlink } from "node:fs/promises";
 import { createGzip, createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
 import type { Response } from "express";
 import archiver from "archiver";
 import { Prisma } from "@prisma/client";
-import { prisma } from "../db";
+import { platformPrisma, prisma as tenantPrisma } from "../db";
+import { offsiteStore } from "./backup-store";
+import { reportError } from "../lib/observability";
+
+/** Whole-platform backup/restore crosses every hotel: it runs with RLS bypassed. */
+const prisma = platformPrisma;
 import { env } from "../env";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { storageDir } from "./storage";
@@ -30,6 +35,16 @@ const PAGE = 1000;
 const BACKUP_RE = /^canavo-backup-(auto|manual)-\d{8}-\d{6}\.ndjson\.gz$/;
 
 export const backupsDir = () => storageDir("backups");
+
+/**
+ * BigInt columns (e.g. OutboxEvent.seq) can't go through JSON as numbers: they are
+ * written as {"$bigint":"123"} and turned back into BigInt on restore.
+ */
+export const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint" ? { $bigint: v.toString() } : v);
+export const bigintReviver = (_k: string, v: unknown) =>
+  v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof (v as { $bigint?: unknown }).$bigint === "string"
+    ? BigInt((v as { $bigint: string }).$bigint)
+    : v;
 
 // ---------- Schema introspection ----------
 
@@ -124,7 +139,7 @@ export async function createBackup(kind: "auto" | "manual" = "manual") {
   const out = createWriteStream(full);
   gzip.pipe(out);
   const write = async (obj: unknown) => {
-    if (!gzip.write(JSON.stringify(obj) + "\n")) await once(gzip, "drain");
+    if (!gzip.write(JSON.stringify(obj, bigintReplacer) + "\n")) await once(gzip, "drain");
   };
   const counts: Record<string, number> = {};
   try {
@@ -165,20 +180,63 @@ export async function createBackup(kind: "auto" | "manual" = "manual") {
   const { size } = await stat(full);
   const rows = Object.values(counts).reduce((a, b) => a + b, 0);
   console.info(`[backup] wrote ${file} (${rows} rows, ${size} bytes)`);
-  return { file, size, rows, counts };
+  // Off-site copy (Phase 1.7): a failure is reported but keeps the local backup.
+  const store = offsiteStore();
+  let offsite: string | null = null;
+  if (store) {
+    try {
+      await store.put(file, full);
+      offsite = `${store.location}${file}`;
+      console.info(`[backup] copied off-site to ${offsite}`);
+    } catch (e) {
+      reportError(e, { kind: "backup.offsite", file });
+    }
+  } else if (env.NODE_ENV === "production") {
+    console.warn("[backup] no off-site store configured (BACKUP_S3_BUCKET / BACKUP_OFFSITE_DIR): backups exist on this server's disk only");
+  }
+  return { file, size, rows, counts, offsite };
 }
 
-export async function listBackups() {
+export interface BackupInfo {
+  file: string;
+  size: number;
+  createdAt: Date;
+  kind: "auto" | "manual";
+  /** local = this server's disk only; offsite = off-site store only (e.g. written by the worker); both = on disk and off-site */
+  location: "local" | "offsite" | "both";
+}
+
+/**
+ * Backups on this server's disk merged with the off-site store. With the API and the
+ * worker on separate disks (JOBS_MODE=worker), the daily backups the worker writes are
+ * visible to the API through the off-site copy. An unreachable store is reported and the
+ * local list is still returned.
+ */
+export async function listBackups(): Promise<BackupInfo[]> {
   const dir = backupsDir();
   const files = (await readdir(dir)).filter((f) => BACKUP_RE.test(f));
-  const out = await Promise.all(
-    files.map(async (file) => {
-      const s = await stat(path.join(dir, file));
-      return { file, size: s.size, createdAt: s.mtime, kind: file.includes("-auto-") ? "auto" : "manual" };
-    }),
-  );
-  return out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.file.localeCompare(a.file));
+  const byFile = new Map<string, BackupInfo>();
+  for (const file of files) {
+    const s = await stat(path.join(dir, file));
+    byFile.set(file, { file, size: s.size, createdAt: s.mtime, kind: backupKind(file), location: "local" });
+  }
+  const store = offsiteStore();
+  if (store) {
+    try {
+      for (const o of await store.list()) {
+        if (!BACKUP_RE.test(o.key)) continue;
+        const local = byFile.get(o.key);
+        if (local) local.location = "both";
+        else byFile.set(o.key, { file: o.key, size: o.size, createdAt: o.lastModified, kind: backupKind(o.key), location: "offsite" });
+      }
+    } catch (e) {
+      reportError(e, { kind: "backup.offsite.list" });
+    }
+  }
+  return [...byFile.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.file.localeCompare(a.file));
 }
+
+const backupKind = (file: string): BackupInfo["kind"] => (file.includes("-auto-") ? "auto" : "manual");
 
 /** Resolve a backup file name to a path inside the backups dir (rejects traversal / unknown names). */
 export function backupPath(file: string): string {
@@ -186,19 +244,41 @@ export function backupPath(file: string): string {
   return path.join(backupsDir(), file);
 }
 
+/** Local path of a backup; a backup that exists only off-site is fetched to this disk first. */
 export async function assertBackupExists(file: string) {
   const p = backupPath(file);
   try {
     await stat(p);
+    return p;
   } catch {
+    // not on this disk — try the off-site copy
+  }
+  const store = offsiteStore();
+  if (!store) throw notFound("Backup");
+  let objects: Awaited<ReturnType<typeof store.list>>;
+  try {
+    objects = await store.list();
+  } catch (e) {
+    reportError(e, { kind: "backup.offsite.list" });
     throw notFound("Backup");
   }
+  if (!objects.some((o) => o.key === file)) throw notFound("Backup");
+  const partial = `${p}.download`;
+  try {
+    await store.get(file, partial);
+    await rename(partial, p);
+  } catch (e) {
+    await unlink(partial).catch(() => undefined);
+    throw e;
+  }
+  console.info(`[backup] fetched ${file} from ${store.location}`);
   return p;
 }
 
 /** Keep the newest `keep` automatic backups. */
 export async function pruneBackups(keep = env.BACKUP_RETENTION) {
-  const autos = (await listBackups()).filter((b) => b.kind === "auto").sort((a, b) => b.file.localeCompare(a.file));
+  // Local disk only; off-site retention is the bucket's lifecycle rule (docs/deployment/DEPLOYMENT.md).
+  const autos = (await listBackups()).filter((b) => b.kind === "auto" && b.location !== "offsite").sort((a, b) => b.file.localeCompare(a.file));
   for (const b of autos.slice(keep)) {
     await unlink(path.join(backupsDir(), b.file));
     console.info(`[backup] pruned ${b.file}`);
@@ -219,6 +299,46 @@ function reviveRow(m: DmmfModel, r: Row): Row {
   return out;
 }
 
+/** Autoincrement columns (e.g. OutboxEvent.seq): their sequences must continue after the restored rows. */
+function serialColumns(): { table: string; column: string }[] {
+  return models().flatMap((m) =>
+    m.fields
+      .filter((f) => f.kind === "scalar" && typeof f.default === "object" && f.default !== null && "name" in f.default && f.default.name === "autoincrement")
+      .map((f) => ({ table: tableName(m), column: f.dbName ?? f.name })),
+  );
+}
+
+async function resetSequences(tx: Tx) {
+  for (const { table, column } of serialColumns()) {
+    await tx.$executeRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('"${table}"', '${column}'), coalesce((SELECT max("${column}") FROM "${table}"), 0) + 1, false)`,
+    );
+  }
+}
+
+/**
+ * A restore empties every table (TRUNCATE) and moves sequences (UPDATE on the sequence). A
+ * least-privilege app role often has only SELECT/INSERT/UPDATE/DELETE: refuse up front, with the
+ * grant to run, instead of failing half-way through (docs/deployment/DEPLOYMENT.md §1).
+ */
+async function assertRestorePrivileges() {
+  const tables = models().map(tableName);
+  const missing = await prisma.$queryRaw<{ t: string }[]>`
+    SELECT t FROM unnest(${tables}::text[]) AS t WHERE NOT has_table_privilege(format('%I', t), 'TRUNCATE')`;
+  const seqs = serialColumns();
+  const missingSeq = seqs.length
+    ? await prisma.$queryRaw<{ s: string }[]>`
+        SELECT s FROM unnest(${seqs.map((c) => `"${c.table}".${c.column}`)}::text[]) AS s
+        WHERE NOT has_sequence_privilege(pg_get_serial_sequence(split_part(s, '.', 1), split_part(s, '.', 2)), 'UPDATE')`
+    : [];
+  if (missing.length || missingSeq.length) {
+    throw conflict(
+      `This database role can't restore a backup: it lacks TRUNCATE on ${missing.length} table(s)${missingSeq.length ? " and UPDATE on the ID sequences" : ""}. ` +
+        "Nothing was changed. Run as the database owner: GRANT TRUNCATE ON ALL TABLES IN SCHEMA public TO <app role>; GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO <app role>;",
+    );
+  }
+}
+
 export async function restoreBackup(file: string) {
   const full = await assertBackupExists(file);
   const byName = new Map(models().map((m) => [m.name, m]));
@@ -237,11 +357,20 @@ export async function restoreBackup(file: string) {
     );
   }
 
+  try {
+    await assertRestorePrivileges();
+  } catch (e) {
+    lines.close();
+    throw e;
+  }
+
   const counts: Record<string, number> = {};
   await prisma.$transaction(
     async (tx) => {
       const tables = models().map((m) => `"${tableName(m)}"`).join(", ");
-      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`);
+      // No RESTART IDENTITY: it needs sequence ownership, which a least-privilege app role doesn't have.
+      // Sequences are moved past the restored rows below instead.
+      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE`);
       let model: DmmfModel | undefined;
       let batch: Row[] = [];
       let ended = false;
@@ -253,12 +382,13 @@ export async function restoreBackup(file: string) {
       };
       for (let n = await iter.next(); !n.done; n = await iter.next()) {
         if (!n.value.trim()) continue;
-        const rec = JSON.parse(n.value) as { m?: string; r?: Row; type?: string; counts?: Record<string, number> };
+        const rec = JSON.parse(n.value, bigintReviver) as { m?: string; r?: Row; type?: string; counts?: Record<string, number> };
         if (rec.type === "end") {
           await flush();
           for (const [name, c] of Object.entries(rec.counts ?? {})) {
             if ((counts[name] ?? 0) !== c) throw new Error(`Row count mismatch for ${name}: file says ${c}, restored ${counts[name] ?? 0}`);
           }
+          await resetSequences(tx);
           ended = true;
           break;
         }
@@ -291,8 +421,8 @@ export async function tableCounts(): Promise<Record<string, number>> {
 // ---------- Data export (redacted) ----------
 
 /** Secrets never leave the server in a data export (backups are full-fidelity). */
-const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode"]);
-const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc"]);
+const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey"]);
+const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc"]);
 
 function redact(r: Row): Row {
   const out: Row = {};
@@ -329,7 +459,7 @@ function businessWhere(m: DmmfModel, businessId: string, outletIds: string[], de
 }
 
 export async function streamExport(res: Response, format: "json" | "csv-zip", businessId?: string) {
-  const outletIds = businessId ? (await prisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
+  const outletIds = businessId ? (await tenantPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
   const scoped = insertOrder()
     .filter((m) => !EXCLUDED_MODELS.has(m.name))
     .map((m) => ({ m, where: businessId ? businessWhere(m, businessId, outletIds) : undefined }))
@@ -337,7 +467,8 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
   const order = scoped.map((x) => x.m);
   const whereOf = new Map(scoped.map((x) => [x.m.name, x.where ?? undefined]));
   const ts = stamp();
-  const tx = prisma as unknown as Tx;
+  // The owner's export runs on the tenant client: RLS confines it to their hotel as a second guard.
+  const tx = (businessId ? tenantPrisma : prisma) as unknown as Tx;
   if (format === "json") {
     res.setHeader("content-disposition", `attachment; filename="canavo-export-${ts}.json"`);
     res.type("application/json");
@@ -353,7 +484,7 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
         m,
         async (rows) => {
           for (const r of rows) {
-            await w((firstRow ? "" : ",") + JSON.stringify(redact(r)));
+            await w((firstRow ? "" : ",") + JSON.stringify(redact(r), (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
             firstRow = false;
           }
         },

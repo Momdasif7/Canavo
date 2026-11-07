@@ -1,11 +1,13 @@
 "use client";
 
+import { IncomingOrders } from "@/components/storefront/IncomingOrders";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePromotionPreview } from "@/hooks/usePromotionPreview";
 import { WifiSlash } from "@phosphor-icons/react";
 import { indianPhone, type OrderCreateInput } from "@canavo/shared";
 import { api, errorMessage, isNetworkError } from "@/lib/api";
 import { enqueueOrder, loadMenu, type QueuedPayment } from "@/lib/offline";
+import { clearOfflineSeries, nextOfflineInvoiceNumber, refreshOfflineSeries } from "@/lib/offline-series";
 import { PAYMENT_MODE_LABELS, formatINR } from "@/lib/format";
 import type { Menu, MenuItem, Order } from "@/lib/types";
 import type { ActiveOffer, CustomerLookupResult, DeliveryAgent, DeliveryQuote, PromotionPreview } from "@/lib/types-service";
@@ -13,6 +15,7 @@ import { useSession } from "@/components/providers/SessionProvider";
 import { useConnectivity } from "@/components/providers/ConnectivityProvider";
 import { useSocketEvent } from "@/components/providers/SocketProvider";
 import { useToast } from "@/components/providers/ToastProvider";
+import { useApproval } from "@/components/providers/ApprovalProvider";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useDebouncedValue } from "@/hooks/useDebounced";
 import { ErrorState, LoadingState } from "@/components/ui/States";
@@ -22,6 +25,7 @@ import { CartPanel, allowedOrderTypes, type CartTotals } from "@/components/pos/
 import { CustomerCard, DeliveryFields, OffersBanner, PreOrderField, PromoFields } from "@/components/pos/PosExtras";
 import { PaymentDialog, orderBalance, type Checkout } from "@/components/pos/PaymentDialog";
 import { SuccessPanel, type Success } from "@/components/pos/SuccessPanel";
+import { MemberScan } from "@/components/pos/MemberScan";
 import { confirmForceAssign, partnerUnavailable } from "@/components/delivery/common";
 import {
   EMPTY_META,
@@ -30,6 +34,7 @@ import {
   deliveryCoords,
   freeBadge,
   isBlankCart,
+  lineStockWarning,
   loadSavedCart,
   makeLine,
   metaError,
@@ -52,6 +57,7 @@ export default function PosPage() {
   useSocketEvent("outlet:updated", () => void reloadOutlet());
   const { online } = useConnectivity();
   const toast = useToast();
+  const withApproval = useApproval();
 
   // ----- Menu -----
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -80,6 +86,23 @@ export default function PosPage() {
   }, [online, fromCache, fetchMenu]);
 
   useSocketEvent("menu:changed", () => void fetchMenu());
+  // Canteen meal slots: the menu changes when the next slot opens, so refresh it every minute.
+  const hasSlots = menu?.mealSlot !== undefined;
+  useEffect(() => {
+    if (!hasSlots || !online) return;
+    const t = window.setInterval(() => void fetchMenu(), 60_000);
+    return () => window.clearInterval(t);
+  }, [hasSlots, online, fetchMenu]);
+
+  // ----- Offline invoice series (Phase 3.4): fetched while online so offline bills get final numbers -----
+  const seriesOn = Boolean(me?.features?.OFFLINE_INVOICE_SERIES);
+  const meLoaded = Boolean(me);
+  useEffect(() => {
+    // Wait for the session: clearing on a not-yet-loaded `me` would drop the series while offline.
+    if (!outletId || !meLoaded) return;
+    if (!seriesOn) return clearOfflineSeries(outletId);
+    if (online) void refreshOfflineSeries(outletId);
+  }, [outletId, meLoaded, seriesOn, online]);
 
   // ----- Active offers banner -----
   const [offers, setOffers] = useState<ActiveOffer[]>([]);
@@ -146,7 +169,8 @@ export default function PosPage() {
   );
 
   const patchMeta = useCallback((patch: Partial<CartMeta>) => {
-    setMeta((m) => ({ ...m, ...patch }));
+    // Typing another phone takes the scanned member off the bill.
+    setMeta((m) => ({ ...m, ...("customerPhone" in patch && !("memberId" in patch) && patch.customerPhone !== m.customerPhone ? { memberId: undefined } : {}), ...patch }));
     if ("customerPhone" in patch) setPhoneError(undefined);
   }, []);
   const patchDelivery = useCallback((patch: Partial<DeliveryMeta>) => setMeta((m) => ({ ...m, delivery: { ...m.delivery, ...patch } })), []);
@@ -303,7 +327,18 @@ export default function PosPage() {
   const pointsError = pointsWarnings.join(" · ") || (currentErr && !couponError && /point/i.test(currentErr) ? currentErr : null) || null;
   /** Charging with a rejected coupon / points would fail at the server: fix it first */
   const promoBlocker = online && meta.couponCode.trim() && couponError ? "Fix or remove the coupon to charge" : online && pointsError && meta.redeemPoints.trim() ? "Fix the points to redeem" : null;
-  const chargeBlocker = blocker ?? promoBlocker;
+  /** Lines whose item / size ran out (e.g. a restored cart, or the bill was refused): line key → warning */
+  const stockWarnings = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!menu) return m;
+    for (const l of lines) {
+      const w = lineStockWarning(l, menu.items);
+      if (w) m.set(l.key, w);
+    }
+    return m;
+  }, [lines, menu]);
+  const stockBlocker = stockWarnings.size ? "Remove the out-of-stock items to charge" : null;
+  const chargeBlocker = blocker ?? stockBlocker ?? promoBlocker;
 
   // GST: never show tax rows for an outlet that isn't GST registered or a plain BILL — including
   // the local fallback, a stale outlet and the first render before the outlet has loaded.
@@ -329,6 +364,7 @@ export default function PosPage() {
         roundOff: serverPreview.bill.roundOff,
         grandTotal: serverPreview.bill.grandTotal,
         applied: serverPreview.applied,
+        comparison: serverPreview.comparison,
         ...(showTax ? {} : noTax),
       }
     : {
@@ -436,13 +472,15 @@ export default function PosPage() {
     setCharging(true);
     try {
       let order: Order;
+      // A discount above the outlet's limit asks for a manager's PIN, then retries (APPROVAL_PINS).
+      const create = (body: typeof input) => withApproval((approval) => api.post<Order>("/orders", { ...body, approval }));
       try {
-        order = await api.post<Order>("/orders", input);
+        order = await create(input);
       } catch (e) {
         // The chosen partner can't take another order: managers / owners may assign anyway.
         const blocked = partnerUnavailable(e);
         if (!blocked?.canForce || !input.delivery || !confirmForceAssign(blocked.message)) throw e;
-        order = await api.post<Order>("/orders", { ...input, delivery: { ...input.delivery, forceAssign: true } });
+        order = await create({ ...input, delivery: { ...input.delivery, forceAssign: true } });
       }
       if (serverPreview && order.grandTotal !== serverPreview.bill.grandTotal) {
         toast(`Final total ${formatINR(order.grandTotal)} differs from the preview (${formatINR(serverPreview.bill.grandTotal)})`, "info");
@@ -468,7 +506,11 @@ export default function PosPage() {
       else setCheckout({ kind: "online", order });
     } catch (e) {
       if (isNetworkError(e)) setCheckout({ kind: "offline", total: localBill.grandTotal, customerPhone: input.customerPhone });
-      else toast(errorMessage(e), "error");
+      else {
+        toast(errorMessage(e), "error");
+        // "Vada Pav is out of stock (Pav buns ran out)": refresh the menu so the line gets flagged.
+        if (/out of stock/i.test(errorMessage(e))) void fetchMenu();
+      }
     } finally {
       setCharging(false);
     }
@@ -505,11 +547,13 @@ export default function PosPage() {
     const pending = pendingInput.current;
     if (!pending || !outletId) return;
     const createdAt = new Date().toISOString();
+    // This browser's own series (if the hotel uses it) gives the final number now; else it's assigned at sync.
+    const invoiceNumber = seriesOn ? nextOfflineInvoiceNumber(outletId, createdAt, outlet?.timezone ?? "Asia/Kolkata") : null;
     try {
       await enqueueOrder({
         clientOrderId: pending.input.clientOrderId!,
         outletId,
-        order: { ...pending.input, createdAt },
+        order: { ...pending.input, createdAt, ...(invoiceNumber && { offlineInvoiceNumber: invoiceNumber }) },
         payments,
         tendered,
         previewTotal: pending.previewTotal,
@@ -519,6 +563,7 @@ export default function PosPage() {
       setSuccess({
         kind: "offline",
         clientOrderId: pending.input.clientOrderId!,
+        invoiceNumber,
         total: payments.reduce((s, x) => s + x.amount, 0),
         change,
         modes: [...new Set(payments.map((x) => PAYMENT_MODE_LABELS[x.mode]))],
@@ -549,8 +594,19 @@ export default function PosPage() {
   if (menuError && !menu) return <ErrorState message={menuError} onRetry={fetchMenu} />;
   if (!menu) return <LoadingState label="Loading menu…" />;
 
+  // Phase 5.2: canteen card scan attaches a member (and their phone) to the bill.
+  const canteenOn = Boolean(me?.modules?.includes("CANTEEN")) && online;
   const details = (
     <>
+      {canteenOn && (
+        <MemberScan
+          memberId={meta.memberId}
+          phone={meta.customerPhone.trim()}
+          billTotal={totals.grandTotal}
+          onAttach={(m) => patchMeta({ memberId: m.id, customerPhone: m.phone, customerName: m.name ?? "" })}
+          onClear={() => patchMeta({ memberId: undefined, customerPhone: "", customerName: "" })}
+        />
+      )}
       <CustomerCard lookup={lookup} loading={lookingUp} />
       {isDelivery && (
         <DeliveryFields
@@ -568,16 +624,22 @@ export default function PosPage() {
       {meta.orderType === "PRE_ORDER" && <PreOrderField value={meta.scheduledFor} onChange={(scheduledFor) => patchMeta({ scheduledFor })} />}
     </>
   );
-  const hasDetails = lookingUp || !!lookup || isDelivery || meta.orderType === "PRE_ORDER";
+  const hasDetails = canteenOn || lookingUp || !!lookup || isDelivery || meta.orderType === "PRE_ORDER";
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Menu side */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {online && <IncomingOrders />}
         {(!online || fromCache) && (
           <div className="flex items-center gap-2 bg-red-600 px-4 py-2 text-sm font-semibold text-white">
             <WifiSlash size={18} />
             {online ? "Showing saved menu — reconnecting…" : "Offline — bills are saved on this device and sync automatically"}
+          </div>
+        )}
+        {menu.mealSlot !== undefined && (
+          <div className="border-b border-line bg-surface-2 px-4 py-1.5 text-sm text-muted">
+            {menu.mealSlot ? `${menu.mealSlot.name} menu (${menu.mealSlot.startTime}–${menu.mealSlot.endTime})` : "Between meal slots: only all-day items"}
           </div>
         )}
         <MenuBrowser menu={menu} qtyByItem={qtyByItem} onSelect={selectItem} timezone={outlet?.timezone} searchRef={searchRef} header={<OffersBanner offers={offers} />} />
@@ -588,6 +650,7 @@ export default function PosPage() {
         <CartPanel
           orderTypes={allowedOrderTypes(me?.modules)}
           lines={lines}
+          stockWarnings={stockWarnings}
           meta={meta}
           totals={totals}
           previewing={!!previewKey && online && pending}

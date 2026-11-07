@@ -12,6 +12,8 @@ export const MODULES = [
   "OFFERS",
   "ATTENDANCE",
   "REPORTS",
+  "CANTEEN",
+  "CHANNELS",
 ] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
@@ -26,6 +28,16 @@ export const MODULE_INFO: Record<ModuleKey, { label: string; description: string
   OFFERS: { label: "Offers & coupons", description: "Combos, happy hours, coupons", requires: ["BILLING"] },
   ATTENDANCE: { label: "Attendance & leave", description: "Clock-in/out, shifts, leave, salary sheet", requires: [] },
   REPORTS: { label: "Reports", description: "Sales, GST, profit, staff and other reports", requires: [] },
+  CANTEEN: {
+    label: "Canteen & institutional",
+    description: "Corporate accounts, subsidies, wallets and cards, meal slots, pre-orders, subscriptions",
+    requires: ["BILLING", "CUSTOMERS"],
+  },
+  CHANNELS: {
+    label: "Online orders & channels",
+    description: "QR table ordering, online ordering page, digital menu, Zomato / Swiggy via a partner hub",
+    requires: ["BILLING"],
+  },
 };
 
 /** Which module a permission belongs to; permissions not listed are always available. */
@@ -34,6 +46,9 @@ export const PERMISSION_MODULE: Partial<Record<Permission, ModuleKey>> = {
   "order:view": "BILLING",
   "bills:view": "BILLING",
   "order:cancel": "BILLING",
+  "approval:grant": "BILLING",
+  "canteen:manage": "CANTEEN",
+  "channel:manage": "CHANNELS",
   "payment:collect": "BILLING",
   "kot:view": "KOT",
   "kot:update": "KOT",
@@ -70,7 +85,7 @@ export function permissionEnabled(permission: Permission, modules: readonly stri
   return !m || modules.includes(m);
 }
 
-/** Effective permissions = role permissions ∩ enabled modules. */
-export function effectivePermissions(role: Role, modules: readonly string[] | null): Permission[] {
-  return PERMISSIONS.filter((p) => ROLE_PERMISSIONS[role].includes(p) && permissionEnabled(p, modules));
+/** Effective permissions = role permissions ∩ custom role (if any) ∩ enabled modules. */
+export function effectivePermissions(role: Role, modules: readonly string[] | null, custom?: readonly string[] | null): Permission[] {
+  return PERMISSIONS.filter((p) => ROLE_PERMISSIONS[role].includes(p) && (!custom || custom.includes(p)) && permissionEnabled(p, modules));
 }

@@ -6,8 +6,6 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { compactINR, fmtInt, fmtPct, formatINR } from "./shared";
 
-/** Brand colour for single-series charts (matches the dashboard). */
-export const BRAND = "#FF6B35";
 
 /**
  * Categorical palette — fixed order, never cycled (validated for CVD
@@ -19,10 +17,12 @@ const CATEGORICAL = {
 };
 
 export function useChartColors() {
-  const { theme } = useTheme();
+  const { theme, accent } = useTheme();
   const dark = theme === "dark";
   return {
     dark,
+    /** Single-series colour: the accent on screen (business brand or the user's own) */
+    brand: accent,
     axis: dark ? "#A8A8BE" : "#626270",
     grid: dark ? "#3E3E60" : "#E2E0DA",
     surface: dark ? "#23233C" : "#FFFFFF",
@@ -61,7 +61,7 @@ export function ColumnChart<T extends object>({
   tooltipExtra,
   height = 288,
   label,
-  color = BRAND,
+  color,
 }: {
   data: T[];
   xKey: keyof T & string;
@@ -105,7 +105,7 @@ export function ColumnChart<T extends object>({
               );
             }}
           />
-          <Bar dataKey={yKey} fill={color} radius={[4, 4, 0, 0]} maxBarSize={40} />
+          <Bar dataKey={yKey} fill={color ?? c.brand} radius={[4, 4, 0, 0]} maxBarSize={40} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -120,7 +120,7 @@ export function RankedBars<T extends object>({
   kind,
   label,
   extra,
-  color = BRAND,
+  color,
 }: {
   data: T[];
   nameKey: keyof T & string;
@@ -155,7 +155,7 @@ export function RankedBars<T extends object>({
               return <TooltipBox title={String(row[nameKey])} rows={[{ value: fmtValue(Number(row[valueKey]), kind) }, ...(extra?.(row) ?? [])]} />;
             }}
           />
-          <Bar dataKey={valueKey} fill={color} radius={[0, 4, 4, 0]} maxBarSize={24} />
+          <Bar dataKey={valueKey} fill={color ?? c.brand} radius={[0, 4, 4, 0]} maxBarSize={24} />
         </BarChart>
       </ResponsiveContainer>
     </div>

@@ -1,7 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Prisma, TaxRate } from "@prisma/client";
 import {
-  can,
   effectiveGstRate,
   permissionEnabled,
   roundRate,
@@ -14,7 +13,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse, unauthorized } from "../lib/http";
 import { requireBusinessId, tenant } from "../lib/tenant";
-import { authenticate, requireBusiness, requireOutlet, requirePermission } from "../middleware/auth";
+import { authenticate, requireBusiness, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 import { taxRateJson } from "../services/tax";
 
 /**
@@ -33,7 +32,7 @@ const requireAnyPermission =
   (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw unauthorized();
     const modules = tenant()?.modules ?? null;
-    if (!permissions.some((p) => can(req.user!.role, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
+    if (!permissions.some((p) => userCan(req, p) && permissionEnabled(p, modules))) throw forbidden("Insufficient permissions");
     next();
   };
 
@@ -47,6 +46,13 @@ function warningsFor(r: { cgst: number; sgst: number; igst: number }): string[] 
   if (r.cgst !== r.sgst) w.push(CGST_SGST_WARNING);
   if (roundRate(r.cgst + r.sgst) !== roundRate(r.igst)) w.push(IGST_WARNING);
   return w;
+}
+
+/** CGST + SGST (intra-state) or IGST (inter-state), plus cess, is at most 100 % (QA Phase 7, D6). */
+function assertTotalAtMost100(r: { cgst: number; sgst: number; igst: number; cess: number }) {
+  if (roundRate(r.cgst + r.sgst + r.cess) > 100 || roundRate(r.igst + r.cess) > 100) {
+    throw badRequest("GST plus cess can be at most 100% (CGST + SGST + cess, and IGST + cess)");
+  }
 }
 
 const withCount = { _count: { select: { menuItems: true } } } as const;
@@ -85,6 +91,7 @@ taxRatesRouter.get("/:id", requireAnyPermission("menu:view", "settings:billing")
 taxRatesRouter.post("/", requirePermission("settings:billing"), async (req, res) => {
   const data = parse(taxRateSchema, req.body);
   const igst = data.igst ?? roundRate(data.cgst + data.sgst);
+  assertTotalAtMost100({ ...data, igst });
   if (data.isDefault && !data.active) throw badRequest("An inactive rate cannot be the default");
   await assertUniqueName(data.name);
   const rate = await prisma.$transaction(async (tx) => {
@@ -115,6 +122,7 @@ taxRatesRouter.patch("/:id", requirePermission("settings:billing"), async (req, 
   const sgst = data.sgst ?? current.sgst;
   // IGST follows CGST + SGST unless given explicitly.
   const igst = data.igst ?? (data.cgst !== undefined || data.sgst !== undefined ? roundRate(cgst + sgst) : current.igst);
+  assertTotalAtMost100({ cgst, sgst, igst, cess: data.cess ?? current.cess });
   const active = data.active ?? current.active;
   const isDefault = data.isDefault ?? current.isDefault;
   if (current.isDefault && data.isDefault === false) throw badRequest("Make another rate the default instead of unsetting it");

@@ -5,10 +5,28 @@ import { seedService } from "./seed-service";
 import { seedCrm } from "./seed-crm";
 import { seedPlatform } from "./seed-platform";
 
-const prisma = new PrismaClient();
+/**
+ * The seed is platform work: like the platform client (src/db.ts) it bypasses row-level security.
+ * Needed whenever the database role isn't a superuser (Render / Neon owners): FORCE RLS binds them,
+ * and without the setting every read sees no rows and every insert is refused.
+ */
+function seedUrl(raw = process.env.DATABASE_URL) {
+  if (!raw) return undefined;
+  const u = new URL(raw);
+  const options = [u.searchParams.get("options"), "-c app.bypass_rls=on"].filter(Boolean).join(" ");
+  u.searchParams.delete("options");
+  return `${u.toString()}${u.search ? "&" : "?"}options=${encodeURIComponent(options)}`;
+}
+const url = seedUrl();
+const prisma = new PrismaClient(url ? { datasources: { db: { url } } } : undefined);
 const rs = (n: number) => Math.round(n * 100);
 
 async function main() {
+  // The demo seed creates logins with a published password: never in production.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_SEED !== "1") {
+    console.error("Refusing to seed demo data in production (it creates demo logins with a known password). Set ALLOW_DEMO_SEED=1 only for a throwaway demo environment.");
+    process.exit(1);
+  }
   if (await prisma.outlet.count()) {
     console.info("Base data already seeded — skipping.");
   } else {
@@ -20,6 +38,32 @@ async function main() {
   await seedCrm(prisma);
   await seedPlatform(prisma);
   await ensureDemoOwner();
+  await ensureDemoRoles();
+}
+
+/** One demo login for each role added after the base seed (idempotent, also added to existing databases). */
+async function ensureDemoRoles() {
+  const outlet = await prisma.outlet.findFirst({ where: { businessId: DEMO_BUSINESS_ID }, orderBy: { createdAt: "asc" } });
+  if (!outlet) return;
+  const roles = [
+    { name: "Wasim Waiter", phone: "9876500007", email: "waiter@canavo.local", role: "WAITER" as const },
+    { name: "Anita Accountant", phone: "9876500008", email: "accountant@canavo.local", role: "ACCOUNTANT" as const },
+    { name: "Arjun Auditor", phone: "9876500009", email: "auditor@canavo.local", role: "AUDITOR" as const },
+  ];
+  let password: string | undefined;
+  for (const r of roles) {
+    if (await prisma.user.findUnique({ where: { phone: r.phone } })) continue;
+    password ??= await bcrypt.hash("Canavo@123", 10);
+    await prisma.user.create({ data: { ...r, businessId: DEMO_BUSINESS_ID, passwordHash: password, outlets: { create: { outletId: outlet.id } } } });
+    console.info(`Demo ${r.role.toLowerCase()}: ${r.email} / Canavo@123`);
+  }
+  // Platform support: a platform login (no business), like the super admin.
+  if (!(await prisma.user.findUnique({ where: { phone: "9876500010" } }))) {
+    await prisma.user.create({
+      data: { name: "Sana Support", phone: "9876500010", email: "support@canavo.local", role: "PLATFORM_SUPPORT", passwordHash: password ?? (await bcrypt.hash("Canavo@123", 10)) },
+    });
+    console.info("Demo platform support: support@canavo.local / Canavo@123");
+  }
 }
 
 /** A business-owner login for the demo business (idempotent, also added to existing databases). */
@@ -46,7 +90,8 @@ async function seedBase() {
   // The multi-business migration already inserts the demo business and its GST rates; upsert so a fresh DB seeds cleanly.
   await prisma.business.upsert({
     where: { id: businessId },
-    create: { id: businessId, name: "Demo Hotel", ownerName: "Omkar Owner", modules: ALL_MODULES },
+    // The demo hotel shows off flagged features; real hotels start with every flag off.
+    create: { id: businessId, name: "Demo Hotel", ownerName: "Omkar Owner", modules: ALL_MODULES, features: { AUTO_STOCK_OUT: true } },
     update: { ownerName: "Omkar Owner", modules: ALL_MODULES },
   });
   for (const [rate, name] of [[0, "GST 0% (Exempt)"], [5, "GST 5%"], [12, "GST 12%"], [18, "GST 18%"], [28, "GST 28%"]] as const) {
@@ -113,7 +158,7 @@ async function seedBase() {
 
   type Seed = {
     name: string; categoryId: string; price: number; foodType?: FoodType; gstRate?: number; station?: string;
-    from?: string; to?: string; variants?: [string, number][]; addons?: [string, number][]; description?: string;
+    from?: string; to?: string; variants?: [string, number][]; addons?: [string, number][]; description?: string; hsn?: string;
   };
   const items: Seed[] = [
     { name: "Masala Chai", categoryId: hot, price: 15, station: "BEVERAGE", variants: [["Regular", 15], ["Large", 25]] },
@@ -128,6 +173,10 @@ async function seedBase() {
     { name: "Veg Sandwich", categoryId: snacks, price: 50, addons: [["Extra cheese", 20], ["No onion", 0]] },
     { name: "Egg Puff", categoryId: snacks, price: 30, foodType: "EGG" },
     { name: "Chicken Puff", categoryId: snacks, price: 40, foodType: "NON_VEG" },
+    // Packaged / exempt goods sold over the counter carry their own GST (not the 5% restaurant rate).
+    { name: "Mineral Water (1 L)", categoryId: cold, price: 20, gstRate: 18, station: "BEVERAGE", hsn: "2201" },
+    { name: "Packaged Namkeen", categoryId: snacks, price: 30, gstRate: 12, hsn: "2106" },
+    { name: "Tender Coconut", categoryId: cold, price: 50, gstRate: 0, station: "BEVERAGE", hsn: "0801" },
     { name: "Masala Dosa", categoryId: meals, price: 60, from: "07:00", to: "11:30", description: "Breakfast only" },
     { name: "Idli Vada", categoryId: meals, price: 45, from: "07:00", to: "11:30", description: "Breakfast only" },
     { name: "Veg Thali", categoryId: meals, price: 110, from: "12:00", to: "15:30" },
@@ -150,7 +199,7 @@ async function seedBase() {
         price: rs(it.price),
         foodType: it.foodType ?? "VEG",
         gstRate: it.gstRate ?? 5,
-        hsnCode: "996331",
+        hsnCode: it.hsn ?? "996331",
         allergens: [],
         kitchenStation: it.station ?? "MAIN",
         availableFrom: it.from,

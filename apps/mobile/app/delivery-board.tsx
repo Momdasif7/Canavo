@@ -28,6 +28,8 @@ function DeliveryBoard() {
   const [list, setList] = useState<Delivery[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** "Customer notified on WhatsApp" after a status change the server sent automatically */
+  const [notified, setNotified] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("ACTIVE");
   const [assigning, setAssigning] = useState<Delivery | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -73,9 +75,11 @@ function DeliveryBoard() {
     if (!next) return;
     setBusy(d.id);
     setActionError(null);
+    setNotified(null);
     try {
-      await endpoints.deliveryStatus(d.id, next.status);
+      const updated = await endpoints.deliveryStatus(d.id, next.status);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (updated.customerMessage?.autoSent) setNotified(`${d.order.invoiceNumber}: Customer notified on WhatsApp`);
       await load();
     } catch (e) {
       setActionError(errorMessage(e));
@@ -122,6 +126,7 @@ function DeliveryBoard() {
       />
       {error ? <Notice kind="warning" message={`Live refresh failed: ${error}`} /> : null}
       {actionError ? <Notice kind="error" message={actionError} /> : null}
+      {notified ? <Notice kind="success" message={notified} /> : null}
       {visible.length === 0 ? (
         <View style={{ height: 240 }}>
           <EmptyState icon="bicycle-outline" title="Nothing here" message="Delivery orders from the POS show up here." />

@@ -1,0 +1,39 @@
+-- notifications
+-- calls during capture: 4; server-side max 0.6 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Notification"."id", "Notification"."userId", "Notification"."title", "Notification"."body", "Notification"."kind", "Notification"."link", "Notification"."outletId", "Notification"."read", "Notification"."createdAt" FROM "Notification" WHERE "Notification"."userId" = $1 ORDER BY "Notification"."createdAt" DESC LIMIT $2 OFFSET $3
+-- params: $1 = 'usr1_1', $2 = '51', $3 = '0'
+
+==== BEFORE (0.635 ms, median of 3)
+Limit  (cost=0.42..1163.70 rows=51 width=71) (actual time=0.195..0.566 rows=51 loops=1)
+  Buffers: shared hit=60
+  ->  Index Scan Backward using "Notification_userId_createdAt_idx" on "Notification"  (cost=0.42..5725.59 rows=251 width=71) (actual time=0.194..0.560 rows=51 loops=1)
+        Index Cond: ("userId" = 'usr1_1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 2))
+        Buffers: shared hit=60
+        SubPlan 2
+          ->  Seq Scan on "User" parent  (cost=0.00..9.50 rows=101 width=7) (actual time=0.011..0.109 rows=100 loops=1)
+                Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platfor
+                Rows Removed by Filter: 100
+                Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=225
+Planning Time: 1.511 ms
+Execution Time: 0.635 ms
+
+==== AFTER (0.504 ms, median of 3)
+Limit  (cost=0.42..1163.70 rows=51 width=71) (actual time=0.158..0.439 rows=51 loops=1)
+  Buffers: shared hit=60
+  ->  Index Scan Backward using "Notification_userId_createdAt_idx" on "Notification"  (cost=0.42..5725.59 rows=251 width=71) (actual time=0.157..0.434 rows=51 loops=1)
+        Index Cond: ("userId" = 'usr1_1'::text)
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR (hashed SubPlan 2))
+        Buffers: shared hit=60
+        SubPlan 2
+          ->  Seq Scan on "User" parent  (cost=0.00..9.50 rows=101 width=7) (actual time=0.010..0.098 rows=100 loops=1)
+                Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text)) OR (("businessId" IS NULL) AND (COALESCE(current_setting('app.platfor
+                Rows Removed by Filter: 100
+                Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=223
+Planning Time: 1.358 ms
+Execution Time: 0.504 ms

@@ -1,10 +1,12 @@
 // Background jobs for the inventory module. Register with registerJob(name, everyMs, fn).
 import { prisma } from "./db";
 import { registerJob } from "./jobs";
-import { moduleEnabled, runForOutlet } from "./lib/tenant";
+import { featureOn, moduleEnabled, runForOutlet } from "./lib/tenant";
 import { zonedParts } from "./lib/time";
 import { notify } from "./services/notify";
 import { inventoryRecipients, lowStockItems } from "./services/inventory";
+import { announceAvailability, refreshMenuAvailability } from "./services/stock-availability";
+import { emitToOutlet } from "./realtime";
 
 const DIGEST_KEY = "inventory.lowStockDigest.lastSent";
 /** Local time (minutes after midnight) from which the daily digest may go out. */
@@ -57,8 +59,36 @@ async function digestForOutlet(outlet: { id: string; name: string; timezone: str
   return sent;
 }
 
+/**
+ * Recompute automatic out-of-stock for every outlet with Inventory. Stock changes
+ * already do this as they happen; this sweep covers deploys, recipe/ingredient
+ * deletions and anything changed outside the app. The boot run is silent (no
+ * notifications), later sweeps notify managers like a live change would.
+ */
+export async function refreshAllMenuAvailability(opts: { silent?: boolean } = {}): Promise<number> {
+  const outlets = await prisma.outlet.findMany({ select: { id: true } });
+  let changed = 0;
+  for (const outlet of outlets) {
+    changed += await runForOutlet(outlet.id, async () => {
+      if (!featureOn("AUTO_STOCK_OUT")) return 0;
+      const c = await refreshMenuAvailability(prisma, outlet.id);
+      if (opts.silent) {
+        if (c.length) emitToOutlet(outlet.id, "menu:changed", { ids: c.map((x) => x.id), stock: true });
+      } else await announceAvailability(prisma, outlet.id, c);
+      return c.length;
+    });
+  }
+  return changed;
+}
+
 export function registerJobs(): void {
   registerJob("inventory:low-stock-digest", 60 * 60 * 1000, async () => {
     await sendLowStockDigests();
+  });
+  void refreshAllMenuAvailability({ silent: true })
+    .then((n) => n && console.info(`[stock] menu availability updated for ${n} item(s) at startup`))
+    .catch((e) => console.error("[stock] startup availability refresh failed", e));
+  registerJob("inventory:menu-availability", 15 * 60 * 1000, async () => {
+    await refreshAllMenuAvailability();
   });
 }

@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartLineUp, MagnifyingGlass, PencilSimple, UserPlus } from "@phosphor-icons/react";
+import { ChartLineUp, Key, MagnifyingGlass, PencilSimple, ShieldSlash, UserPlus } from "@phosphor-icons/react";
 import { ROLE_LABELS, formatINR } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import { formatMinutes } from "@/lib/format";
-import type { Shift, Staff, StaffPerformance, StaffStatus } from "@/lib/types";
+import type { CustomRole, Shift, Staff, StaffPerformance, StaffStatus } from "@/lib/types";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -19,8 +19,12 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Table, THead, Th, Td, Tr } from "@/components/ui/Table";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { StaffForm } from "@/components/staff/StaffForm";
+import { CustomRolesCard } from "@/components/staff/CustomRoles";
 import { Badge } from "@/components/ui/Badge";
 import { canManageRole, isBusinessWideRole } from "@/lib/roles";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { LinkSentNotice } from "@/components/account/LinkSentNotice";
+import type { LinkDelivery } from "@/lib/types-platform";
 
 export default function StaffPage() {
   const { outletId, can, me } = useSession();
@@ -34,10 +38,16 @@ export default function StaffPage() {
     api.get<Staff[]>("/staff", { query: { scope: effectiveScope === "business" ? "business" : undefined } }),
   );
   const outletName = useMemo(() => new Map((me?.outlets ?? []).map((o) => [o.id, o.name])), [me?.outlets]);
+  // Custom roles (Phase 4.2): owners edit them; managers pick from them when adding staff.
+  const ownsRoles = can("outlet:manage");
+  const customRoles = useApiQuery<CustomRole[]>(outletId && manage ? `custom-roles:${outletId}` : null, () => api.get<CustomRole[]>("/staff/roles"));
+  const customRoleName = useMemo(() => new Map((customRoles.data ?? []).map((r) => [r.id, r.name])), [customRoles.data]);
   const shifts = useApiQuery<Shift[]>(outletId ? `shifts:${outletId}` : null, () => api.get<Shift[]>("/outlets/current/shifts"));
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Staff | null | undefined>(null);
   const [perf, setPerf] = useState<Staff | null>(null);
+  const [linkFor, setLinkFor] = useState<Staff | null>(null);
+  const [reset2faFor, setReset2faFor] = useState<Staff | null>(null);
 
   const shiftName = useMemo(() => new Map((shifts.data ?? []).map((s) => [s.id, `${s.name} ${s.startTime}–${s.endTime}`])), [shifts.data]);
   const list = fuzzyFilter(staff.data ?? [], search, (s) => `${s.name} ${s.phone}`);
@@ -111,7 +121,12 @@ export default function StaffPage() {
                       </p>
                     </Td>
                     <Td>
-                      {isBusinessWideRole(s.role) ? <Badge tone="primary">{ROLE_LABELS[s.role]}</Badge> : ROLE_LABELS[s.role]}
+                      {isBusinessWideRole(s.role) ? <Badge tone="primary">{ROLE_LABELS[s.role]}</Badge> : (s.customRoleId && customRoleName.get(s.customRoleId)) || ROLE_LABELS[s.role]}
+                      {s.totpEnabledAt && (
+                        <Badge tone="info" className="ml-1">
+                          2-step
+                        </Badge>
+                      )}
                     </Td>
                     {effectiveScope === "business" ? (
                       <Td className="max-w-[260px] text-muted">
@@ -146,6 +161,16 @@ export default function StaffPage() {
                           <PencilSimple size={20} />
                         </IconButton>
                       )}
+                      {editable && s.status === "ACTIVE" && (
+                        <IconButton label={`Send ${s.name} a password reset link`} onClick={() => setLinkFor(s)}>
+                          <Key size={20} />
+                        </IconButton>
+                      )}
+                      {editable && s.totpEnabledAt && (
+                        <IconButton label={`Reset two-step login of ${s.name}`} onClick={() => setReset2faFor(s)}>
+                          <ShieldSlash size={20} />
+                        </IconButton>
+                      )}
                     </Td>
                   </Tr>
                 );
@@ -155,9 +180,77 @@ export default function StaffPage() {
         )}
       </Card>
 
-      <StaffForm staff={editing} shifts={shifts.data ?? []} onClose={() => setEditing(null)} onSaved={staff.reload} />
+      {ownsRoles && <CustomRolesCard roles={customRoles.data} loading={customRoles.loading} error={customRoles.error} onReload={() => void customRoles.reload()} />}
+
+      <StaffForm staff={editing} shifts={shifts.data ?? []} customRoles={customRoles.data ?? []} onClose={() => setEditing(null)} onSaved={staff.reload} />
       <PerformanceDialog staff={perf} onClose={() => setPerf(null)} />
+      <ResetLinkDialog staff={linkFor} onClose={() => setLinkFor(null)} />
+      <ConfirmDialog
+        open={reset2faFor !== null}
+        title="Reset two-step login"
+        description={reset2faFor ? `For when ${reset2faFor.name} lost their phone and recovery codes. Two-step login is turned off and they're signed out on every device.` : undefined}
+        confirmLabel="Reset"
+        onClose={() => setReset2faFor(null)}
+        onConfirm={async () => {
+          try {
+            await api.post(`/staff/${reset2faFor!.id}/reset-2fa`, {});
+          } catch (e) {
+            throw new Error(errorMessage(e));
+          }
+          toast(`Two-step login reset for ${reset2faFor!.name}`, "success");
+          setReset2faFor(null);
+          void staff.reload();
+        }}
+      />
     </PageContainer>
+  );
+}
+
+/** Send a one-time password link (email, or SMS without email); the manager never sees the password. */
+function ResetLinkDialog({ staff, onClose }: { staff: Staff | null; onClose: () => void }) {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<LinkDelivery | null>(null);
+  const close = () => {
+    setSent(null);
+    setError(null);
+    onClose();
+  };
+  const send = async () => {
+    setSending(true);
+    setError(null);
+    try {
+      setSent(await api.post<LinkDelivery>(`/staff/${staff!.id}/reset-link`, {}));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <Dialog
+      open={!!staff}
+      onClose={close}
+      size="sm"
+      title="Send password reset link"
+      description={staff ? `${staff.name} gets a one-time link to set a new password. It expires in 30 minutes.` : undefined}
+      footer={
+        sent ? (
+          <Button onClick={close}>Done</Button>
+        ) : (
+          <Button onClick={send} loading={sending}>
+            Send link
+          </Button>
+        )
+      }
+    >
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {sent && staff ? (
+        <LinkSentNotice delivery={sent} who={staff.email ?? `+91 ${staff.phone}`} />
+      ) : (
+        <p className="text-sm text-muted">The link goes to {staff?.email ?? `+91 ${staff?.phone} by SMS`}.</p>
+      )}
+    </Dialog>
   );
 }
 

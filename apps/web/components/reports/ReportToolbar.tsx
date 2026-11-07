@@ -38,7 +38,7 @@ export function ReportToolbar({ exports, children, disabled }: { exports?: Expor
               onClick={() => setPreset(p.value)}
               className={
                 range.preset === p.value
-                  ? "min-h-[40px] rounded-lg bg-primary px-3 text-sm font-semibold text-white"
+                  ? "min-h-[40px] rounded-lg bg-primary px-3 text-sm font-semibold text-primary-fg"
                   : "min-h-[40px] rounded-lg px-3 text-sm font-semibold text-muted hover:bg-surface-2 hover:text-fg"
               }
             >

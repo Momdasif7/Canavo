@@ -1,10 +1,12 @@
 import type { Request } from "express";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DeliveryStatus, Outlet, Prisma } from "@prisma/client";
-import { can, distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
+import { distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
 import { prisma } from "../db";
+import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { badRequest, forbidden, HttpError } from "../lib/http";
 import { autoAssignEnabled, canTakeOrder, notifyNoPartner, pickAvailablePartner } from "./delivery-assign";
+import { userCan } from "../middleware/auth";
 
 type Tx = Prisma.TransactionClient;
 
@@ -175,7 +177,7 @@ async function roughSubtotal(outletId: string, items: OrderCreateInput["items"])
  */
 export async function prepareServiceContext(req: Request, input: OrderCreateInput, outlet: Outlet): Promise<ServiceContext> {
   // Choosing Cash on Delivery is a payment decision: same permission as POST /orders/:id/cod.
-  if (input.delivery?.cod && req.user && !can(req.user.role, "payment:collect")) {
+  if (input.delivery?.cod && req.user && !userCan(req, "payment:collect")) {
     throw forbidden("You don't have permission to place Cash on Delivery orders");
   }
   const extraCharges: ServiceContext["extraCharges"] =
@@ -190,7 +192,11 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     const d = input.delivery;
     if (!d) throw badRequest("Delivery address is required for delivery orders");
     if (!input.customerPhone || !input.customerName) throw badRequest("Customer name and phone are required for delivery");
-    if (!outlet.deliveryEnabled && !offline) throw badRequest("Delivery is not enabled for this outlet");
+    // Phase 6: a "we deliver" aggregator order was already accepted by the app with its own address
+    // checks and delivery fee — like an offline bill, zone rules don't refuse it and we add no fee.
+    const aggregator = d.source === "AGGREGATOR";
+    const lenient = offline || aggregator;
+    if (!outlet.deliveryEnabled && !lenient) throw badRequest("Delivery is not enabled for this outlet");
 
     let distanceKm: number | undefined;
     if (d.latitude !== undefined && d.longitude !== undefined && outlet.latitude != null && outlet.longitude != null) {
@@ -204,24 +210,24 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     if (d.zoneId) {
       zone = zones.find((z) => z.id === d.zoneId) ?? null;
       if (!zone) throw badRequest("Unknown or inactive delivery zone");
-      if (distanceKm !== undefined && distanceKm > zone.radiusKm && !offline) {
+      if (distanceKm !== undefined && distanceKm > zone.radiusKm && !lenient) {
         throw badRequest(`Address is ${distanceKm} km away, outside zone ${zone.name} (${zone.radiusKm} km)`);
       }
     } else if (zones.length) {
-      if (distanceKm === undefined) throw badRequest("Provide map coordinates or choose a delivery zone");
-      zone = selectZone(zones, distanceKm);
-      if (!zone && !offline) {
+      if (distanceKm === undefined && !aggregator) throw badRequest("Provide map coordinates or choose a delivery zone");
+      zone = distanceKm === undefined ? null : selectZone(zones, distanceKm);
+      if (!zone && !lenient) {
         const max = Math.max(...zones.map((z) => z.radiusKm));
         throw badRequest(`Address is ${distanceKm} km away — we deliver within ${max} km`);
       }
     }
-    if (zone && zone.minOrder > 0 && !offline) {
+    if (zone && zone.minOrder > 0 && !lenient) {
       const sub = await roughSubtotal(outlet.id, input.items);
       if (sub < zone.minOrder) {
         throw badRequest(`Minimum order for ${zone.name} is ₹${(zone.minOrder / 100).toFixed(2)}`);
       }
     }
-    if (zone && zone.fee > 0) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
+    if (zone && zone.fee > 0 && !aggregator) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
 
     if (d.agentId) {
       const check = await canTakeOrder(outlet.id, d.agentId);
@@ -304,10 +310,10 @@ export async function onOrderCreatedService(tx: Tx, orderId: string, input: Orde
         notes: d.notes,
       },
     });
-    afterCommit(() => announceDelivery(delivery.id));
+    await outboxTask(tx, "delivery.announce", { deliveryId: delivery.id });
     if (!agentId) {
       const inv = (await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { invoiceNumber: true } })).invoiceNumber;
-      afterCommit(() => notifyNoPartner(order.outletId, inv));
+      await outboxTask(tx, "delivery.noPartner", { outletId: order.outletId, invoiceNumber: inv });
     }
   }
 }
@@ -317,7 +323,7 @@ export async function onOrderCancelledService(tx: Tx, orderId: string): Promise<
   const delivery = await tx.delivery.findUnique({ where: { orderId } });
   if (delivery && delivery.status !== "DELIVERED" && delivery.status !== "CANCELLED") {
     await tx.delivery.update({ where: { id: delivery.id }, data: { status: "CANCELLED" } });
-    afterCommit(() => announceDelivery(delivery.id));
+    await outboxTask(tx, "delivery.announce", { deliveryId: delivery.id });
   }
   const order = await tx.order.findUnique({ where: { id: orderId }, select: { tableSessionId: true } });
   if (order?.tableSessionId) {
@@ -326,12 +332,8 @@ export async function onOrderCancelledService(tx: Tx, orderId: string): Promise<
   }
 }
 
-/** Run once the surrounding transaction has (most likely) committed; callers re-check state. */
-function afterCommit(fn: () => Promise<void>) {
-  setTimeout(() => fn().catch((e) => console.error("[service] post-commit hook failed", e)), 300);
-}
-
-async function announceDelivery(deliveryId: string) {
+/** Outbox task "delivery.announce": tell the board / partner about a delivery after its transaction committed. */
+export async function announceDelivery(deliveryId: string) {
   const { emitToOutlet } = await import("../realtime");
   const { notify } = await import("./notify");
   const d = await prisma.delivery.findUnique({ where: { id: deliveryId }, include: { order: { select: { invoiceNumber: true, grandTotal: true } } } });
@@ -362,9 +364,6 @@ export async function onOrderPaidService(tx: Tx, orderId: string): Promise<void>
   await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
   await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });
   // The tab is paid, so its food has been served — clear its tickets from the kitchen display.
-  await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED" } });
-  afterCommit(async () => {
-    const { emitToOutlet } = await import("../realtime");
-    emitToOutlet(order.outletId, "table:updated", { tableIds, sessionId: session.id, action: "close" });
-  });
+  await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED", servedAt: new Date() } });
+  await outboxEmitOutlet(tx, order.outletId, "table:updated", { tableIds, sessionId: session.id, action: "close" });
 }

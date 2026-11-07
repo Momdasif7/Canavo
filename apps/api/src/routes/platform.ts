@@ -2,10 +2,11 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import {
   businessCreateSchema,
+  FEATURES,
+  normalizeFeatures,
   businessUpdateSchema,
   MODULE_INFO,
   normalizeModules,
-  ownerPasswordResetSchema,
   platformAdminCreateSchema,
   platformUserCreateSchema,
 } from "@canavo/shared";
@@ -13,9 +14,12 @@ import { platformPrisma as db } from "../db";
 import { audit } from "../lib/audit";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
 import { forceLogout } from "../lib/tokens";
-import { authenticate, requirePlatformAdmin } from "../middleware/auth";
+import { authenticate, requirePlatformUser } from "../middleware/auth";
 import { createDefaultTaxRates } from "../services/tax-defaults";
 import { alertModulesChanged } from "../services/alerts";
+import { onFeaturesChanged } from "../services/features";
+import { sendPasswordLink } from "../services/password-links";
+import { disableTwoFactor } from "../services/two-factor";
 
 /**
  * Platform console (CANAVO operator / super admin): onboard client businesses,
@@ -23,9 +27,10 @@ import { alertModulesChanged } from "../services/alerts";
  * Privacy: only account information leaves these routes — never a hotel's
  * sales, bills, staff, customers or reports. Owners create their own staff.
  * Uses the unfiltered client and always names the business explicitly.
+ * Platform support users (Phase 4.2) may read every route here; writes are super admin only.
  */
 export const platformRouter = Router();
-platformRouter.use(authenticate, requirePlatformAdmin);
+platformRouter.use(authenticate, requirePlatformUser);
 
 const userFields = {
   id: true,
@@ -54,7 +59,7 @@ platformRouter.get("/summary", async (_req, res) => {
 });
 
 /** Account information only — hotel data (staff, bills, sales…) stays private to the hotel. */
-const ownerFields = { id: true, name: true, phone: true, email: true, status: true, createdAt: true } as const;
+const ownerFields = { id: true, name: true, phone: true, email: true, status: true, createdAt: true, totpEnabledAt: true } as const;
 
 platformRouter.get("/businesses", async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
@@ -103,14 +108,15 @@ platformRouter.post("/businesses", async (req, res) => {
         name: data.owner.name,
         phone: data.owner.phone,
         email: data.owner.email,
-        passwordHash: data.owner.password ? await bcrypt.hash(data.owner.password, 10) : null,
       },
       select: userFields,
     });
     return { business, outlet, owner };
   });
-  await audit(req, "platform.business.create", "Business", result.business.id, { modules: result.business.modules });
-  res.status(201).json(result);
+  // The owner sets their own password from a link (the platform never knows it). Phone OTP login works meanwhile.
+  const invite = await sendPasswordLink(result.owner, "INVITE", req.user!.id);
+  await audit(req, "platform.business.create", "Business", result.business.id, { modules: result.business.modules, invite: invite.channel });
+  res.status(201).json({ ...result, invite });
 });
 
 platformRouter.get("/businesses/:id", async (req, res) => {
@@ -123,7 +129,7 @@ platformRouter.get("/businesses/:id", async (req, res) => {
   });
   if (!business) throw notFound("Business");
   const { users, ...rest } = business;
-  res.json({ ...rest, modules: normalizeModules(business.modules), owners: users });
+  res.json({ ...rest, modules: normalizeModules(business.modules), features: normalizeFeatures(business.features), featureCatalog: FEATURES, owners: users });
 });
 
 platformRouter.patch("/businesses/:id", async (req, res) => {
@@ -131,10 +137,13 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
   const data = parse(businessUpdateSchema, req.body);
   const before = await db.business.findUnique({ where: { id } });
   if (!before) throw notFound("Business");
+  const { features: featureChanges, ...rest } = data;
+  const features = featureChanges ? { ...normalizeFeatures(before.features), ...featureChanges } : undefined;
   const business = await db.business.update({
     where: { id },
-    data: { ...data, ...(data.modules && { modules: normalizeModules(data.modules) }) },
+    data: { ...rest, ...(data.modules && { modules: normalizeModules(data.modules) }), ...(features && { features }) },
   });
+  if (featureChanges) await onFeaturesChanged(id, normalizeFeatures(before.features), features!);
   if (data.modules) {
     void alertModulesChanged(id, normalizeModules(data.modules).map((m) => MODULE_INFO[m].label));
   }
@@ -143,8 +152,8 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
     const users = await db.user.findMany({ where: { businessId: id }, select: { id: true } });
     for (const u of users) await forceLogout(u.id);
   }
-  await audit(req, "platform.business.update", "Business", id, { fields: Object.keys(data), modules: business.modules, status: business.status });
-  res.json({ ...business, modules: normalizeModules(business.modules) });
+  await audit(req, "platform.business.update", "Business", id, { fields: Object.keys(data), modules: business.modules, status: business.status, ...(featureChanges && { features: featureChanges }) });
+  res.json({ ...business, modules: normalizeModules(business.modules), features: normalizeFeatures(business.features) });
 });
 
 /** Add an owner account to a business (owners then create their managers and staff). */
@@ -160,37 +169,66 @@ platformRouter.post("/businesses/:id/users", async (req, res) => {
       name: data.name,
       phone: data.phone,
       email: data.email,
-      passwordHash: data.password ? await bcrypt.hash(data.password, 10) : null,
     },
     select: ownerFields,
   });
-  await audit(req, "platform.owner.create", "User", user.id, { businessId });
-  res.status(201).json(user);
+  const invite = await sendPasswordLink(user, "INVITE", req.user!.id);
+  await audit(req, "platform.owner.create", "User", user.id, { businessId, invite: invite.channel });
+  res.status(201).json({ ...user, invite });
 });
 
-/** Owner locked out: set a new password and sign them out everywhere. */
-platformRouter.post("/businesses/:id/owners/:userId/reset-password", async (req, res) => {
+/**
+ * Owner locked out: send them a reset link (Phase 2.2). The platform never sets or sees
+ * the password; the owner's sessions end when they set the new one.
+ */
+platformRouter.post("/businesses/:id/owners/:userId/reset-link", async (req, res) => {
   const businessId = param(req, "id");
-  const { password } = parse(ownerPasswordResetSchema, req.body);
+  const owner = await db.user.findFirst({
+    where: { id: param(req, "userId"), businessId, role: "BUSINESS_OWNER" },
+    select: { id: true, name: true, email: true, phone: true, status: true },
+  });
+  if (!owner) throw notFound("Owner");
+  if (owner.status !== "ACTIVE") throw badRequest("This owner account is not active");
+  const delivery = await sendPasswordLink(owner, "RESET", req.user!.id);
+  await audit(req, "platform.owner.reset_link", "User", owner.id, { businessId, channel: delivery.channel });
+  res.json(delivery);
+});
+
+/** Owner lost their phone and recovery codes: turn off two-step login and sign them out. */
+platformRouter.post("/businesses/:id/owners/:userId/reset-2fa", async (req, res) => {
+  const businessId = param(req, "id");
   const owner = await db.user.findFirst({ where: { id: param(req, "userId"), businessId, role: "BUSINESS_OWNER" }, select: { id: true } });
   if (!owner) throw notFound("Owner");
-  await db.user.update({ where: { id: owner.id }, data: { passwordHash: await bcrypt.hash(password, 10) } });
+  await disableTwoFactor(owner.id);
   await forceLogout(owner.id);
-  await audit(req, "platform.owner.reset_password", "User", owner.id, { businessId });
+  await audit(req, "platform.owner.reset_2fa", "User", owner.id, { businessId });
   res.json({ ok: true });
 });
 
+/** Hotels whose owners currently allow support access (read-only, time-limited). */
+platformRouter.get("/support-grants", async (_req, res) => {
+  const grants = await db.supportGrant.findMany({
+    where: { revokedAt: null, expiresAt: { gt: new Date() } },
+    include: { business: { select: { id: true, name: true, status: true } } },
+    orderBy: { expiresAt: "asc" },
+  });
+  const owners = await db.user.findMany({ where: { id: { in: grants.map((g) => g.grantedById) } }, select: { id: true, name: true } });
+  const ownerName = new Map(owners.map((o) => [o.id, o.name]));
+  res.json(grants.map((g) => ({ id: g.id, business: g.business, reason: g.reason, expiresAt: g.expiresAt, createdAt: g.createdAt, grantedBy: ownerName.get(g.grantedById) ?? null })));
+});
+
+/** Platform accounts: super admins and platform support users. */
 platformRouter.get("/admins", async (_req, res) => {
-  res.json(await db.user.findMany({ where: { role: "SUPER_ADMIN", businessId: null }, select: userFields, orderBy: { name: "asc" } }));
+  res.json(await db.user.findMany({ where: { role: { in: ["SUPER_ADMIN", "PLATFORM_SUPPORT"] }, businessId: null }, select: userFields, orderBy: { name: "asc" } }));
 });
 
 platformRouter.post("/admins", async (req, res) => {
   const data = parse(platformAdminCreateSchema, req.body);
   await assertLoginFree(data.phone, data.email);
   const user = await db.user.create({
-    data: { role: "SUPER_ADMIN", name: data.name, phone: data.phone, email: data.email, passwordHash: await bcrypt.hash(data.password, 10) },
+    data: { role: data.role, name: data.name, phone: data.phone, email: data.email, passwordHash: await bcrypt.hash(data.password, 10) },
     select: userFields,
   });
-  await audit(req, "platform.admin.create", "User", user.id);
+  await audit(req, "platform.admin.create", "User", user.id, { role: data.role });
   res.status(201).json(user);
 });

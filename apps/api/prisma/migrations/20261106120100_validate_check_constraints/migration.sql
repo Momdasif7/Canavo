@@ -1,0 +1,43 @@
+-- QA Phase 7: validate the CHECK constraints added NOT VALID by 20261106120000_check_constraints.
+-- VALIDATE scans the table under SHARE UPDATE EXCLUSIVE (reads and writes continue). If it fails,
+-- docs/qa/sql/constraint-precheck.sql lists the offending rows; fix them and re-run migrate deploy.
+ALTER TABLE "Order" VALIDATE CONSTRAINT "Order_money_nonneg_check";
+ALTER TABLE "Order" VALIDATE CONSTRAINT "Order_refunded_range_check";
+ALTER TABLE "OrderItem" VALIDATE CONSTRAINT "OrderItem_quantity_check";
+ALTER TABLE "OrderItem" VALIDATE CONSTRAINT "OrderItem_money_nonneg_check";
+ALTER TABLE "Payment" VALIDATE CONSTRAINT "Payment_amount_nonneg_check";
+ALTER TABLE "CreditNote" VALIDATE CONSTRAINT "CreditNote_amount_nonneg_check";
+ALTER TABLE "CouponRedemption" VALIDATE CONSTRAINT "CouponRedemption_amount_nonneg_check";
+ALTER TABLE "KhataTransaction" VALIDATE CONSTRAINT "KhataTransaction_amount_nonneg_check";
+ALTER TABLE "InvoiceCounter" VALIDATE CONSTRAINT "InvoiceCounter_lastSeq_check";
+ALTER TABLE "CreditNoteCounter" VALIDATE CONSTRAINT "CreditNoteCounter_lastSeq_check";
+ALTER TABLE "MenuItem" VALIDATE CONSTRAINT "MenuItem_price_check";
+ALTER TABLE "ItemVariant" VALIDATE CONSTRAINT "ItemVariant_price_check";
+ALTER TABLE "ItemAddon" VALIDATE CONSTRAINT "ItemAddon_price_check";
+ALTER TABLE "OutletItemOverride" VALIDATE CONSTRAINT "OutletItemOverride_price_check";
+ALTER TABLE "MealSlotItem" VALIDATE CONSTRAINT "MealSlotItem_price_check";
+ALTER TABLE "TaxRate" VALIDATE CONSTRAINT "TaxRate_percent_check";
+ALTER TABLE "Outlet" VALIDATE CONSTRAINT "Outlet_charges_check";
+ALTER TABLE "Customer" VALIDATE CONSTRAINT "Customer_balances_check";
+ALTER TABLE "GiftCard" VALIDATE CONSTRAINT "GiftCard_balance_check";
+ALTER TABLE "MealTokenAccount" VALIDATE CONSTRAINT "MealTokenAccount_balance_check";
+ALTER TABLE "Coupon" VALIDATE CONSTRAINT "Coupon_values_check";
+ALTER TABLE "CashShift" VALIDATE CONSTRAINT "CashShift_cash_check";
+ALTER TABLE "CashMovement" VALIDATE CONSTRAINT "CashMovement_amount_check";
+ALTER TABLE "DeliveryCashHandover" VALIDATE CONSTRAINT "DeliveryCashHandover_amount_check";
+ALTER TABLE "Purchase" VALIDATE CONSTRAINT "Purchase_money_check";
+ALTER TABLE "PurchasePayment" VALIDATE CONSTRAINT "PurchasePayment_amount_check";
+ALTER TABLE "PurchaseItem" VALIDATE CONSTRAINT "PurchaseItem_values_check";
+ALTER TABLE "InventoryItem" VALIDATE CONSTRAINT "InventoryItem_values_check";
+ALTER TABLE "StockAuditLine" VALIDATE CONSTRAINT "StockAuditLine_counted_check";
+ALTER TABLE "CorporateAccount" VALIDATE CONSTRAINT "CorporateAccount_creditLimit_check";
+ALTER TABLE "CorporateStatement" VALIDATE CONSTRAINT "CorporateStatement_meals_check";
+ALTER TABLE "MealSubscription" VALIDATE CONSTRAINT "MealSubscription_meals_check";
+ALTER TABLE "DiningTable" VALIDATE CONSTRAINT "DiningTable_capacity_check";
+ALTER TABLE "TableSession" VALIDATE CONSTRAINT "TableSession_guests_check";
+ALTER TABLE "TableSessionItem" VALIDATE CONSTRAINT "TableSessionItem_quantity_check";
+ALTER TABLE "Reservation" VALIDATE CONSTRAINT "Reservation_values_check";
+ALTER TABLE "DeliveryZone" VALIDATE CONSTRAINT "DeliveryZone_values_check";
+ALTER TABLE "ChannelOrder" VALIDATE CONSTRAINT "ChannelOrder_totals_check";
+ALTER TABLE "ChannelRequest" VALIDATE CONSTRAINT "ChannelRequest_money_check";
+ALTER TABLE "User" VALIDATE CONSTRAINT "User_salary_check";

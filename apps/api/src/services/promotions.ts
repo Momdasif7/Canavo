@@ -6,10 +6,11 @@ import {
   type LoyaltyConfig,
   type OrderCreateInput,
   totalTaxPercent,
+  billDiscountConfigSchema,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { resolveItemTax } from "./tax";
-import { badRequest } from "../lib/http";
+import { badRequest, conflict } from "../lib/http";
 import { currentBusinessId, moduleEnabled, requireBusinessId } from "../lib/tenant";
 import {
   couponAmount,
@@ -24,6 +25,7 @@ import {
   tierForSpend,
   toPreTax,
   bestOffer,
+  rankOffers,
   type BestOffer,
   type EngineLine,
   type EngineOffer,
@@ -142,11 +144,11 @@ export async function findOrCreateCustomer(phone: string, name: string | null | 
     }
     return existing;
   }
-  return db.customer.upsert({
-    where: { businessId_phone: { businessId: requireBusinessId(), phone } },
-    create: { phone, name: name?.trim() || null, businessId: requireBusinessId() },
-    update: {},
-  });
+  // INSERT … ON CONFLICT DO NOTHING: two tills billing the same new phone at once both get the one
+  // customer (a plain upsert here is find-then-create under the tenant filter and lost the race with
+  // a 409, which also aborted the bill's transaction — QA Phase 7).
+  await db.customer.createMany({ data: [{ phone, name: name?.trim() || null, businessId: requireBusinessId() }], skipDuplicates: true });
+  return db.customer.findFirstOrThrow({ where: { phone } });
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +166,19 @@ export interface EvaluatedPromotions extends PricingResult {
   warnings: string[];
   /** Free items the cart qualifies for but doesn't contain yet (Buy X Get Y) */
   suggestions: FreeItemSuggestion[];
+  /** Phase 3.7: every offer / coupon checked and what it would save — "why this offer won" */
+  comparison: OfferComparison[];
+}
+
+export interface OfferComparison {
+  kind: "OFFER" | "COUPON";
+  id: string;
+  label: string;
+  /** Pre-tax saving if applied alone */
+  saving: number;
+  applied: boolean;
+  /** Why it was or wasn't applied */
+  note: string;
 }
 
 /**
@@ -180,7 +195,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
   const [outlet, items, ancestry, offers] = await Promise.all([
     prisma.outlet.findUniqueOrThrow({
       where: { id: ctx.outletId },
-      select: { pricesIncludeTax: true, compositionScheme: true, gstEnabled: true },
+      select: { pricesIncludeTax: true, compositionScheme: true, gstEnabled: true, flatDiscountsIncludeTax: true },
     }),
     prisma.menuItem.findMany({
       where: { id: { in: [...new Set(ctx.lines.map((l) => l.menuItemId))] } },
@@ -213,7 +228,8 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     manualDiscount: l.manualDiscount,
   }));
   const rates = (ls: EngineLine[]) => ls.map((l) => rate.get(l.menuItemId) ?? 0);
-  const best = bestOffer(offers, engineLines, rates(engineLines), mode, input.discount);
+  const ranked = rankOffers(offers, engineLines, rates(engineLines), mode, input.discount);
+  const best = ranked[0] ?? null;
 
   // Free items (Buy X Get Y) are suggested only when, with the item added, that
   // offer would be the one applied — so the POS never shows FREE for an item the bill charges.
@@ -245,7 +261,11 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
   const remainingBase = preTaxRemaining(billLines, mode, input.discount ? [input.discount] : []);
   const useOffer = (b: BestOffer) => {
     if (b.lineDiscounts) b.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
-    else billDiscounts.push({ type: "FLAT", value: b.saving });
+    else {
+      // D1: a ₹-off bill offer is GST-inclusive when the outlet chose that; a %-off saving is already pre-tax.
+      const flat = billDiscountConfigSchema.safeParse(b.offer.config).data?.discountType === "FLAT";
+      billDiscounts.push({ type: "FLAT", value: b.saving, includesTax: flat && outlet.flatDiscountsIncludeTax });
+    }
     applied.push({ kind: "OFFER", id: b.offer.id, label: b.offer.name, amount: b.saving });
   };
   const remaining = () =>
@@ -254,6 +274,9 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       mode,
       [...(input.discount ? [input.discount] : []), ...billDiscounts],
     );
+
+  const comparison: OfferComparison[] = [];
+  let couponSaving: number | null = null;
 
   // 3. Coupon
   let couponId: string | undefined;
@@ -279,17 +302,58 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       warnings.push(err ?? "Invalid coupon code");
     } else {
       const amount = couponAmount(coupon, remainingBase);
+      couponSaving = amount;
+      comparison.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, saving: amount, applied: !(best && best.saving > amount), note: "" });
       if (best && best.saving > amount) {
         warnings.push(`Coupon ${coupon.code} not applied — only one offer per bill, and “${best.offer.name}” saves more`);
       } else {
         couponId = coupon.id;
         couponCode = coupon.code;
-        billDiscounts.push({ type: "FLAT", value: amount });
+        billDiscounts.push({ type: "FLAT", value: amount, includesTax: coupon.discountType === "FLAT" && outlet.flatDiscountsIncludeTax });
         applied.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, amount });
       }
     }
   }
   if (!couponId && best) useOffer(best);
+
+  // Phase 3.7: combinable offers apply on top, on items no other offer has discounted yet.
+  const appliedIds = new Set(applied.filter((a) => a.kind === "OFFER").map((a) => a.id));
+  for (const cand of ranked) {
+    if (!cand.offer.combinable || appliedIds.has(cand.offer.id)) continue;
+    if (cand.lineDiscounts) {
+      const free = engineLines.map((l, i) => (lineDiscounts[i] > 0 ? { ...l, quantity: 0 } : l));
+      const r = evaluateLineOffers([cand.offer], free);
+      const before = remaining();
+      r.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
+      const saving = before - remaining();
+      if (saving > 0) {
+        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: saving });
+        appliedIds.add(cand.offer.id);
+      }
+    } else {
+      const b = evaluateBillOffer([cand.offer], menuSubtotal, remaining());
+      if (b) {
+        const flat = billDiscountConfigSchema.safeParse(cand.offer.config).data?.discountType === "FLAT";
+        billDiscounts.push({ type: "FLAT", value: b.amount, includesTax: flat && outlet.flatDiscountsIncludeTax });
+        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: b.amount });
+        appliedIds.add(cand.offer.id);
+      }
+    }
+  }
+  // Why each offer was or wasn't used (shown on the POS).
+  const winner = couponId ? `the coupon (${couponCode})` : best ? `“${best.offer.name}”` : null;
+  for (const c of ranked) {
+    const on = appliedIds.has(c.offer.id);
+    comparison.push({
+      kind: "OFFER",
+      id: c.offer.id,
+      label: c.offer.name,
+      saving: c.saving,
+      applied: on,
+      note: on ? (c === best && !couponId ? "Saves the most" : "Combines with other offers") : c.offer.combinable ? "Its items already have a discount" : `One offer per bill: ${winner} saves more`,
+    });
+  }
+  for (const c of comparison) if (c.kind === "COUPON") c.note = c.applied ? (best && couponSaving !== null && best.saving === couponSaving ? "Same saving as the best offer; the customer's coupon wins a tie" : "Saves the most") : `One offer per bill: “${best?.offer.name}” saves more`;
 
   // 4. Points (a preview reports problems as warnings so the cart stays usable while editing)
   let pointsRedeemed = 0;
@@ -301,7 +365,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       : ({ ok: false, error: "Redeeming points needs the customer's phone number" } as const);
     if (r.ok) {
       pointsRedeemed = r.points;
-      billDiscounts.push({ type: "FLAT", value: r.value });
+      billDiscounts.push({ type: "FLAT", value: r.value, includesTax: outlet.flatDiscountsIncludeTax });
       applied.push({ kind: "POINTS", label: `${r.points} loyalty points`, amount: r.value });
     } else if (opts.dryRun) warnings.push(r.error);
     else throw badRequest(r.error);
@@ -318,6 +382,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     customer,
     warnings,
     suggestions,
+    comparison: comparison.sort((a, b) => Number(b.applied) - Number(a.applied) || b.saving - a.saving),
   };
 }
 
@@ -327,7 +392,7 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
  * blocked customer. Creates the customer when a new phone number is given.
  */
 export async function applyPromotions(ctx: PricingContext): Promise<PricingResult> {
-  const { customer: _c, warnings: _w, suggestions: _s, ...result } = await evaluatePromotions(ctx);
+  const { customer: _c, warnings: _w, suggestions: _s, comparison: _cmp, ...result } = await evaluatePromotions(ctx);
   return result;
 }
 
@@ -428,8 +493,12 @@ export async function onPaymentsRecorded(
     where: { id: orderId },
     select: { id: true, outletId: true, invoiceNumber: true, customerId: true, customerPhone: true, customerName: true },
   });
-  const customer = await ensureOrderCustomer(tx, order);
-  if (!customer) throw badRequest("Khata (credit) needs a customer phone number on the bill");
+  const found = await ensureOrderCustomer(tx, order);
+  if (!found) throw badRequest("Khata (credit) needs a customer phone number on the bill");
+  // Lock the customer and re-read the balance, so two bills put on credit at the same moment
+  // can't both pass the limit check (QA BUG-049).
+  await tx.$queryRaw`SELECT id FROM "Customer" WHERE id = ${found.id} FOR UPDATE`;
+  const customer = await tx.customer.findUniqueOrThrow({ where: { id: found.id } });
   if (customer.blocked) throw badRequest("Customer is blocked");
   if (customer.khataLimit > 0 && customer.khataBalance + khata > customer.khataLimit) {
     throw badRequest(
@@ -474,10 +543,20 @@ export async function onOrderCancelled(tx: Tx, orderId: string): Promise<void> {
   }
   for (const [customerId, net] of byCustomer) {
     if (net <= 0) continue;
+    // Never below zero (QA Phase 7, D3): if the customer has meanwhile settled this bill's khata, the
+    // money they paid must go back to them — a void can't do that, a refund (credit note) can.
+    // Compare-and-set, so a settlement at the same moment can't take it below zero either.
+    const moved = await tx.customer.updateMany({ where: { id: customerId, khataBalance: { gte: net } }, data: { khataBalance: { decrement: net } } });
+    if (!moved.count) {
+      const c = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { khataBalance: true } });
+      throw conflict(
+        `${formatINR(net)} of this bill is on khata but only ${formatINR(Math.max(0, c.khataBalance))} is still outstanding — the customer has settled part of it. ` +
+          "Refund the bill instead (khata for the outstanding part, cash / UPI for the settled part).",
+      );
+    }
     await tx.khataTransaction.create({
       data: { customerId, outletId: order.outletId, orderId, type: "CREDIT", amount: net, mode: "REVERSAL", note: "Bill cancelled" },
     });
-    await tx.customer.update({ where: { id: customerId }, data: { khataBalance: { decrement: net } } });
   }
 
   // Loyalty: reverse redeemed (give back) and earned (take back) points

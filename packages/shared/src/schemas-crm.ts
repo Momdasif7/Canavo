@@ -155,6 +155,8 @@ const offerBase = z.object({
   endTime: hhmm.nullable().optional(),
   /** Higher runs first; units consumed by one line offer aren't discounted again */
   priority: z.number().int().min(-1000).max(1000).default(0),
+  /** Phase 3.7: also applies on top of the bill's best offer (only on items no other offer discounted). Default: one offer per bill. */
+  combinable: z.boolean().default(false),
   config: z.unknown(),
 });
 

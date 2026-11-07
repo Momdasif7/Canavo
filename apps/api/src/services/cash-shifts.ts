@@ -1,0 +1,185 @@
+import type { Request } from "express";
+import type { Prisma } from "@prisma/client";
+import { prisma } from "../db";
+import { audit } from "../lib/audit";
+import { conflict, HttpError, notFound } from "../lib/http";
+import { featureOn } from "../lib/tenant";
+import { retryTransaction } from "../lib/tx-retry";
+import { approvalsOn, requireApproval } from "./approvals";
+
+/**
+ * Cash drawer shifts and the X/Z report (Phase 3.2). One open shift per outlet (one drawer).
+ * Expected cash = opening float + counter cash payments (+ cash tips) + gift cards sold for cash
+ *   + canteen wallet top-ups / meal tokens sold for cash + delivery cash handed over + pay-ins
+ *   − pay-outs − cash refunds.
+ */
+type Tx = Prisma.TransactionClient;
+
+export interface ShiftSummary {
+  from: string;
+  to: string;
+  openingFloat: number;
+  bills: { count: number; gross: number; discounts: number; tax: number };
+  voids: { count: number; amount: number };
+  payments: Record<string, { count: number; amount: number }>;
+  counterCash: number;
+  /** Cash tips taken at the counter (Phase 3.8) — in the drawer, not sales */
+  cashTips: number;
+  /** Gift cards sold for cash (Phase 3.8) — in the drawer, not sales */
+  giftCardCashSales: number;
+  /** Canteen wallet top-ups and meal tokens sold for cash (Phase 5.2) — in the drawer, not sales */
+  canteenCashTopups: number;
+  deliveryCashHandedOver: number;
+  refunds: Record<string, { count: number; amount: number }>;
+  cashRefunds: number;
+  /** Counter cash of paid bills voided in this shift, handed back from the drawer */
+  voidCashReturned: number;
+  payIns: number;
+  payOuts: number;
+  expectedCash: number;
+}
+
+export async function shiftSummary(shift: { outletId: string; openedAt: Date; closedAt: Date | null; openingFloat: number; id: string }, db: Tx | typeof prisma = prisma): Promise<ShiftSummary> {
+  const to = shift.closedAt ?? new Date();
+  const win = { gte: shift.openedAt, lt: to };
+  const [orders, voids, payments, counterCash, handovers, refunds, moves, giftCash, walletCash, tokenCash, voidCash] = await Promise.all([
+    db.order.aggregate({ where: { outletId: shift.outletId, status: "PAID", paidAt: win }, _count: true, _sum: { grandTotal: true, discount: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } }),
+    db.order.aggregate({ where: { outletId: shift.outletId, cancelledAt: win }, _count: true, _sum: { grandTotal: true } }),
+    db.payment.groupBy({ by: ["mode"], where: { status: "SUCCESS", createdAt: win, order: { outletId: shift.outletId } }, _count: true, _sum: { amount: true } }),
+    db.payment.aggregate({ where: { status: "SUCCESS", mode: "CASH", collectedById: null, createdAt: win, order: { outletId: shift.outletId } }, _sum: { amount: true, tip: true } }),
+    db.deliveryCashHandover.aggregate({ where: { outletId: shift.outletId, receivedAt: win }, _sum: { amount: true } }),
+    db.creditNote.groupBy({ by: ["refundMode"], where: { outletId: shift.outletId, createdAt: win }, _count: true, _sum: { amount: true } }),
+    db.cashMovement.groupBy({ by: ["type"], where: { shiftId: shift.id }, _sum: { amount: true } }),
+    db.giftCard.aggregate({ where: { soldOutletId: shift.outletId, soldMode: "CASH", createdAt: win }, _sum: { initialValue: true } }),
+    db.walletTxn.aggregate({ where: { outletId: shift.outletId, type: "TOPUP", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
+    db.mealTokenTxn.aggregate({ where: { outletId: shift.outletId, type: "PURCHASE", mode: "CASH", createdAt: win }, _sum: { amount: true } }),
+    // Voiding a paid bill gives its cash back (QA BUG-050) — whichever shift took it.
+    db.payment.aggregate({ where: { status: "SUCCESS", mode: "CASH", collectedById: null, order: { outletId: shift.outletId, status: "CANCELLED", cancelledAt: win } }, _sum: { amount: true } }),
+  ]);
+  const s = orders._sum;
+  const cashRefunds = refunds.find((r) => r.refundMode === "CASH")?._sum.amount ?? 0;
+  const payIns = moves.find((m) => m.type === "PAY_IN")?._sum.amount ?? 0;
+  const payOuts = moves.find((m) => m.type === "PAY_OUT")?._sum.amount ?? 0;
+  const counter = counterCash._sum.amount ?? 0;
+  const cashTips = counterCash._sum.tip ?? 0;
+  const giftCardCashSales = giftCash._sum.initialValue ?? 0;
+  const canteenCashTopups = (walletCash._sum.amount ?? 0) + (tokenCash._sum.amount ?? 0);
+  const handed = handovers._sum.amount ?? 0;
+  const voidCashReturned = voidCash._sum.amount ?? 0;
+  return {
+    from: shift.openedAt.toISOString(),
+    to: to.toISOString(),
+    openingFloat: shift.openingFloat,
+    bills: {
+      count: orders._count,
+      gross: s.grandTotal ?? 0,
+      discounts: s.discount ?? 0,
+      tax: (s.cgst ?? 0) + (s.sgst ?? 0) + (s.igst ?? 0) + (s.cess ?? 0) + (s.otherTaxes ?? 0),
+    },
+    voids: { count: voids._count, amount: voids._sum.grandTotal ?? 0 },
+    payments: Object.fromEntries(payments.map((p) => [p.mode, { count: p._count, amount: p._sum.amount ?? 0 }])),
+    counterCash: counter,
+    cashTips,
+    giftCardCashSales,
+    canteenCashTopups,
+    deliveryCashHandedOver: handed,
+    refunds: Object.fromEntries(refunds.map((r) => [r.refundMode, { count: r._count, amount: r._sum.amount ?? 0 }])),
+    cashRefunds,
+    voidCashReturned,
+    payIns,
+    payOuts,
+    expectedCash: shift.openingFloat + counter + cashTips + giftCardCashSales + canteenCashTopups + handed + payIns - payOuts - cashRefunds - voidCashReturned,
+  };
+}
+
+export const openShift = (outletId: string) => prisma.cashShift.findFirst({ where: { outletId, status: "OPEN" }, include: { movements: { orderBy: { createdAt: "asc" } } } });
+
+export async function startShift(req: Request, openingFloat: number) {
+  const outletId = req.outletId!;
+  if (await openShift(outletId)) throw conflict("A cash shift is already open at this outlet. Close it first.");
+  try {
+    const shift = await prisma.cashShift.create({ data: { outletId, openedById: req.user!.id, openingFloat } });
+    await audit(req, "cash_shift.open", "CashShift", shift.id, { openingFloat });
+    return shift;
+  } catch (e) {
+    // The partial unique index keeps two devices from opening at the same moment.
+    if ((e as { code?: string }).code === "P2002") throw conflict("A cash shift is already open at this outlet.");
+    throw e;
+  }
+}
+
+export async function addMovement(req: Request, input: { type: "PAY_IN" | "PAY_OUT"; amount: number; reason: string; approval?: { approverId: string; pin: string } }) {
+  const shift = await openShift(req.outletId!);
+  if (!shift) throw conflict("Open a cash shift first");
+  return retryTransaction(async (tx) => {
+    // A pay-in racing the close used to land on the just-closed shift, missing from its Z-report (QA Phase 7).
+    if ((await lockOpenShift(tx, shift.outletId)) !== shift.id) throw conflict("The cash shift was just closed. Open a new shift first.");
+    const approvedById =
+      input.type === "PAY_OUT" && approvalsOn()
+        ? await requireApproval(req, { action: "CASH_PAYOUT", outletId: shift.outletId, amount: input.amount, reason: input.reason, approval: input.approval }, tx)
+        : null;
+    const m = await tx.cashMovement.create({ data: { shiftId: shift.id, outletId: shift.outletId, type: input.type, amount: input.amount, reason: input.reason, createdById: req.user!.id, approvedById } });
+    await audit(req, input.type === "PAY_IN" ? "cash_shift.pay_in" : "cash_shift.pay_out", "CashShift", shift.id, { amount: input.amount, reason: input.reason }, tx);
+    return m;
+  });
+}
+
+/**
+ * Z-report and close in ONE transaction (QA Phase 7). The open shift row is locked FOR UPDATE; every
+ * transaction that moves drawer money (payments, UPI confirms, voids, refunds, pay-in / pay-out) holds
+ * it FOR SHARE (`lockOpenShift`). So the close waits for money in flight, then takes its end time and
+ * figures; money arriving meanwhile waits for the close and lands after it (next shift). Nothing
+ * committed inside the window can be missing from the frozen report.
+ */
+export async function closeShift(req: Request, input: { countedCash: number; denominations?: Record<string, number>; note?: string }) {
+  const outletId = req.outletId!;
+  return retryTransaction(async (tx) => {
+    const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "CashShift" WHERE "outletId" = ${outletId} AND status = 'OPEN' FOR UPDATE`;
+    // A second device closing at the same moment waits here, then finds no open shift.
+    if (!row) throw conflict("No cash shift is open");
+    const shift = await tx.cashShift.findUniqueOrThrow({ where: { id: row.id } });
+    const closedAt = new Date();
+    const summary = await shiftSummary({ ...shift, closedAt }, tx);
+    const variance = input.countedCash - summary.expectedCash;
+    const closed = await tx.cashShift.update({
+      where: { id: shift.id },
+      data: {
+        status: "CLOSED",
+        closedAt,
+        closedById: req.user!.id,
+        countedCash: input.countedCash,
+        expectedCash: summary.expectedCash,
+        variance,
+        denominations: input.denominations,
+        note: input.note,
+        summary: summary as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await audit(req, "cash_shift.close", "CashShift", shift.id, { expectedCash: summary.expectedCash, countedCash: input.countedCash, variance }, tx);
+    return { ...closed, summary };
+  });
+}
+
+/**
+ * Inside a transaction that moves drawer money: share-lock the outlet's open shift (null if none) so a
+ * close can't freeze its Z-report while this money is in flight (see closeShift). Take it after the
+ * bill's own lock (bill → shift, never the other way round).
+ */
+export async function lockOpenShift(tx: Tx, outletId: string): Promise<string | null> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "CashShift" WHERE "outletId" = ${outletId} AND status = 'OPEN' FOR SHARE`;
+  return rows[0]?.id ?? null;
+}
+
+export async function getShift(outletId: string, id: string) {
+  const shift = await prisma.cashShift.findFirst({ where: { id, outletId }, include: { movements: { orderBy: { createdAt: "asc" } } } });
+  if (!shift) throw notFound("Cash shift");
+  return { ...shift, summary: (shift.summary as unknown as ShiftSummary | null) ?? (await shiftSummary(shift)) };
+}
+
+/** REQUIRE_CASH_SHIFT: cash can only be taken while a shift is open. */
+export async function assertCashShiftOpen(outletId: string, modes: string[], db: Tx | typeof prisma = prisma) {
+  if (!modes.includes("CASH") || !featureOn("REQUIRE_CASH_SHIFT")) return;
+  if (!(await db.cashShift.findFirst({ where: { outletId, status: "OPEN" }, select: { id: true } }))) {
+    throw new HttpError(409, "Open a cash shift (count the opening float) before taking cash.", { code: "CASH_SHIFT_CLOSED" });
+  }
+}

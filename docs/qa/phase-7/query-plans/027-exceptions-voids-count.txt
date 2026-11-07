@@ -1,0 +1,40 @@
+-- exceptions-voids-count
+-- calls during capture: 4; server-side max 12.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT COUNT(*) AS "_count$_all", SUM("grandTotal") AS "_sum$grandTotal" FROM (SELECT "Order"."id", "Order"."grandTotal" FROM "Order" WHERE ("Order"."outletId" = $1 AND "Order"."cancelledAt" >= $2 AND "Order"."cancelledAt" < $3) OFFSET $4) AS "sub"
+-- params: $1 = 'out1', $2 = '2026-11-04 18:30:00', $3 = '2026-11-05 18:30:00', $4 = '0'
+
+==== BEFORE (12.693 ms, median of 3)
+Aggregate  (cost=18525.32..18525.33 rows=1 width=16) (actual time=12.636..12.637 rows=1 loops=1)
+  Buffers: shared hit=8428
+  ->  Bitmap Heap Scan on "Order"  (cost=505.56..18525.31 rows=1 width=36) (actual time=4.021..12.633 rows=4 loops=1)
+        Recheck Cond: ("outletId" = 'out1'::text)
+        Filter: (("cancelledAt" >= '2026-11-04 18:30:00'::timestamp without time zone) AND ("cancelledAt" < '2026-11-05 18:30:00'::timestamp without time zone) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId"
+        Rows Removed by Filter: 36130
+        Heap Blocks: exact=8312
+        Buffers: shared hit=8428
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.183..0.183 rows=1 loops=1)
+                Buffers: shared hit=64
+        ->  Bitmap Index Scan on "Order_outletId_channel_channelOrderId_key"  (cost=0.00..505.30 rows=35850 width=0) (actual time=0.876..0.876 rows=36134 loops=1)
+              Index Cond: ("outletId" = 'out1'::text)
+              Buffers: shared hit=52
+Planning:
+  Buffers: shared hit=328
+Planning Time: 0.879 ms
+Execution Time: 12.693 ms
+
+==== AFTER (0.353 ms, median of 3)
+Aggregate  (cost=20.81..20.82 rows=1 width=16) (actual time=0.310..0.310 rows=1 loops=1)
+  Buffers: shared hit=71
+  ->  Index Scan using "Order_outletId_cancelledAt_idx" on "Order"  (cost=0.68..20.76 rows=3 width=36) (actual time=0.286..0.308 rows=4 loops=1)
+        Index Cond: (("outletId" = 'out1'::text) AND ("cancelledAt" >= '2026-11-04 18:30:00'::timestamp without time zone) AND ("cancelledAt" < '2026-11-05 18:30:00'::timestamp without time zone))
+        Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+        Buffers: shared hit=71
+        InitPlan 1 (returns $0)
+          ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.251..0.251 rows=1 loops=1)
+                Buffers: shared hit=64
+Planning:
+  Buffers: shared hit=344
+Planning Time: 1.131 ms
+Execution Time: 0.353 ms

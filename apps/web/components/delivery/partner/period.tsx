@@ -82,7 +82,7 @@ export function PeriodChips({
             onClick={() => onChoose(p)}
             className={clsx(
               "min-h-[44px] shrink-0 whitespace-nowrap rounded-full border px-4 text-sm font-bold transition-colors",
-              period.preset === p ? "border-primary bg-primary text-white" : "border-line bg-surface text-fg hover:bg-surface-2",
+              period.preset === p ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface text-fg hover:bg-surface-2",
             )}
           >
             {PERIOD_LABELS[p]}

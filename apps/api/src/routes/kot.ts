@@ -8,13 +8,15 @@ import { notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { alertOrderReady } from "../services/alerts";
+import { onKotReady } from "../services/channels/service";
+import { emitBoardChange, isBoardChannel } from "../services/channels/board";
 
 export const kotRouter = Router();
 kotRouter.use(authenticate, requireOutlet, requireModule("KOT"));
 
 const kotInclude = {
   order: {
-    select: { id: true, invoiceNumber: true, orderType: true, tableLabel: true, notes: true, status: true, scheduledFor: true, customerName: true },
+    select: { id: true, invoiceNumber: true, orderType: true, tableLabel: true, notes: true, status: true, scheduledFor: true, customerName: true, channel: true },
   },
   session: { select: { id: true, tableId: true, mergedTableIds: true, table: { select: { label: true } } } },
 } satisfies Prisma.KotTicketInclude;
@@ -66,13 +68,41 @@ kotRouter.get("/", requirePermission("kot:view"), async (req, res) => {
   res.json(await present(kots));
 });
 
+const STAGES = ["RECEIVED", "PREPARING", "READY", "SERVED"] as const;
+const STAGE_AT = { PREPARING: "preparingAt", READY: "readyAt", SERVED: "servedAt" } as const;
+
+/**
+ * Stage timestamps for a status change: stamp every stage up to the new one that isn't
+ * stamped yet (skipping Preparing stamps it too), clear the later ones when moving back.
+ */
+function kotStageTimes(found: { preparingAt: Date | null; readyAt: Date | null; servedAt: Date | null }, status: (typeof STAGES)[number]) {
+  const at = STAGES.indexOf(status);
+  const now = new Date();
+  const out: Partial<Record<(typeof STAGE_AT)[keyof typeof STAGE_AT], Date | null>> = {};
+  for (const [stage, field] of Object.entries(STAGE_AT) as [keyof typeof STAGE_AT, (typeof STAGE_AT)[keyof typeof STAGE_AT]][]) {
+    if (STAGES.indexOf(stage) <= at) {
+      if (!found[field]) out[field] = now;
+    } else if (found[field]) out[field] = null;
+  }
+  return out;
+}
+
 kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
   const { status } = parse(kotStatusSchema, req.body);
   const found = await prisma.kotTicket.findFirst({ where: { id: param(req, "id"), outletId: req.outletId } });
   if (!found) throw notFound("KOT");
-  const kot = await prisma.kotTicket.update({ where: { id: found.id }, data: { status }, include: kotInclude });
+  const kot = await prisma.$transaction(async (tx) => {
+    const k = await tx.kotTicket.update({ where: { id: found.id }, data: { status, ...kotStageTimes(found, status) }, include: kotInclude });
+    // Phase 6.1: an aggregator order whose food is all ready → tell the channel (outbox, retried).
+    if (status === "READY" && found.status !== "READY" && k.orderId) await onKotReady(tx, k.orderId);
+    return k;
+  });
   const [shaped] = await present([kot]);
   emitToOutlet(req.outletId!, "kot:updated", shaped);
+  // Phase 6: kitchen progress moves an online-channel order NEW → PREPARING on the packing board.
+  if (kot.orderId && status !== found.status && isBoardChannel(kot.order?.channel)) {
+    void emitBoardChange(req.outletId!, kot.orderId).catch((e) => console.error("[channels] board emit failed", e));
+  }
   if (status === "READY" && found.status !== "READY") void alertOrderReady(req.outletId!, kot.id);
   if (kot.sessionId) emitToOutlet(req.outletId!, "table:updated", { tableIds: [kot.session!.tableId, ...kot.session!.mergedTableIds], sessionId: kot.sessionId, action: "kot" });
   res.json(shaped);

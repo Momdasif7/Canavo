@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBill, TaxConfig } from "./gst";
+import { computeBill, TaxConfig, withTaxMode } from "./gst";
 import { allocate } from "./money";
 import { financialYearStart, formatInvoiceNumber } from "./invoice";
 import { distanceMeters } from "./geo";
@@ -275,5 +275,31 @@ describe("computeBill — custom tax compositions", () => {
       { label: "VAT", percent: 5, amount: 500 },
     ]);
     expect(r.otherTaxes).toBe(4850);
+  });
+});
+
+describe("flat discounts and GST (D1, Phase 3.6)", () => {
+  const cfg: TaxConfig = { pricesIncludeTax: false, interState: false, compositionScheme: false, serviceChargeEnabled: false, serviceChargePercent: 0, roundOff: false };
+  const lines = [{ unitPrice: 20000, quantity: 1, tax: { cgst: 2.5, sgst: 2.5, igst: 5 } }];
+
+  it("default (pre-tax): ₹50 off takes ₹50 off the taxable value, saving ₹52.50 incl. GST", () => {
+    const full = computeBill(lines, cfg);
+    const b = computeBill(lines, cfg, { type: "FLAT", value: 5000 });
+    expect(b.taxableValue).toBe(15000);
+    expect(full.grandTotal - b.grandTotal).toBe(5250);
+  });
+
+  it("GST-inclusive: ₹50 off takes exactly ₹50 off the total", () => {
+    const full = computeBill(lines, cfg);
+    const b = computeBill(lines, cfg, { type: "FLAT", value: 5000, includesTax: true });
+    expect(full.grandTotal - b.grandTotal).toBe(5000);
+  });
+
+  it("withTaxMode marks only ₹ discounts, and bills without GST take ₹50 off either way", () => {
+    expect(withTaxMode({ type: "PERCENT", value: 10 }, true)).toEqual({ type: "PERCENT", value: 10 });
+    expect(withTaxMode({ type: "FLAT", value: 100 }, true)).toEqual({ type: "FLAT", value: 100, includesTax: true });
+    expect(withTaxMode({ type: "FLAT", value: 100 }, false)).toEqual({ type: "FLAT", value: 100 });
+    const noGst = { ...cfg, taxEnabled: false };
+    expect(computeBill(lines, noGst, { type: "FLAT", value: 5000, includesTax: true }).grandTotal).toBe(15000);
   });
 });

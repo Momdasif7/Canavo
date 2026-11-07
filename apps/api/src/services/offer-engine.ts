@@ -42,6 +42,8 @@ export interface EngineOffer {
   endTime: string | null;
   priority: number;
   config: unknown;
+  /** Phase 3.7: also applies on top of the best offer */
+  combinable?: boolean;
 }
 
 export interface EngineLine {
@@ -361,9 +363,36 @@ export interface BestOffer {
 }
 
 /**
- * The single offer that saves the customer the most on this cart, evaluated
- * one offer at a time. Ties go to the higher priority, then the earlier offer.
+ * Every offer that would save something on this cart, evaluated one offer at a time, best
+ * first (ties: higher priority, then the earlier offer). Used for "why this offer won".
  */
+export function rankOffers(
+  offers: EngineOffer[],
+  lines: EngineLine[],
+  rates: number[],
+  mode: TaxMode,
+  manualDiscount?: BillDiscount,
+): BestOffer[] {
+  const billLines = lines.map((l, i) => ({ unitPrice: l.unitPrice, quantity: l.quantity, gstRate: rates[i] ?? 0, lineDiscount: l.manualDiscount }));
+  const menuSubtotal = lines.reduce((s, l) => s + Math.max(0, l.unitPrice * l.quantity - l.manualDiscount), 0);
+  const remaining = preTaxRemaining(billLines, mode, manualDiscount ? [manualDiscount] : []);
+  const out: BestOffer[] = [];
+  for (const offer of offers) {
+    if (offer.type === "BILL_DISCOUNT") {
+      const b = evaluateBillOffer([offer], menuSubtotal, remaining);
+      if (b) out.push({ offer, saving: b.amount });
+    } else {
+      const r = evaluateLineOffers([offer], lines);
+      // Pre-tax value actually removed, exactly as the bill will compute it
+      const saving = remaining - preTaxRemaining(billLines.map((l, i) => ({ ...l, lineDiscount: l.lineDiscount + r.lineDiscounts[i] })), mode, manualDiscount ? [manualDiscount] : []);
+      if (saving > 0) out.push({ offer, saving, lineDiscounts: r.lineDiscounts });
+    }
+  }
+  // Stable sort keeps the earlier offer first on a full tie.
+  return out.sort((a, b) => b.saving - a.saving || b.offer.priority - a.offer.priority);
+}
+
+/** The single offer that saves the customer the most on this cart. */
 export function bestOffer(
   offers: EngineOffer[],
   lines: EngineLine[],
@@ -371,24 +400,7 @@ export function bestOffer(
   mode: TaxMode,
   manualDiscount?: BillDiscount,
 ): BestOffer | null {
-  const billLines = lines.map((l, i) => ({ unitPrice: l.unitPrice, quantity: l.quantity, gstRate: rates[i] ?? 0, lineDiscount: l.manualDiscount }));
-  const menuSubtotal = lines.reduce((s, l) => s + Math.max(0, l.unitPrice * l.quantity - l.manualDiscount), 0);
-  const remaining = preTaxRemaining(billLines, mode, manualDiscount ? [manualDiscount] : []);
-  let top: BestOffer | null = null;
-  for (const offer of offers) {
-    let cand: BestOffer | null = null;
-    if (offer.type === "BILL_DISCOUNT") {
-      const b = evaluateBillOffer([offer], menuSubtotal, remaining);
-      if (b) cand = { offer, saving: b.amount };
-    } else {
-      const r = evaluateLineOffers([offer], lines);
-      // Pre-tax value actually removed, exactly as the bill will compute it
-      const saving = remaining - preTaxRemaining(billLines.map((l, i) => ({ ...l, lineDiscount: l.lineDiscount + r.lineDiscounts[i] })), mode, manualDiscount ? [manualDiscount] : []);
-      if (saving > 0) cand = { offer, saving, lineDiscounts: r.lineDiscounts };
-    }
-    if (cand && (!top || cand.saving > top.saving || (cand.saving === top.saving && cand.offer.priority > top.offer.priority))) top = cand;
-  }
-  return top;
+  return rankOffers(offers, lines, rates, mode, manualDiscount)[0] ?? null;
 }
 
 export interface EngineCoupon {

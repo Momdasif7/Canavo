@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import type { Request } from "express";
 import { distanceMeters } from "@canavo/shared";
 import type { z } from "zod";
@@ -10,12 +9,27 @@ import { audit } from "../lib/audit";
 import { notify, outletManagers } from "./notify";
 import { assignWaitingDeliveries, markBackAtOutlet } from "./delivery-assign";
 import { alertAttendanceMarked } from "./alerts";
+import { featureOn } from "../lib/tenant";
+import { PIN_MAX_FAILED, verifyPin } from "../lib/pin";
 
 type ClockInput = z.infer<typeof clockSchema>;
 
 const DEFAULT_SHIFT_MINUTES = 8 * 60;
 /** GPS on cheap phones drifts; tolerate up to 100m of reported accuracy on top of the geofence. */
 const MAX_ACCURACY_ALLOWANCE = 100;
+/** Strict clock-in (feature STRICT_CLOCK_IN): a fix worse than this is refused as unreliable. */
+const STRICT_MAX_ACCURACY = 50;
+/** Accuracy worse than this is flagged for the manager (always recorded). */
+const LOW_ACCURACY_FLAG = 100;
+/** Selfies must come from our own upload endpoint (local storage or Cloudinary), not any URL. */
+function isOwnUpload(url: string) {
+  try {
+    const u = new URL(url);
+    return /^\/uploads\/files\/[\w.-]+$/.test(u.pathname) || u.hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+}
 
 async function loadContext(req: Request, input: ClockInput, action: "in" | "out" = "in") {
   const user = await prisma.user.findUniqueOrThrow({
@@ -30,16 +44,44 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId } });
 
   if (user.pinHash) {
-    if (!input.pin) throw new HttpError(400, "PIN is required to clock in/out", { code: "PIN_REQUIRED" });
-    if (!(await bcrypt.compare(input.pin, user.pinHash))) throw new HttpError(403, "Incorrect PIN", { code: "WRONG_PIN" });
+    await verifyPin(user, input.pin, {
+      label: user.name,
+      onLocked: async () =>
+        notify(await outletManagers(outlet.id), "Clock-in PIN locked", `${user.name} entered a wrong PIN ${PIN_MAX_FAILED} times at ${outlet.name}. Clock-in is locked for 15 minutes.`, "attendance.pin_locked"),
+    });
   }
+
+  // Evidence for the manager, recorded on every clock-in (also without strict mode).
+  const flags: string[] = [];
+  if (input.mocked) flags.push("MOCK_LOCATION");
+  if (input.accuracy == null) flags.push("NO_ACCURACY");
+  else if (input.accuracy > LOW_ACCURACY_FLAG) flags.push("LOW_ACCURACY");
+
+  // STRICT_CLOCK_IN (D7): no fake locations, no weak fixes, and no geofence widening by GPS error.
+  const strict = featureOn("STRICT_CLOCK_IN");
+  if (strict && action === "in") {
+    if (input.mocked) throw new HttpError(403, "Your phone is using a fake location. Turn off any location-changing app and try again.", { code: "MOCK_LOCATION" });
+    if (input.accuracy == null || input.accuracy > STRICT_MAX_ACCURACY) {
+      throw new HttpError(403, "GPS signal is too weak to confirm you're at the outlet. Step near a window or outside and try again.", {
+        code: "LOW_ACCURACY",
+        accuracy: input.accuracy ?? null,
+        required: STRICT_MAX_ACCURACY,
+      });
+    }
+  }
+
+  // CLOCK_IN_SELFIE: a selfie (uploaded just before) is required to clock in.
+  if (action === "in" && featureOn("CLOCK_IN_SELFIE") && !input.selfieUrl) {
+    throw new HttpError(400, "Take a selfie to clock in", { code: "SELFIE_REQUIRED" });
+  }
+  if (input.selfieUrl && !isOwnUpload(input.selfieUrl)) throw badRequest("The selfie must be uploaded through CANAVO");
 
   let distance = -1; // -1 = outlet has no location configured
   if (outlet.latitude != null && outlet.longitude != null) {
     distance = Math.round(
       distanceMeters(input, { latitude: outlet.latitude, longitude: outlet.longitude }),
     );
-    const allowance = Math.min(input.accuracy ?? 0, MAX_ACCURACY_ALLOWANCE);
+    const allowance = strict ? 0 : Math.min(input.accuracy ?? 0, MAX_ACCURACY_ALLOWANCE);
     // Delivery partners usually finish their last run away from the outlet: they may clock out anywhere
     // (the location is still recorded); clocking in still has to happen at the outlet.
     const roaming = action === "out" && user.role === "DELIVERY";
@@ -51,7 +93,7 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
       );
     }
   }
-  return { user, outlet, distance };
+  return { user, outlet, distance, flags };
 }
 
 function shiftWindow(shift: { startTime: string; endTime: string } | null) {
@@ -63,7 +105,7 @@ function shiftWindow(shift: { startTime: string; endTime: string } | null) {
 }
 
 export async function clockIn(req: Request, input: ClockInput) {
-  const { user, outlet, distance } = await loadContext(req, input);
+  const { user, outlet, distance, flags } = await loadContext(req, input);
   const open = await prisma.staffAttendance.findFirst({ where: { userId: user.id, clockOutAt: null } });
   if (open) throw new HttpError(409, "You are already clocked in", { code: "ALREADY_CLOCKED_IN" });
 
@@ -89,10 +131,17 @@ export async function clockIn(req: Request, input: ClockInput) {
       clockInLat: input.latitude,
       clockInLng: input.longitude,
       clockInDistance: distance,
+      clockInAccuracy: input.accuracy != null ? Math.round(input.accuracy) : null,
+      clockInMocked: Boolean(input.mocked),
+      clockInSelfieUrl: input.selfieUrl,
+      clockInFlags: flags,
       lateByMinutes: lateBy,
     },
   });
-  await audit(req, "attendance.clock_in", "StaffAttendance", record.id, { distance, lateBy });
+  await audit(req, "attendance.clock_in", "StaffAttendance", record.id, { distance, lateBy, ...(flags.length && { flags }) });
+  if (flags.includes("MOCK_LOCATION")) {
+    await notify(await outletManagers(outlet.id), "Fake location at clock-in", `${user.name}'s phone reported a fake GPS location when clocking in at ${outlet.name}.`, "attendance.suspicious");
+  }
   // A delivery partner coming on duty picks up deliveries that were waiting for someone.
   if (user.role === "DELIVERY") {
     // Clocking in happens at the outlet, so the partner is here and can take orders.
@@ -171,6 +220,10 @@ const MANAGE_RANK: Record<string, number> = {
   KITCHEN: 3,
   DELIVERY: 3,
   INVENTORY_MANAGER: 3,
+  WAITER: 3,
+  ACCOUNTANT: 2,
+  AUDITOR: 2,
+  PLATFORM_SUPPORT: 0,
 };
 
 /** Owners / super admins manage everyone below them incl. managers; managers manage staff. Never yourself. */

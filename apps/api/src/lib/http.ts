@@ -1,3 +1,4 @@
+import { reportError } from "./observability";
 import type { NextFunction, Request, Response } from "express";
 import { z, ZodError, ZodType } from "zod";
 import { Prisma } from "@prisma/client";
@@ -24,24 +25,93 @@ export function parse<S extends ZodType>(schema: S, data: unknown): z.output<S> 
   return result.data;
 }
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+/** PostgreSQL deadlock (40P01) / serialization failure (40001), however Prisma wrapped it. */
+export function isTransactionConflict(err: unknown) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") return true;
+  return (err instanceof Prisma.PrismaClientUnknownRequestError || err instanceof Prisma.PrismaClientKnownRequestError) && /\b40P01\b|\b40001\b|deadlock detected/.test(err.message);
+}
+
+/** Prisma codes for "can't reach / lost the database / no free pooled connection". */
+const DB_UNAVAILABLE_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+export function isDatabaseUnavailable(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) return DB_UNAVAILABLE_CODES.has(err.code);
+  if (err instanceof Prisma.PrismaClientInitializationError) return true;
+  if (err instanceof Prisma.PrismaClientUnknownRequestError) {
+    // e.g. "Error in PostgreSQL connection: Error { kind: Closed }", "terminating connection due to administrator command" (57P01)
+    return /PostgreSQL connection|kind: Closed|connection (?:closed|reset|refused)|terminating connection|\b57P0[123]\b/i.test(err.message);
+  }
+  return false;
+}
+
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });
   }
   if (err instanceof ZodError) {
     return res.status(400).json({ error: "Validation failed", details: err.flatten() });
   }
+  // The database is momentarily out of reach — pool exhausted (P2024), server gone or connection
+  // killed (failover, idle kill) — a retryable 503, not a 500 (QA Phase 7). Still reported.
+  if (isDatabaseUnavailable(err)) {
+    reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+    res.setHeader("Retry-After", "2");
+    return res.status(503).json({ error: "The server is busy. Please try again in a moment.", requestId: req.id });
+  }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002") return res.status(409).json({ error: "Already exists", details: err.meta });
     if (err.code === "P2025") return res.status(404).json({ error: "Not found" });
+    // A referenced id that doesn't exist (or isn't visible): the client's mistake, not ours
+    if (err.code === "P2003") return res.status(400).json({ error: "A referenced record was not found" });
+    if (err.code === "P2020" || err.code === "P2033") return res.status(400).json({ error: "A number is too large" });
+  }
+  // Two transactions that locked the same rows in opposite order (or a serialization conflict):
+  // PostgreSQL rolled one back. Nothing was saved, so the client can safely send it again (QA Phase 7).
+  if (isTransactionConflict(err)) {
+    return res.status(409).json({ error: "Someone else changed the same records at the same moment. Nothing was saved — please try again.", details: { code: "TRY_AGAIN" } });
+  }
+  // A number too large for its 32-bit column (paise, points, quantities sent by the client)
+  if (err instanceof Prisma.PrismaClientUnknownRequestError && /Unable to fit integer value|out of range for type integer/.test(err.message)) {
+    return res.status(400).json({ error: "A number is too large" });
+  }
+  // A database CHECK constraint (23514, e.g. a balance that would go below zero in a race): the write is
+  // refused and rolled back. Reported (it means a code path missed a guard), answered as a conflict.
+  if (err instanceof Error && /\b23514\b|violates check constraint/.test(err.message)) {
+    reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+    return res.status(409).json({ error: "This change conflicts with the current data. Refresh and try again.", requestId: req.id });
+  }
+  // PostgreSQL text can't hold U+0000 (22021) — bad input that slipped past rejectNulBytes, not a server fault.
+  if (err instanceof Error && /\b22021\b|invalid byte sequence for encoding/.test(err.message)) {
+    return res.status(400).json({ error: "Text contains an invalid character" });
   }
   // body-parser / http-errors (malformed JSON, payload too large, ...)
   const status = (err as { status?: number; expose?: boolean }).status;
   if ((err as { expose?: boolean }).expose && status && status < 500) {
     return res.status(status).json({ error: (err as Error).message });
   }
-  console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  // Unexpected: report with the request id; the client gets the id (to quote to support), never a stack trace.
+  reportError(err, { kind: "request", requestId: req.id, method: req.method, route: req.originalUrl.split("?")[0] });
+  res.status(500).json({ error: "Internal server error", requestId: req.id });
+}
+
+const hasNul = (v: unknown, depth = 0): boolean => {
+  if (typeof v === "string") return v.includes("\u0000");
+  if (depth > 64 || v === null || typeof v !== "object") return false;
+  return Object.entries(v).some(([k, x]) => k.includes("\u0000") || hasNul(x, depth + 1));
+};
+
+/**
+ * Refuse U+0000 anywhere in the URL (path, ids, query) or a parsed JSON body with a 400:
+ * PostgreSQL text can't store it, so it would otherwise surface as a database error (QA BUG-006).
+ */
+export function rejectNulBytes(req: Request, _res: Response, next: NextFunction) {
+  let url = req.originalUrl;
+  try {
+    url = decodeURIComponent(url.replace(/\+/g, " "));
+  } catch {
+    /* malformed %-escapes: Express answers those itself */
+  }
+  if (url.includes("\u0000") || hasNul(req.body)) return next(badRequest("Text contains an invalid character"));
+  next();
 }
 
 /** Read a route param as a string (Express 5 types allow string | string[]). */

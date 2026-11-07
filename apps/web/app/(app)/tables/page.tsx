@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowClockwise, CalendarBlank, PencilRuler } from "@phosphor-icons/react";
+import { ArrowClockwise, CalendarBlank, PencilRuler, QrCode } from "@phosphor-icons/react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import type { FloorResponse, FloorTable } from "@/lib/types-service";
@@ -19,6 +20,7 @@ import { FloorEditor } from "@/components/tables/FloorEditor";
 import { OpenTabDialog } from "@/components/tables/OpenTabDialog";
 import { TabPanel } from "@/components/tables/TabPanel";
 import { STATUS_META, visualStatus } from "@/components/tables/common";
+import { IncomingOrders } from "@/components/storefront/IncomingOrders";
 
 const AREA_KEY = "canavo.tablesArea";
 
@@ -95,6 +97,14 @@ export default function TablesPage() {
             <IconButton label="Refresh" onClick={() => void reload()}>
               <ArrowClockwise size={22} />
             </IconButton>
+            {can("channel:manage") && !editing && (
+              <Link
+                href="/tables/qr-codes"
+                className="inline-flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surface px-4 text-[15px] font-semibold text-fg hover:bg-surface-2"
+              >
+                <QrCode size={20} /> QR codes
+              </Link>
+            )}
             {canManage && !editing && (
               <Button variant="outline" icon={<PencilRuler size={20} />} onClick={() => setEditing(true)}>
                 Edit floor
@@ -103,6 +113,12 @@ export default function TablesPage() {
           </>
         }
       />
+
+      {!editing && (
+        <div className="mb-3 overflow-hidden rounded-xl empty:hidden">
+          <IncomingOrders onChanged={softReload} />
+        </div>
+      )}
 
       {floor.loading && !floor.data ? (
         <LoadingState label="Loading floor plan…" />
@@ -135,7 +151,7 @@ export default function TablesPage() {
                     onClick={() => chooseArea(a.id)}
                     className={clsx(
                       "min-h-tap shrink-0 rounded-xl border px-4 text-sm font-bold",
-                      a.id === area.id ? "border-primary bg-primary text-white" : "border-line bg-surface hover:border-primary/60",
+                      a.id === area.id ? "border-primary bg-primary text-primary-fg" : "border-line bg-surface hover:border-primary/60",
                     )}
                   >
                     {a.name}

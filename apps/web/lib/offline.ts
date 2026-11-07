@@ -15,6 +15,13 @@ import type { Menu, Order, Outlet, PaymentMode, SyncResult } from "./types";
 export interface QueuedPayment {
   mode: PaymentMode;
   amount: number;
+  /** Phase 3.8 (online only): tip, card details, gift card code */
+  tip?: number;
+  cardLast4?: string;
+  authCode?: string;
+  giftCardCode?: string;
+  /** Phase 5.2 (online only): meal tokens used */
+  tokens?: number;
 }
 
 export interface QueuedOrder {
@@ -86,7 +93,8 @@ export async function fetchWithCache<T>(key: string, fetcher: () => Promise<T>):
   }
 }
 
-export const loadMenu = (outletId: string) => fetchWithCache<Menu>(menuKey(outletId), () => api.get<Menu>("/menu"));
+/** The POS menu: with meal slots (CANTEEN), only what sells in the slot open now, at slot prices. */
+export const loadMenu = (outletId: string) => fetchWithCache<Menu>(menuKey(outletId), () => api.get<Menu>("/menu", { query: { slot: "current" } }));
 export const loadOutlet = (outletId: string) =>
   fetchWithCache<Outlet>(outletKey(outletId), () => api.get<Outlet>("/outlets/current"));
 

@@ -21,7 +21,9 @@ import { withForceConfirm } from "../../src/delivery/forceAssign";
 import { useActiveOffers, useCustomerLookup, usePromotionPreview } from "../../src/pos/usePromotions";
 import { freeTargets } from "../../src/pos/freeItems";
 import { buildProvisionalReceipt, setLastOfflineReceipt } from "../../src/pos/offlineReceipt";
+import { nextOfflineInvoiceNumber, refreshOfflineSeries } from "../../src/pos/offlineSeries";
 import { useCatalog } from "../../src/pos/useCatalog";
+import { isStockError } from "../../src/pos/stock";
 import { brand, font, radius, space, useTheme } from "../../src/theme";
 import { withAccess } from "../../src/auth/RequireAccess";
 
@@ -54,6 +56,11 @@ function Bill() {
   // A module switched off while a delivery / pre-order cart was open → fall back to takeaway.
   const { orderType } = cart.state;
   const { setOrderType } = cart;
+  // Keep this phone's offline invoice series fresh while online (Phase 3.4).
+  useEffect(() => {
+    if (online && outletRef?.id) void refreshOfflineSeries(outletRef.id);
+  }, [online, outletRef?.id]);
+
   useEffect(() => {
     if ((orderType === "DELIVERY" && !features.delivery) || (orderType === "PRE_ORDER" && !features.preOrder)) setOrderType("TAKEAWAY");
   }, [orderType, features.delivery, features.preOrder, setOrderType]);
@@ -135,7 +142,14 @@ function Bill() {
       // Lost connection mid-request: queue it (simple bills only). clientOrderId makes this safe even if the server got it.
       const queueable = cart.state.orderType === "TAKEAWAY" || cart.state.orderType === "DINE_IN";
       if (e instanceof ApiError && e.isNetwork && queueable) setOfflinePay(clientOrderId);
-      else setChargeError(errorMessage(e));
+      else {
+        setChargeError(errorMessage(e));
+        // An item ran out since the menu loaded: refetch so the grid and the cart line show it.
+        if (isStockError(e)) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          void reload();
+        }
+      }
     } finally {
       setCharging(false);
     }
@@ -144,12 +158,15 @@ function Bill() {
   const saveOffline = async (mode: OfflinePaymentMode) => {
     if (!offlinePay || !bill || !outlet || !outletRef) return;
     const createdAt = new Date().toISOString();
-    const payload = toOrderInput(cart.state, { clientOrderId: offlinePay, createdAt, offline: true });
+    // Phase 3.4: this phone's own invoice series (if the hotel uses it) gives the final number now.
+    const invoiceNumber = await nextOfflineInvoiceNumber(outletRef.id, createdAt, outlet.timezone);
+    const payload = { ...toOrderInput(cart.state, { clientOrderId: offlinePay, createdAt, offline: true }), ...(invoiceNumber && { offlineInvoiceNumber: invoiceNumber }) };
     try {
       await enqueue({ clientOrderId: offlinePay, outletId: outletRef.id, payload, paymentMode: mode, grandTotal: bill.grandTotal, createdAt });
       setLastOfflineReceipt(
         buildProvisionalReceipt({
           clientOrderId: offlinePay,
+          invoiceNumber,
           lines: cart.state.lines,
           bill,
           outlet,

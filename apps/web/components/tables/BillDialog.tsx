@@ -6,6 +6,7 @@ import { Plus } from "@phosphor-icons/react";
 import { equalSplitPreview } from "./split";
 import { formatINR, indianPhone, type BillSplitMode, type SessionBillInput } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
+import { useApproval } from "@/components/providers/ApprovalProvider";
 import type { SessionBillResult, TableSessionDetail } from "@/lib/types-service";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -35,6 +36,7 @@ export function BillDialog({
   onClose: () => void;
   onBilled: (r: SessionBillResult, parts?: number) => void;
 }) {
+  const withApproval = useApproval();
   const unbilled = useMemo(() => session.items.filter((i) => !i.billedOrderId), [session.items]);
   const seats = useMemo(() => [...new Set(unbilled.map((i) => i.seat).filter((s): s is number => s !== null))].sort((a, b) => a - b), [unbilled]);
   const hasShared = unbilled.some((i) => i.seat === null);
@@ -103,7 +105,7 @@ export function BillDialog({
     };
     setBusy(true);
     try {
-      const res = await api.post<SessionBillResult>(`/tables/sessions/${session.id}/bill`, body);
+      const res = await withApproval((approval) => api.post<SessionBillResult>(`/tables/sessions/${session.id}/bill`, { ...body, approval }));
       onBilled(res, mode === "EQUAL" ? parts : undefined);
     } catch (e) {
       setError(errorMessage(e));
@@ -151,7 +153,7 @@ export function BillDialog({
                   const amt = unbilled.filter((i) => i.seat === s).reduce((a, i) => a + i.amount, 0);
                   return (
                     <label key={s} className={clsx("flex min-h-tap cursor-pointer items-center gap-2 rounded-xl border px-3", on ? "border-primary bg-primary-50 dark:bg-primary/15" : "border-line")}>
-                      <input type="checkbox" checked={on} onChange={() => setSeatSel((x) => (on ? x.filter((y) => y !== s) : [...x, s].sort((a, b) => a - b)))} className="h-5 w-5 accent-[#FF6B35]" />
+                      <input type="checkbox" checked={on} onChange={() => setSeatSel((x) => (on ? x.filter((y) => y !== s) : [...x, s].sort((a, b) => a - b)))} className="h-5 w-5 accent-primary" />
                       <span className="font-semibold">Seat {s}</span>
                       <span className="tabular text-xs text-muted">{formatINR(amt)}</span>
                     </label>

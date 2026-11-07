@@ -22,11 +22,12 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
-import { startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
 import { createOrder } from "../services/billing";
+import { lastKotNumberToday } from "../services/kot-number";
 import { equalSplit, groupBillItems, runWithSessionBill } from "../services/service-context";
 import { resolveItemTax, taxConfigForOutlet } from "../services/tax";
 import { alertKitchenNewKots, alertTableAttention } from "../services/alerts";
@@ -143,14 +144,17 @@ export async function openSession(
   const table = await prisma.diningTable.findFirst({ where: { id: tableId, outletId, active: true } });
   if (!table) throw notFound("Table");
   await assertStaff(outletId, body.waiterId);
-  const session = await prisma.$transaction(async (tx) => {
+  const session = await retryTransaction(async (tx) => {
+    // Lock the table: two devices opening it at the same moment must not both get a tab.
+    await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${table.id} FOR UPDATE`;
     if (await findOpenSession(outletId, table.id, tx)) throw conflict(`Table ${table.label} already has an open tab`);
     const s = await tx.tableSession.create({
       data: {
         outletId,
         tableId: table.id,
         guests: body.guests,
-        waiterId: body.waiterId ?? table.waiterId,
+        // A waiter opening a table serves it unless someone else was named (Phase 4.1).
+        waiterId: body.waiterId ?? table.waiterId ?? (req.user!.role === "WAITER" ? req.user!.id : null),
         customerName: body.customerName,
         customerPhone: body.customerPhone,
       },
@@ -178,9 +182,8 @@ export async function addItemsToSession(
   const priced = items.map((i) => ({ input: i, line: priceLine(menu, i, true) }));
   const label = await sessionLabel(session);
 
-  const kots = await prisma.$transaction(async (tx) => {
-    const today = zonedParts(new Date(), outlet.timezone).date;
-    let kotNumber = await tx.kotTicket.count({ where: { outletId, createdAt: { gte: startOfLocalDay(today, outlet.timezone) } } });
+  const kots = await retryTransaction(async (tx) => {
+    let kotNumber = await lastKotNumberToday(tx, outletId, outlet.timezone);
     const byStation = new Map<string, typeof priced>();
     for (const p of priced) byStation.set(p.line.station, [...(byStation.get(p.line.station) ?? []), p]);
     const created = [];
@@ -446,9 +449,10 @@ tablesRouter.put("/layout", requirePermission("table:manage"), async (req, res) 
   if (areaIds.length && (await prisma.diningArea.count({ where: { outletId, id: { in: areaIds } } })) !== areaIds.length) {
     throw badRequest("Unknown area in layout");
   }
-  await prisma.$transaction(
-    tables.map(({ id, ...pos }) => prisma.diningTable.update({ where: { id }, data: pos })),
-  );
+  // Callback form: the batch form isn't supported with row-level security (it threw → 500 on every save).
+  await retryTransaction(async (tx) => {
+    for (const { id, ...pos } of tables) await tx.diningTable.update({ where: { id }, data: pos });
+  });
   await audit(req, "table.layout.save", "DiningTable", undefined, { count: tables.length });
   emitTables(outletId, { tableIds: tables.map((t) => t.id), action: "layout" });
   res.json(await prisma.diningTable.findMany({ where: { outletId, active: true }, orderBy: { label: "asc" } }));
@@ -551,7 +555,7 @@ tablesRouter.delete("/sessions/:id/items/:itemId", requirePermission("order:canc
   if (!item) throw notFound("Item");
   if (item.billedOrderId) throw conflict("Item is already billed — cancel the bill first");
 
-  const kot = await prisma.$transaction(async (tx) => {
+  const kot = await retryTransaction(async (tx) => {
     await tx.tableSessionItem.delete({ where: { id: item.id } });
     let updatedKot = null;
     if (item.kotId) {
@@ -577,7 +581,8 @@ tablesRouter.post("/sessions/:id/transfer", requirePermission("table:serve"), as
   const target = await prisma.diningTable.findFirst({ where: { id: toTableId, outletId, active: true } });
   if (!target) throw notFound("Target table");
   if (target.id === session.tableId) throw badRequest("Session is already on that table");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${target.id} FOR UPDATE`;
     if (await findOpenSession(outletId, target.id, tx)) throw conflict(`Table ${target.label} is occupied`);
     await tx.tableSession.update({ where: { id: session.id }, data: { tableId: target.id } });
     await tx.diningTable.update({ where: { id: session.tableId }, data: { status: "AVAILABLE" } });
@@ -597,12 +602,23 @@ tablesRouter.post("/sessions/:id/merge", requirePermission("table:serve"), async
   if (tables.length !== new Set(tableIds).size) throw notFound("Table");
   const touched: string[] = [];
   const mergedSessions: string[] = [];
-  await prisma.$transaction(async (tx) => {
-    const merged = new Set(session.mergedTableIds);
-    let guests = session.guests;
+  await retryTransaction(async (tx) => {
+    touched.length = mergedSessions.length = 0; // a retried attempt starts again
+    // Lock this tab and every tab being merged in, always in id order, then re-read them: merging
+    // A into B while someone merges B into A used to let both commit — both tabs ended CLOSED with
+    // the items inside them, and the tables showed occupied with no open tab (QA Phase 7).
+    const others = (await Promise.all(tables.filter((t) => !own.has(t.id)).map((t) => findOpenSession(outletId, t.id, tx)))).filter((s) => s !== null);
+    const lockIds = [...new Set([session.id, ...others.map((s) => s.id)])].sort();
+    await tx.$queryRaw`SELECT id FROM "TableSession" WHERE id IN (${Prisma.join(lockIds)}) ORDER BY id FOR UPDATE`;
+    const me = await tx.tableSession.findUniqueOrThrow({ where: { id: session.id } });
+    if (me.status !== "OPEN") throw conflict("Table session is closed");
+    const merged = new Set(me.mergedTableIds);
+    let guests = me.guests;
     for (const t of tables) {
       if (own.has(t.id)) continue;
       const other = await findOpenSession(outletId, t.id, tx);
+      if (other && other.id !== session.id && !lockIds.includes(other.id)) throw conflict("The tables changed meanwhile — reload and try again");
+      if (other?.id === session.id) continue;
       if (other) {
         await tx.tableSessionItem.updateMany({ where: { sessionId: other.id }, data: { sessionId: session.id } });
         await tx.kotTicket.updateMany({ where: { sessionId: other.id }, data: { sessionId: session.id } });
@@ -633,7 +649,8 @@ tablesRouter.post("/sessions/:id/merge", requirePermission("table:serve"), async
  * - EQUAL: one bill with everything + `equalSplit` amounts (summing exactly to
  *   the grand total) for the client to record as split payments on that bill.
  */
-tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:create"), async (req, res) => {
+/** Billing stays with whoever collects payment (cashier, manager); waiters only serve. */
+tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:create", "payment:collect"), async (req, res) => {
   const body = parse(sessionBillSchema, req.body ?? {});
   const outletId = req.outletId!;
   const session = await loadOpenSession(param(req, "id"), outletId);
@@ -644,35 +661,47 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
   }
   const label = (await sessionLabel(session)).slice(0, 20);
   const byId = new Map(items.map((i) => [i.id, i]));
-  const orders = [];
-  for (const g of groups) {
-    const groupItems = g.itemIds.map((id) => byId.get(id)!);
-    const input: OrderCreateInput = {
-      orderType: "DINE_IN",
-      tableLabel: label,
-      customerName: body.customerName ?? session.customerName ?? undefined,
-      customerPhone: body.customerPhone ?? session.customerPhone ?? undefined,
-      interState: body.interState,
-      items: groupItems.map((i) => ({
-        menuItemId: i.menuItemId,
-        variantId: i.variantId ?? undefined,
-        addonIds: i.addonIds,
-        quantity: i.quantity,
-        notes: [i.seat ? `Seat ${i.seat}` : null, i.notes].filter(Boolean).join(" · ") || undefined,
-      })),
-      discount: body.discount,
-      couponCode: body.couponCode,
-      redeemPoints: body.redeemPoints,
-      notes: [body.notes, groups.length > 1 ? g.label : null].filter(Boolean).join(" · ") || undefined,
-    };
-    const { order } = await runWithSessionBill({ sessionId: session.id, itemIds: g.itemIds }, () =>
-      createOrder(req, input, { skipKot: true, tableSessionId: session.id, skipAvailability: true }),
-    );
-    // Link the already-fired KOTs to this bill (a KOT shared across split bills links to the first).
-    const kotIds = [...new Set(groupItems.map((i) => i.kotId).filter((k): k is string => Boolean(k)))];
-    if (kotIds.length) await prisma.kotTicket.updateMany({ where: { id: { in: kotIds }, orderId: null }, data: { orderId: order.id } });
-    orders.push({ group: g.label, seat: g.seat, itemIds: g.itemIds, order });
-  }
+  // All split bills, their item marks and KOT links commit together or not at all (Phase 1.6).
+  const effects: (() => void)[] = [];
+  const orders = await retryTransaction(
+    async (tx) => {
+      effects.length = 0; // a retried attempt starts again
+      const created = [];
+      for (const g of groups) {
+        const groupItems = g.itemIds.map((id) => byId.get(id)!);
+        const input: OrderCreateInput = {
+          orderType: "DINE_IN",
+          tableLabel: label,
+          customerName: body.customerName ?? session.customerName ?? undefined,
+          customerPhone: body.customerPhone ?? session.customerPhone ?? undefined,
+          interState: body.interState,
+          items: groupItems.map((i) => ({
+            menuItemId: i.menuItemId,
+            variantId: i.variantId ?? undefined,
+            addonIds: i.addonIds,
+            quantity: i.quantity,
+            notes: [i.seat ? `Seat ${i.seat}` : null, i.notes].filter(Boolean).join(" · ") || undefined,
+          })),
+          discount: body.discount,
+          approval: body.approval,
+          couponCode: body.couponCode,
+          redeemPoints: body.redeemPoints,
+          notes: [body.notes, groups.length > 1 ? g.label : null].filter(Boolean).join(" · ") || undefined,
+        };
+        const result = await runWithSessionBill({ sessionId: session.id, itemIds: g.itemIds }, () =>
+          createOrder(req, input, { skipKot: true, tableSessionId: session.id, skipAvailability: true, tx }),
+        );
+        effects.push(result.effects);
+        // Link the already-fired KOTs to this bill (a KOT shared across split bills links to the first).
+        const kotIds = [...new Set(groupItems.map((i) => i.kotId).filter((k): k is string => Boolean(k)))];
+        if (kotIds.length) await tx.kotTicket.updateMany({ where: { id: { in: kotIds }, orderId: null }, data: { orderId: result.order.id } });
+        created.push({ group: g.label, seat: g.seat, itemIds: g.itemIds, order: result.order });
+      }
+      return created;
+    },
+    { timeout: 30_000 },
+  );
+  effects.forEach((run) => run());
   const detail = await sessionDetail(session.id, outletId);
   emitTables(outletId, { tableIds: [session.tableId, ...session.mergedTableIds], sessionId: session.id, action: "bill" });
   res.status(201).json({
@@ -693,11 +722,11 @@ tablesRouter.post("/sessions/:id/close", requirePermission("table:serve"), async
   if (unbilled) throw conflict(`${unbilled} item(s) not billed yet`);
   if (openOrders) throw conflict(`${openOrders} bill(s) not paid yet`);
   const tableIds = [session.tableId, ...session.mergedTableIds];
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await tx.tableSession.update({ where: { id: session.id }, data: { status: "CLOSED", closedAt: new Date() } });
     await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
     await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });
-    await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED" } });
+    await tx.kotTicket.updateMany({ where: { sessionId: session.id, status: { not: "SERVED" } }, data: { status: "SERVED", servedAt: new Date() } });
     await audit(req, "table.session.close", "TableSession", session.id, { tableIds }, tx);
   });
   emitTables(outletId, { tableIds, sessionId: session.id, action: "close" });

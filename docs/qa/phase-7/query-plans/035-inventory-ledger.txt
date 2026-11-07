@@ -1,0 +1,51 @@
+-- inventory-ledger
+-- calls during capture: 8; server-side max 7.3 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "InventoryTransaction"."id", "InventoryTransaction"."outletId", "InventoryTransaction"."inventoryItemId", "InventoryTransaction"."type"::text, "InventoryTransaction"."quantity", "InventoryTransaction"."unitCost", "InventoryTransaction"."balanceAfter", "InventoryTransaction"."refType", "InventoryTransaction"."refId", "InventoryTransaction"."note", "InventoryTransaction"."createdById", "InventoryTransaction"."createdAt" FROM "InventoryTransaction" WHERE ("InventoryTransaction"."outletId" = $1 AND "InventoryTransaction"."createdAt" >= $2 AND "InventoryTransaction"."createdAt" < $3) ORDER BY "InventoryTransaction"."createdAt" DESC LIMIT $4 OFFSET $5
+-- params: $1 = 'out1', $2 = '2026-10-30 18:30:00', $3 = '2026-11-06 18:30:00', $4 = '200', $5 = '0'
+
+==== BEFORE (2.373 ms, median of 3)
+Limit  (cost=961.71..962.21 rows=200 width=161) (actual time=2.253..2.268 rows=200 loops=1)
+  Buffers: shared hit=415
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.380..0.380 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Sort  (cost=961.45..961.99 rows=216 width=161) (actual time=2.252..2.260 rows=200 loops=1)
+        Sort Key: "InventoryTransaction"."createdAt" DESC
+        Sort Method: quicksort  Memory: 73kB
+        Buffers: shared hit=415
+        ->  Bitmap Heap Scan on "InventoryTransaction"  (cost=12.61..953.08 rows=216 width=161) (actual time=0.535..2.147 rows=363 loops=1)
+              Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+              Heap Blocks: exact=334
+              Buffers: shared hit=412
+              ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..12.56 rows=331 width=0) (actual time=0.088..0.088 rows=363 loops=1)
+                    Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+                    Buffers: shared hit=5
+Planning:
+  Buffers: shared hit=292
+Planning Time: 1.384 ms
+Execution Time: 2.373 ms
+
+==== AFTER (2.061 ms, median of 3)
+Limit  (cost=961.71..962.21 rows=200 width=161) (actual time=1.928..1.956 rows=200 loops=1)
+  Buffers: shared hit=415
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (actual time=0.486..0.486 rows=1 loops=1)
+          Buffers: shared hit=66
+  ->  Sort  (cost=961.45..961.99 rows=216 width=161) (actual time=1.927..1.938 rows=200 loops=1)
+        Sort Key: "InventoryTransaction"."createdAt" DESC
+        Sort Method: quicksort  Memory: 73kB
+        Buffers: shared hit=415
+        ->  Bitmap Heap Scan on "InventoryTransaction"  (cost=12.61..953.08 rows=216 width=161) (actual time=0.665..1.770 rows=363 loops=1)
+              Recheck Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+              Filter: ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0)))
+              Heap Blocks: exact=334
+              Buffers: shared hit=412
+              ->  Bitmap Index Scan on "InventoryTransaction_outletId_createdAt_idx"  (cost=0.00..12.56 rows=331 width=0) (actual time=0.087..0.087 rows=363 loops=1)
+                    Index Cond: (("outletId" = 'out1'::text) AND ("createdAt" >= '2026-10-30 18:30:00'::timestamp without time zone) AND ("createdAt" < '2026-11-06 18:30:00'::timestamp without time zone))
+                    Buffers: shared hit=5
+Planning:
+  Buffers: shared hit=292
+Planning Time: 1.569 ms
+Execution Time: 2.061 ms

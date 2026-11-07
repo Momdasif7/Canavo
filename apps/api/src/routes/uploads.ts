@@ -80,7 +80,8 @@ function readImage(req: Request, res: Response, next: NextFunction) {
       if (err instanceof multer.MulterError) {
         return next(err.code === "LIMIT_FILE_SIZE" ? new HttpError(413, "Image must be 5 MB or smaller") : badRequest(err.message));
       }
-      next(err);
+      // busboy parse errors ("Malformed part header", "Unexpected end of form"): the client's body, not a crash
+      next(err ? badRequest("Malformed multipart upload") : undefined);
     });
     return;
   }

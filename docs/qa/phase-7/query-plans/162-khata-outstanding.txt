@@ -1,0 +1,39 @@
+-- khata-outstanding
+-- calls during capture: 4; server-side max 0.0 ms
+-- SQL (Prisma, run as canavo_app_it with app.business_id=biz1; IN lists trimmed)
+SELECT "Customer"."id", "Customer"."khataBalance" FROM "Customer" WHERE ("Customer"."khataBalance" > $1 AND EXISTS(SELECT "t0"."customerId" FROM "KhataTransaction" AS "t0" WHERE ("t0"."outletId" = $2 AND ("Customer"."id") = ("t0"."customerId") AND "t0"."customerId" IS NOT NULL)) AND "Customer"."businessId" = $3) OFFSET $4
+-- params: $1 = '0', $2 = 'out1', $3 = 'biz1', $4 = '0'
+
+==== BEFORE (0.062 ms, median of 3)
+Nested Loop  (cost=0.68..16.76 rows=1 width=12) (actual time=0.003..0.003 rows=0 loops=1)
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  HashAggregate  (cost=0.00..0.01 rows=1 width=32) (actual time=0.003..0.003 rows=0 loops=1)
+        Group Key: t0."customerId"
+        Batches: 1  Memory Usage: 24kB
+        ->  Seq Scan on "KhataTransaction" t0  (cost=0.00..0.00 rows=1 width=32) (actual time=0.002..0.002 rows=0 loops=1)
+              Filter: (("customerId" IS NOT NULL) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+  ->  Index Scan using "Customer_pkey" on "Customer"  (cost=0.41..8.45 rows=1 width=12) (never executed)
+        Index Cond: (id = t0."customerId")
+        Filter: (("khataBalance" > 0) AND ("businessId" = 'biz1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))))
+Planning:
+  Buffers: shared hit=384
+Planning Time: 0.813 ms
+Execution Time: 0.062 ms
+
+==== AFTER (0.054 ms, median of 3)
+Nested Loop  (cost=0.68..16.76 rows=1 width=12) (actual time=0.003..0.004 rows=0 loops=1)
+  InitPlan 1 (returns $0)
+    ->  Result  (cost=0.00..0.26 rows=1 width=32) (never executed)
+  ->  HashAggregate  (cost=0.00..0.01 rows=1 width=32) (actual time=0.003..0.003 rows=0 loops=1)
+        Group Key: t0."customerId"
+        Batches: 1  Memory Usage: 24kB
+        ->  Seq Scan on "KhataTransaction" t0  (cost=0.00..0.00 rows=1 width=32) (actual time=0.002..0.002 rows=0 loops=1)
+              Filter: (("customerId" IS NOT NULL) AND ("outletId" = 'out1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("outletId" = ANY ($0))))
+  ->  Index Scan using "Customer_pkey" on "Customer"  (cost=0.41..8.45 rows=1 width=12) (never executed)
+        Index Cond: (id = t0."customerId")
+        Filter: (("khataBalance" > 0) AND ("businessId" = 'biz1'::text) AND ((COALESCE(current_setting('app.bypass_rls'::text, true), ''::text) = 'on'::text) OR ("businessId" = NULLIF(current_setting('app.business_id'::text, true), ''::text))))
+Planning:
+  Buffers: shared hit=384
+Planning Time: 0.878 ms
+Execution Time: 0.054 ms

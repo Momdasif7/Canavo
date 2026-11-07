@@ -13,6 +13,7 @@ import { codAvailable } from "./cod";
 import { CustomerSection, DeliverySection, PromoSection, Warnings } from "./CartExtras";
 import { freeBadge } from "./freeItems";
 import { noTaxNote, showGst, taxRows, type LocalBill, type TotalsLike } from "./localBill";
+import { isItemOut, isLineOut, ranOut } from "./stock";
 
 const ORDER_TYPES: { value: OrderType; label: string }[] = [
   { value: "TAKEAWAY", label: "Takeaway" },
@@ -29,6 +30,9 @@ function LineRow({ line }: { line: CartLine }) {
   const free = line.free;
   const gross = line.unitPrice * line.quantity;
   const net = free ? Math.max(0, gross - Math.round((gross * free.percent) / 100)) : gross;
+  // Ran out since it was added (latest menu): the server refuses it online, so flag it.
+  const out = isLineOut(line);
+  const outReason = out ? ranOut(line.item) : null;
 
   return (
     <Swipeable
@@ -44,7 +48,12 @@ function LineRow({ line }: { line: CartLine }) {
         </View>
       )}
     >
-      <View style={[styles.line, { backgroundColor: free ? t.successBg : t.surface, borderColor: free ? t.success : t.border }]}>
+      <View
+        style={[
+          styles.line,
+          { backgroundColor: out ? t.dangerBg : free ? t.successBg : t.surface, borderColor: out ? t.danger : free ? t.success : t.border },
+        ]}
+      >
         <View style={{ flex: 1, gap: 2 }}>
           <Row style={{ gap: 6 }}>
             <VegMark type={line.item.foodType} size={14} />
@@ -61,6 +70,12 @@ function LineRow({ line }: { line: CartLine }) {
             </View>
           ) : null}
           {detail ? <AppText variant="small" numberOfLines={2}>{detail}</AppText> : null}
+          {out ? (
+            <AppText variant="small" color={t.danger} style={{ fontWeight: "700" }} numberOfLines={2}>
+              {isItemOut(line.item) ? "Out of stock" : `${line.variant?.name ?? "This size"} is out of stock`}
+              {outReason ? ` · ${outReason}` : ""}
+            </AppText>
+          ) : null}
           <Row style={{ gap: 6, flexWrap: "wrap" }}>
             {free ? (
               <AppText variant="small" style={{ textDecorationLine: "line-through" }}>
@@ -208,6 +223,7 @@ export function CartSheet({
   const showPromos = features.coupons || features.points;
   const total = preview?.bill.grandTotal ?? bill?.grandTotal;
   const promosOffline = !online && (state.couponCode || state.redeemPoints > 0);
+  const outLines = state.lines.filter(isLineOut).length;
   const placeCod = !!features.cod && state.delivery.cod && codAvailable(state.orderType, online);
   const chargeTitle = placeCod
     ? `Place COD order${total != null ? ` · ${inr(total)}` : ""}`
@@ -295,6 +311,12 @@ export function CartSheet({
         {previewError ? <Notice kind="warning" title="Server check" message={previewError} /> : null}
 
         {error ? <Notice kind="error" message={error} /> : null}
+        {outLines && online ? (
+          <Notice
+            kind="warning"
+            message={`${outLines === 1 ? "1 item is" : `${outLines} items are`} out of stock. Remove ${outLines === 1 ? "it" : "them"} (swipe left) to charge this bill.`}
+          />
+        ) : null}
         {!online ? (
           <Notice kind="warning" message="You're offline. The bill will be saved on this phone and synced later (cash/card only)." />
         ) : null}

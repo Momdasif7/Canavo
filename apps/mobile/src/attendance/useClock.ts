@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Location from "expo-location";
-import { ApiError, endpoints, errorMessage } from "../lib/api";
+import { api, ApiError, endpoints, errorMessage } from "../lib/api";
 import type { AttendanceStatus } from "../lib/types";
 
 export interface Fix {
   latitude: number;
   longitude: number;
   accuracy: number | null;
+  /** Android reports the location as coming from a mock-location app */
+  mocked: boolean;
   at: number;
 }
 
@@ -49,7 +51,10 @@ export function useClock(outletId: string | null, enabled = true) {
   const [pinRequired, setPinRequired] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  // The hotel requires a selfie at clock-in (CLOCK_IN_SELFIE): the screen shows the camera.
+  const [selfieRequired, setSelfieRequired] = useState(false);
   const fixRef = useRef<Fix | null>(null);
+  const pinRef = useRef<string | undefined>(undefined);
 
   const reload = useCallback(async () => {
     setStatusError(null);
@@ -96,6 +101,7 @@ export function useClock(outletId: string | null, enabled = true) {
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
         accuracy: pos.coords.accuracy != null ? Math.round(pos.coords.accuracy) : null,
+        mocked: Boolean(pos.mocked),
         at: Date.now(),
       };
       fixRef.current = f;
@@ -130,27 +136,35 @@ export function useClock(outletId: string | null, enabled = true) {
   }, []);
 
   const submit = useCallback(
-    async (f: Fix, pin?: string) => {
+    async (f: Fix, pin?: string, selfieUrl?: string) => {
       const clockingIn = !status?.clockedIn;
+      pinRef.current = pin;
       setPhase("submitting");
       try {
         const body = {
           latitude: f.latitude,
           longitude: f.longitude,
           accuracy: f.accuracy ?? undefined,
+          mocked: f.mocked || undefined,
           pin,
           outletId: outletId ?? undefined,
+          selfieUrl,
         };
         if (clockingIn) await endpoints.clockIn(body);
         else await endpoints.clockOut(body);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setPinRequired(false);
         setPinError(null);
+        setSelfieRequired(false);
         setLastAction(clockingIn ? "Clocked in" : "Clocked out");
         await reload();
       } catch (e) {
         const msg = errorMessage(e);
-        if (e instanceof ApiError && e.status === 400 && /PIN is required/i.test(msg)) {
+        const code = e instanceof ApiError ? (e.details as { code?: string } | undefined)?.code : undefined;
+        if (code === "SELFIE_REQUIRED") {
+          setPinRequired(false);
+          setSelfieRequired(true);
+        } else if (e instanceof ApiError && e.status === 400 && /PIN is required/i.test(msg)) {
           setPinRequired(true);
           setPinError(null);
         } else if (e instanceof ApiError && e.status === 403 && /PIN/i.test(msg)) {
@@ -205,6 +219,28 @@ export function useClock(outletId: string | null, enabled = true) {
     [locate, submit],
   );
 
+  /** Selfie taken: upload it, then clock in with the same GPS fix and PIN. */
+  const submitSelfie = useCallback(
+    async (uri: string) => {
+      let f = fixRef.current;
+      setPhase("submitting");
+      try {
+        const url = await api.uploadImage(uri, "selfie.jpg");
+        if (!f || Date.now() - f.at > FIX_REUSE_MS) f = await locate();
+        if (!f) {
+          setSelfieRequired(false);
+          return setPhase("idle");
+        }
+        await submit(f, pinRef.current, url);
+      } catch (e) {
+        setSelfieRequired(false);
+        setError({ kind: "other", title: "Selfie not uploaded", message: errorMessage(e) });
+        setPhase("idle");
+      }
+    },
+    [locate, submit],
+  );
+
   return {
     status,
     loadingStatus,
@@ -218,6 +254,9 @@ export function useClock(outletId: string | null, enabled = true) {
     clock,
     submitPin,
     cancelPin: () => setPinRequired(false),
+    selfieRequired,
+    submitSelfie,
+    cancelSelfie: () => setSelfieRequired(false),
     reload,
   };
 }

@@ -121,6 +121,35 @@ export default function SalesReportPage() {
               </Section>
             </div>
 
+            {r.byChannel && r.byChannel.some((c) => c.channel !== "POS") && (
+              <Section title="Channels" subtitle="Commission is an estimate from the % set in Settings → Channels">
+                <Table>
+                  <THead>
+                    <tr>
+                      <Th>Channel</Th>
+                      <Th className="text-right">Orders</Th>
+                      <Th className="text-right">Gross</Th>
+                      <Th className="text-right">Share</Th>
+                      <Th className="text-right">Commission (est.)</Th>
+                      <Th className="text-right">After commission</Th>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {r.byChannel.map((c) => (
+                      <tr key={c.channel}>
+                        <Td className="font-semibold">{c.label}</Td>
+                        <Td className="tabular text-right">{fmtInt(c.orders)}</Td>
+                        <Td className="tabular text-right">{formatINR(c.gross)}</Td>
+                        <Td className="tabular text-right">{c.share}%</Td>
+                        <Td className="tabular text-right">{c.commissionPercent ? `${formatINR(c.commission)} (${c.commissionPercent}%)` : "—"}</Td>
+                        <Td className="tabular text-right font-semibold">{formatINR(c.afterCommission)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Section>
+            )}
+
             <Section title="Period breakdown">
               <Table>
                 <THead>

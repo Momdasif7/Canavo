@@ -3,6 +3,12 @@ import { env } from "../env";
 
 export const razorpayEnabled = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
 
+const apiBase = () => env.RAZORPAY_BASE_URL.replace(/\/+$/, "");
+const authHeaders = () => ({
+  authorization: `Basic ${Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64")}`,
+  "content-type": "application/json",
+});
+
 export interface UpiQr {
   /** Razorpay qr_code id, or a mock id */
   gatewayRef: string;
@@ -27,10 +33,9 @@ export async function createUpiQr(opts: {
   vpa?: string | null;
 }): Promise<UpiQr> {
   if (razorpayEnabled()) {
-    const auth = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
-    const res = await fetch("https://api.razorpay.com/v1/payments/qr_codes", {
+    const res = await fetch(`${apiBase()}/v1/payments/qr_codes`, {
       method: "POST",
-      headers: { authorization: `Basic ${auth}`, "content-type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({
         type: "upi_qr",
         name: opts.payeeName.slice(0, 40),
@@ -57,6 +62,52 @@ export async function createUpiQr(opts: {
     cu: "INR",
   });
   return { gatewayRef: ref, qrPayload: `upi://pay?${params.toString()}`, mock: true };
+}
+
+export interface GatewayRefund {
+  /** Razorpay refund id (rfnd_…); null when nothing was sent to Razorpay */
+  id: string | null;
+  /**
+   * PROCESSED: money is on its way back. PENDING: Razorpay is still processing it.
+   * MANUAL: not refundable through the API here (no keys, or a dev / simulated payment) — refund it
+   * in the Razorpay dashboard. FAILED: Razorpay refused; refund it by hand.
+   */
+  status: "PROCESSED" | "PENDING" | "MANUAL" | "FAILED";
+  error?: string;
+}
+
+/** A real Razorpay payment id (the webhook stores it as Payment.reference). */
+export const isGatewayPaymentRef = (ref: string | null | undefined): ref is string => Boolean(ref && /^pay_[A-Za-z0-9]+$/.test(ref));
+
+/**
+ * Refund (part of) a captured Razorpay payment back to the customer's UPI. Never throws: the
+ * caller records the outcome and tells a manager when it has to be done by hand.
+ */
+export async function refundPayment(gatewayPaymentRef: string | null | undefined, amount: number, notes: Record<string, string> = {}): Promise<GatewayRefund> {
+  if (!razorpayEnabled()) return { id: null, status: "MANUAL", error: "Razorpay isn't set up" };
+  if (!isGatewayPaymentRef(gatewayPaymentRef)) return { id: null, status: "MANUAL", error: "Not a Razorpay payment" };
+  try {
+    const res = await fetch(`${apiBase()}/v1/payments/${encodeURIComponent(gatewayPaymentRef)}/refund`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ amount, speed: "normal", notes }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `${res.status}`;
+      try {
+        msg = (JSON.parse(text) as { error?: { description?: string } }).error?.description ?? msg;
+      } catch {
+        /* not JSON */
+      }
+      return { id: null, status: "FAILED", error: `Razorpay refused the refund: ${msg}`.slice(0, 300) };
+    }
+    const r = JSON.parse(text) as { id: string; status?: string };
+    return { id: r.id, status: r.status === "processed" ? "PROCESSED" : r.status === "failed" ? "FAILED" : "PENDING" };
+  } catch (e) {
+    return { id: null, status: "FAILED", error: `Couldn't reach Razorpay: ${(e as Error).message}`.slice(0, 300) };
+  }
 }
 
 /** Verify X-Razorpay-Signature: HMAC-SHA256 of the raw request body. */

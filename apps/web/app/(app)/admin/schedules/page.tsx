@@ -119,6 +119,8 @@ function CreateSchedule({ onCreated }: { onCreated: (s: ReportSchedule) => void 
   const [email, setEmail] = useState(me?.email ?? "");
   const [frequency, setFrequency] = useState<"DAILY" | "WEEKLY">("DAILY");
   const [reports, setReports] = useState<ReportKey[]>(["sales", "items", "gst"]);
+  // The canteen report only exists for hotels with the Canteen module.
+  const keys = REPORT_KEYS.filter((k) => k !== "canteen" || me?.modules?.includes("CANTEEN"));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -167,15 +169,15 @@ function CreateSchedule({ onCreated }: { onCreated: (s: ReportSchedule) => void 
             <button
               type="button"
               className="text-xs font-semibold text-primary hover:underline"
-              onClick={() => setReports(reports.length === REPORT_KEYS.length ? [] : [...REPORT_KEYS])}
+              onClick={() => setReports(reports.length === keys.length ? [] : [...keys])}
             >
-              {reports.length === REPORT_KEYS.length ? "Clear all" : "Select all"}
+              {reports.length === keys.length ? "Clear all" : "Select all"}
             </button>
           </legend>
           <div className="grid grid-cols-2 gap-2">
-            {REPORT_KEYS.map((k) => (
+            {keys.map((k) => (
               <label key={k} className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-line px-3 text-sm font-semibold has-[:checked]:border-primary has-[:checked]:bg-primary-50 dark:has-[:checked]:bg-primary/10">
-                <input type="checkbox" className="h-4 w-4 accent-[#FF6B35]" checked={reports.includes(k)} onChange={() => toggle(k)} />
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={reports.includes(k)} onChange={() => toggle(k)} />
                 {REPORT_LABELS[k]}
               </label>
             ))}

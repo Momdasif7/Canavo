@@ -7,13 +7,16 @@ import { useClock } from "../../src/attendance/useClock";
 import { isDeliveryPartner } from "../../src/auth/access";
 import { DeliveryHome } from "../../src/delivery/DeliveryHome";
 import { useSignedIn } from "../../src/auth/AuthContext";
+import { BusinessBrandRow } from "../../src/components/BusinessBrand";
 import { PinPad } from "../../src/components/PinPad";
+import { SelfieCapture } from "../../src/attendance/SelfieCapture";
 import { Screen } from "../../src/components/Screen";
-import { AppText, Button, Card, Kpi, Notice, Row } from "../../src/components/ui";
+import { AppText, Button, Card, Notice, Row } from "../../src/components/ui";
 import { endpoints } from "../../src/lib/api";
-import { formatDuration, formatMinutes, formatTime, inrShort } from "../../src/lib/format";
+import { formatDuration, formatMinutes, formatTime } from "../../src/lib/format";
 import { useSocketEvent } from "../../src/lib/socket";
-import type { DailyReport, LowStockAlerts } from "../../src/lib/types";
+import type { LowStockAlerts, OwnerSummary } from "../../src/lib/types";
+import { OwnerSummaryView } from "../../src/reports/OwnerSummaryView";
 import { useNotifications } from "../../src/notifications/NotificationsContext";
 import { brand, font, space, useTheme } from "../../src/theme";
 
@@ -53,7 +56,7 @@ function StaffHome() {
   const c = useClock(outlet?.id ?? null, canClock);
   const clockedIn = !!c.status?.clockedIn;
   const now = useNow(clockedIn);
-  const [report, setReport] = useState<DailyReport | null>(null);
+  const [report, setReport] = useState<OwnerSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const canReport = allowed("report:view");
   const canStock = allowed("inventory:view");
@@ -77,7 +80,7 @@ function StaffHome() {
   const loadReport = useCallback(async () => {
     if (!canReport) return;
     try {
-      setReport(await endpoints.dailyReport());
+      setReport(await endpoints.ownerSummary());
     } catch {
       setReport(null);
     }
@@ -106,13 +109,10 @@ function StaffHome() {
         <View style={{ gap: 2, flex: 1 }}>
           <AppText variant="muted">{greeting()},</AppText>
           <AppText variant="title">{me.name.split(" ")[0]}</AppText>
-          {businessName ? (
-            <AppText variant="muted" style={{ fontWeight: "700" }} numberOfLines={1}>
-              {businessName}
-            </AppText>
-          ) : null}
+          {/* Hotel logo + name (initials when there's no logo); platform admins keep CANAVO. */}
+          <BusinessBrandRow />
           <AppText variant="small">
-            {me.platformAdmin ? "Platform admin" : ROLE_LABELS[me.role]}
+            {me.platformAdmin ? (me.platformRole === "PLATFORM_SUPPORT" ? "Platform support" : "Platform admin") : (me.customRole?.name ?? ROLE_LABELS[me.role])}
             {outlet ? ` · ${outlet.name}` : ""}
           </AppText>
         </View>
@@ -228,20 +228,7 @@ function StaffHome() {
 
       {canReport && report ? (
         <View style={{ gap: space.sm }}>
-          <AppText variant="h3">Today at {outlet?.name ?? "the outlet"}</AppText>
-          <View style={styles.kpis}>
-            <Kpi
-              label="Sales"
-              value={inrShort(report.grossSales)}
-              accent={t.success}
-              hint={
-                report.comparison.yesterday.changePercent != null
-                  ? `${report.comparison.yesterday.changePercent >= 0 ? "▲" : "▼"} ${Math.abs(report.comparison.yesterday.changePercent)}% vs yesterday`
-                  : undefined
-              }
-            />
-            <Kpi label="Bills" value={String(report.orders)} hint={`Avg ${inrShort(report.averageOrderValue)}`} />
-          </View>
+          <OwnerSummaryView s={report} />
           <Button title="Open reports" variant="secondary" icon="stats-chart" onPress={() => router.push("/(tabs)/reports")} />
         </View>
       ) : null}
@@ -273,7 +260,7 @@ function StaffHome() {
       ) : null}
       {!canClock && !canReport && !canStock ? (
         <Card style={{ gap: space.sm }}>
-          <AppText variant="h3">Welcome to CANAVO</AppText>
+          <AppText variant="h3">Welcome to {!me.platformAdmin && businessName ? businessName : "CANAVO"}</AppText>
           <AppText variant="muted">
             {"Use the tabs below to get started. Features your business hasn't enabled are hidden."}
           </AppText>
@@ -288,6 +275,7 @@ function StaffHome() {
         onSubmit={c.submitPin}
         onClose={c.cancelPin}
       />
+      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
     </Screen>
   );
 }
@@ -309,7 +297,6 @@ const styles = StyleSheet.create({
   clockText: { color: "#fff", fontSize: font.xl + 4, fontWeight: "900", letterSpacing: 1 },
   clockSub: { color: "#fff", fontSize: font.md, fontWeight: "700" },
   timer: { color: "#fff", fontSize: font.xl, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  kpis: { flexDirection: "row", gap: space.md, flexWrap: "wrap" },
   bell: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   bellBadge: { position: "absolute", top: 4, right: 2, minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
 });
