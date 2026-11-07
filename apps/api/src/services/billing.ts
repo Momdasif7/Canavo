@@ -15,6 +15,7 @@ import {
 import { prisma } from "../db";
 import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { hhmmToMinutes, zonedParts } from "../lib/time";
 import { emitToOutlet } from "../realtime";
@@ -393,7 +394,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   };
   let order: Awaited<ReturnType<typeof persist>>;
   try {
-    order = opts.tx ? await persist(opts.tx) : await prisma.$transaction(persist);
+    order = opts.tx ? await persist(opts.tx) : await retryTransaction(persist);
   } catch (e) {
     // The same offline bill synced twice at once (a device retrying while its first flush is still
     // running): the loser hits the clientOrderId unique key. Answer like a normal resend (QA Phase 7).

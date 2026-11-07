@@ -22,6 +22,7 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
@@ -143,7 +144,7 @@ export async function openSession(
   const table = await prisma.diningTable.findFirst({ where: { id: tableId, outletId, active: true } });
   if (!table) throw notFound("Table");
   await assertStaff(outletId, body.waiterId);
-  const session = await prisma.$transaction(async (tx) => {
+  const session = await retryTransaction(async (tx) => {
     // Lock the table: two devices opening it at the same moment must not both get a tab.
     await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${table.id} FOR UPDATE`;
     if (await findOpenSession(outletId, table.id, tx)) throw conflict(`Table ${table.label} already has an open tab`);
@@ -181,7 +182,7 @@ export async function addItemsToSession(
   const priced = items.map((i) => ({ input: i, line: priceLine(menu, i, true) }));
   const label = await sessionLabel(session);
 
-  const kots = await prisma.$transaction(async (tx) => {
+  const kots = await retryTransaction(async (tx) => {
     let kotNumber = await lastKotNumberToday(tx, outletId, outlet.timezone);
     const byStation = new Map<string, typeof priced>();
     for (const p of priced) byStation.set(p.line.station, [...(byStation.get(p.line.station) ?? []), p]);
@@ -449,7 +450,7 @@ tablesRouter.put("/layout", requirePermission("table:manage"), async (req, res) 
     throw badRequest("Unknown area in layout");
   }
   // Callback form: the batch form isn't supported with row-level security (it threw → 500 on every save).
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     for (const { id, ...pos } of tables) await tx.diningTable.update({ where: { id }, data: pos });
   });
   await audit(req, "table.layout.save", "DiningTable", undefined, { count: tables.length });
@@ -554,7 +555,7 @@ tablesRouter.delete("/sessions/:id/items/:itemId", requirePermission("order:canc
   if (!item) throw notFound("Item");
   if (item.billedOrderId) throw conflict("Item is already billed — cancel the bill first");
 
-  const kot = await prisma.$transaction(async (tx) => {
+  const kot = await retryTransaction(async (tx) => {
     await tx.tableSessionItem.delete({ where: { id: item.id } });
     let updatedKot = null;
     if (item.kotId) {
@@ -580,7 +581,7 @@ tablesRouter.post("/sessions/:id/transfer", requirePermission("table:serve"), as
   const target = await prisma.diningTable.findFirst({ where: { id: toTableId, outletId, active: true } });
   if (!target) throw notFound("Target table");
   if (target.id === session.tableId) throw badRequest("Session is already on that table");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "DiningTable" WHERE id = ${target.id} FOR UPDATE`;
     if (await findOpenSession(outletId, target.id, tx)) throw conflict(`Table ${target.label} is occupied`);
     await tx.tableSession.update({ where: { id: session.id }, data: { tableId: target.id } });
@@ -601,7 +602,8 @@ tablesRouter.post("/sessions/:id/merge", requirePermission("table:serve"), async
   if (tables.length !== new Set(tableIds).size) throw notFound("Table");
   const touched: string[] = [];
   const mergedSessions: string[] = [];
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
+    touched.length = mergedSessions.length = 0; // a retried attempt starts again
     // Lock this tab and every tab being merged in, always in id order, then re-read them: merging
     // A into B while someone merges B into A used to let both commit — both tabs ended CLOSED with
     // the items inside them, and the tables showed occupied with no open tab (QA Phase 7).
@@ -661,8 +663,9 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
   const byId = new Map(items.map((i) => [i.id, i]));
   // All split bills, their item marks and KOT links commit together or not at all (Phase 1.6).
   const effects: (() => void)[] = [];
-  const orders = await prisma.$transaction(
+  const orders = await retryTransaction(
     async (tx) => {
+      effects.length = 0; // a retried attempt starts again
       const created = [];
       for (const g of groups) {
         const groupItems = g.itemIds.map((id) => byId.get(id)!);
@@ -719,7 +722,7 @@ tablesRouter.post("/sessions/:id/close", requirePermission("table:serve"), async
   if (unbilled) throw conflict(`${unbilled} item(s) not billed yet`);
   if (openOrders) throw conflict(`${openOrders} bill(s) not paid yet`);
   const tableIds = [session.tableId, ...session.mergedTableIds];
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await tx.tableSession.update({ where: { id: session.id }, data: { status: "CLOSED", closedAt: new Date() } });
     await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
     await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });

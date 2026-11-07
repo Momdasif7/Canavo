@@ -4,6 +4,7 @@ import { prisma } from "../db";
 import { audit } from "../lib/audit";
 import { conflict, HttpError, notFound } from "../lib/http";
 import { featureOn } from "../lib/tenant";
+import { retryTransaction } from "../lib/tx-retry";
 import { approvalsOn, requireApproval } from "./approvals";
 
 /**
@@ -110,7 +111,9 @@ export async function startShift(req: Request, openingFloat: number) {
 export async function addMovement(req: Request, input: { type: "PAY_IN" | "PAY_OUT"; amount: number; reason: string; approval?: { approverId: string; pin: string } }) {
   const shift = await openShift(req.outletId!);
   if (!shift) throw conflict("Open a cash shift first");
-  return prisma.$transaction(async (tx) => {
+  return retryTransaction(async (tx) => {
+    // A pay-in racing the close used to land on the just-closed shift, missing from its Z-report (QA Phase 7).
+    if ((await lockOpenShift(tx, shift.outletId)) !== shift.id) throw conflict("The cash shift was just closed. Open a new shift first.");
     const approvedById =
       input.type === "PAY_OUT" && approvalsOn()
         ? await requireApproval(req, { action: "CASH_PAYOUT", outletId: shift.outletId, amount: input.amount, reason: input.reason, approval: input.approval }, tx)
@@ -121,31 +124,50 @@ export async function addMovement(req: Request, input: { type: "PAY_IN" | "PAY_O
   });
 }
 
+/**
+ * Z-report and close in ONE transaction (QA Phase 7). The open shift row is locked FOR UPDATE; every
+ * transaction that moves drawer money (payments, UPI confirms, voids, refunds, pay-in / pay-out) holds
+ * it FOR SHARE (`lockOpenShift`). So the close waits for money in flight, then takes its end time and
+ * figures; money arriving meanwhile waits for the close and lands after it (next shift). Nothing
+ * committed inside the window can be missing from the frozen report.
+ */
 export async function closeShift(req: Request, input: { countedCash: number; denominations?: Record<string, number>; note?: string }) {
-  const shift = await openShift(req.outletId!);
-  if (!shift) throw conflict("No cash shift is open");
-  const closedAt = new Date();
-  const summary = await shiftSummary({ ...shift, closedAt });
-  const variance = input.countedCash - summary.expectedCash;
-  // Only the first close counts: a second device closing at the same moment used to overwrite the Z-report.
-  const { count } = await prisma.cashShift.updateMany({
-    where: { id: shift.id, status: "OPEN" },
-    data: {
-      status: "CLOSED",
-      closedAt,
-      closedById: req.user!.id,
-      countedCash: input.countedCash,
-      expectedCash: summary.expectedCash,
-      variance,
-      denominations: input.denominations,
-      note: input.note,
-      summary: summary as unknown as Prisma.InputJsonValue,
-    },
+  const outletId = req.outletId!;
+  return retryTransaction(async (tx) => {
+    const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "CashShift" WHERE "outletId" = ${outletId} AND status = 'OPEN' FOR UPDATE`;
+    // A second device closing at the same moment waits here, then finds no open shift.
+    if (!row) throw conflict("No cash shift is open");
+    const shift = await tx.cashShift.findUniqueOrThrow({ where: { id: row.id } });
+    const closedAt = new Date();
+    const summary = await shiftSummary({ ...shift, closedAt }, tx);
+    const variance = input.countedCash - summary.expectedCash;
+    const closed = await tx.cashShift.update({
+      where: { id: shift.id },
+      data: {
+        status: "CLOSED",
+        closedAt,
+        closedById: req.user!.id,
+        countedCash: input.countedCash,
+        expectedCash: summary.expectedCash,
+        variance,
+        denominations: input.denominations,
+        note: input.note,
+        summary: summary as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await audit(req, "cash_shift.close", "CashShift", shift.id, { expectedCash: summary.expectedCash, countedCash: input.countedCash, variance }, tx);
+    return { ...closed, summary };
   });
-  if (!count) throw conflict("No cash shift is open");
-  const closed = await prisma.cashShift.findUniqueOrThrow({ where: { id: shift.id } });
-  await audit(req, "cash_shift.close", "CashShift", shift.id, { expectedCash: summary.expectedCash, countedCash: input.countedCash, variance });
-  return { ...closed, summary };
+}
+
+/**
+ * Inside a transaction that moves drawer money: share-lock the outlet's open shift (null if none) so a
+ * close can't freeze its Z-report while this money is in flight (see closeShift). Take it after the
+ * bill's own lock (bill → shift, never the other way round).
+ */
+export async function lockOpenShift(tx: Tx, outletId: string): Promise<string | null> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "CashShift" WHERE "outletId" = ${outletId} AND status = 'OPEN' FOR SHARE`;
+  return rows[0]?.id ?? null;
 }
 
 export async function getShift(outletId: string, id: string) {

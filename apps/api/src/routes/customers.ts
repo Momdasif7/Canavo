@@ -142,6 +142,8 @@ customersRouter.put("/loyalty/config", requirePermission("customer:manage"), asy
   const next = parse(loyaltyConfigSchema, { ...current, ...body });
   const t = next.tierThresholds;
   if (!(t.SILVER <= t.GOLD && t.GOLD <= t.PLATINUM)) throw badRequest("Tier thresholds must be Silver ≤ Gold ≤ Platinum");
+  // Like coupon create / PATCH: a percentage coupon can't be more than 100 % (QA Phase 7, D4).
+  if (next.birthdayCouponType === "PERCENT" && next.birthdayCouponValue > 100) throw badRequest("A percentage birthday coupon can be at most 100%");
   await prisma.setting.upsert({
     where: { scope_key: loyaltySetting() },
     create: { ...loyaltySetting(), value: next },

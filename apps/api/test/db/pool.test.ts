@@ -77,6 +77,7 @@ let A: Hotel, B: Hotel;
 const ORDERS_PER_HOTEL = 12;
 
 /** Bills for one outlet straight in SQL (the app role with bypass, like a migration). */
+const seedTag = `p${Date.now()}`;
 async function seedOrders(h: Hotel, tag: string) {
   await db.$executeRawUnsafe(`
     INSERT INTO "Order"(id, "outletId", "cashierId", "invoiceNumber", "documentType", "orderType", status, subtotal, discount,
@@ -88,11 +89,14 @@ async function seedOrders(h: Hotel, tag: string) {
 
 beforeAll(async () => {
   [A, B] = [await createHotel("PoolA"), await createHotel("PoolB")];
-  await seedOrders(A, `pa${Date.now()}`);
-  await seedOrders(B, `pb${Date.now()}`);
+  await seedOrders(A, `${seedTag}a`);
+  await seedOrders(B, `${seedTag}b`);
 }, 120_000);
 
 afterAll(async () => {
+  // The seeded bills are bare rows (no lines / payments): remove them, so the reconciliation checks other
+  // test/db files run afterwards see only real bills.
+  await db.order.deleteMany({ where: { id: { startsWith: seedTag }, items: { none: {} }, payments: { none: {} } } });
   await Promise.all(children.map((c) => c.stop()));
   await owner.$disconnect();
 });

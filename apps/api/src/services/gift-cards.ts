@@ -61,8 +61,38 @@ export async function redeemGiftCard(tx: Tx, code: string, amount: number, ctx: 
   return card;
 }
 
-/** Put money back on a card (refund / cancelled bill). */
+/** Put money back on a card (refund / cancelled bill). Never above what was loaded on it (QA Phase 7, D2). */
 export async function creditGiftCard(tx: Tx, giftCardId: string, amount: number, ctx: { outletId: string; orderId: string; note: string; userId: string }) {
-  await tx.giftCard.update({ where: { id: giftCardId }, data: { balance: { increment: amount } } });
+  const moved = await tx.$executeRaw`UPDATE "GiftCard" SET balance = balance + ${amount} WHERE id = ${giftCardId} AND balance + ${amount} <= "initialValue"`;
+  if (!moved) throw conflict("This refund would put more on the gift card than was loaded on it");
   await tx.giftCardTxn.create({ data: { giftCardId, outletId: ctx.outletId, type: "REFUND", amount, orderId: ctx.orderId, note: ctx.note, createdById: ctx.userId } });
+}
+
+/**
+ * Refund part of a bill to the gift cards that paid it (QA Phase 7, D2: everything used to go to the
+ * bill's first card, which could end above its loaded value). Each card gets back at most what it paid
+ * on this bill less what was already refunded to it (from its own ledger), last card used first.
+ */
+export async function refundToGiftCards(tx: Tx, orderId: string, amount: number, ctx: { outletId: string; note: string; userId: string }) {
+  const rows = await tx.giftCardTxn.findMany({
+    where: { orderId, type: { in: ["REDEEM", "REFUND"] } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { giftCardId: true, type: true, amount: true },
+  });
+  const left = new Map<string, number>();
+  const lastUse: string[] = [];
+  for (const r of rows) {
+    left.set(r.giftCardId, (left.get(r.giftCardId) ?? 0) - r.amount); // REDEEM is negative, REFUND positive
+    if (r.type === "REDEEM") lastUse.splice(0, lastUse.length, ...lastUse.filter((id) => id !== r.giftCardId), r.giftCardId);
+  }
+  const refundable = [...left.values()].reduce((s, v) => s + Math.max(0, v), 0);
+  if (amount > refundable) throw badRequest(`At most ${formatINR(refundable)} of this bill can go back to gift cards`);
+  let rest = amount;
+  for (const giftCardId of lastUse.reverse()) {
+    const part = Math.min(rest, Math.max(0, left.get(giftCardId) ?? 0));
+    if (part <= 0) continue;
+    await creditGiftCard(tx, giftCardId, part, { ...ctx, orderId });
+    rest -= part;
+    if (!rest) break;
+  }
 }

@@ -48,6 +48,13 @@ function warningsFor(r: { cgst: number; sgst: number; igst: number }): string[] 
   return w;
 }
 
+/** CGST + SGST (intra-state) or IGST (inter-state), plus cess, is at most 100 % (QA Phase 7, D6). */
+function assertTotalAtMost100(r: { cgst: number; sgst: number; igst: number; cess: number }) {
+  if (roundRate(r.cgst + r.sgst + r.cess) > 100 || roundRate(r.igst + r.cess) > 100) {
+    throw badRequest("GST plus cess can be at most 100% (CGST + SGST + cess, and IGST + cess)");
+  }
+}
+
 const withCount = { _count: { select: { menuItems: true } } } as const;
 type RateWithCount = TaxRate & { _count: { menuItems: number } };
 const rateOut = (r: RateWithCount) => ({ ...taxRateJson(r), itemCount: r._count.menuItems });
@@ -84,6 +91,7 @@ taxRatesRouter.get("/:id", requireAnyPermission("menu:view", "settings:billing")
 taxRatesRouter.post("/", requirePermission("settings:billing"), async (req, res) => {
   const data = parse(taxRateSchema, req.body);
   const igst = data.igst ?? roundRate(data.cgst + data.sgst);
+  assertTotalAtMost100({ ...data, igst });
   if (data.isDefault && !data.active) throw badRequest("An inactive rate cannot be the default");
   await assertUniqueName(data.name);
   const rate = await prisma.$transaction(async (tx) => {
@@ -114,6 +122,7 @@ taxRatesRouter.patch("/:id", requirePermission("settings:billing"), async (req, 
   const sgst = data.sgst ?? current.sgst;
   // IGST follows CGST + SGST unless given explicitly.
   const igst = data.igst ?? (data.cgst !== undefined || data.sgst !== undefined ? roundRate(cgst + sgst) : current.igst);
+  assertTotalAtMost100({ cgst, sgst, igst, cess: data.cess ?? current.cess });
   const active = data.active ?? current.active;
   const isDefault = data.isDefault ?? current.isDefault;
   if (current.isDefault && data.isDefault === false) throw badRequest("Make another rate the default instead of unsetting it");
