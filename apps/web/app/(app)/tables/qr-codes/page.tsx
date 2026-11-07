@@ -9,7 +9,7 @@ import { publicPageUrl, type TableQr } from "@/lib/storefront";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
+import { BackLink, PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Alert, EmptyState, ErrorState, LoadingState, ModuleOffState } from "@/components/ui/States";
@@ -27,6 +27,9 @@ export default function TableQrCodesPage() {
 
   return (
     <PageContainer>
+      <div className="print:hidden">
+        <BackLink href="/tables" label="Tables" />
+      </div>
       <PageHeader
         title="Table QR codes"
         subtitle="Print and stick one on each table. Guests scan it to see the menu, order and call a waiter."
