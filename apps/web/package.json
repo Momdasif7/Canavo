@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e:sweep": "playwright test --config playwright.config.ts e2e/duplicate-buttons.spec.ts"
   },
   "dependencies": {
     "@canavo/shared": "*",
@@ -24,6 +25,7 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/leaflet": "1.9.22",
     "@types/node": "^22.15.0",
     "@types/react": "^18.3.12",

@@ -18,3 +18,4 @@ test-results/
 .next-verify/
 apps/mobile/.env
 *.tsbuildinfo
+apps/web/e2e/.sweep/
