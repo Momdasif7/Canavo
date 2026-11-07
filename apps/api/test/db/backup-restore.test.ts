@@ -97,6 +97,8 @@ async function fillHotel(hotel: Hotel) {
   });
   const inv = await db.inventoryItem.create({ data: { businessId: hotel.businessId, name: "Rice", unit: "KG", costPerUnit: 11_000 } });
   await db.inventoryStock.create({ data: { outletId: hotel.outletId, inventoryItemId: inv.id, quantity: 12.375 } });
+  // Its opening ledger row, so the stock reconciles (C01) when test/db runs the reconciliation checks afterwards.
+  await db.inventoryTransaction.create({ data: { outletId: hotel.outletId, inventoryItemId: inv.id, type: "OPENING", quantity: 12.375, balanceAfter: 12.375 } });
 }
 
 beforeAll(async () => {
@@ -177,7 +179,7 @@ describe("backup → restore over a populated database", () => {
     expect({ ...b.counts, AuditLog: b.counts.AuditLog! + 1 }).toEqual(snapshot.counts);
     expect(snapshot.recon.orders).toBeGreaterThanOrEqual(12);
     expect(snapshot.recon.paid).toBeGreaterThan(0);
-    expect(snapshot.recon.khata).toBe(2 * 12_345);
+    expect(snapshot.recon.khata).toBeGreaterThanOrEqual(2 * 12_345); // other test/db files may have run first (shared DB)
     expect(snapshot.recon.outboxMax).toBeGreaterThan(0);
 
     // Change things after the backup: a new bill, a deleted customer, a stock move.

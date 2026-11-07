@@ -3,11 +3,13 @@ import type { Prisma } from "@prisma/client";
 import { financialYearStart, formatInvoiceNumber, formatINR, type RefundInput } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { moduleEnabled } from "../lib/tenant";
 import { approvalsOn, requireApproval } from "./approvals";
 import { applyStockMovement, computeConsumption } from "./inventory";
-import { creditGiftCard } from "./gift-cards";
+import { refundToGiftCards } from "./gift-cards";
+import { lockOpenShift } from "./cash-shifts";
 import { creditWallet } from "./canteen";
 
 /**
@@ -44,7 +46,7 @@ export const creditNoteNumber = (invoicePrefix: string, fyStart: number, seq: nu
  */
 export async function createCreditNote(req: Request, orderId: string, input: RefundInput, opts: { systemRefund?: boolean } = {}) {
   const outletId = req.outletId!;
-  return prisma.$transaction(async (tx) => {
+  return retryTransaction(async (tx) => {
     // Lock the bill first: two refunds (or a refund and a void) at the same moment run one after the other.
     await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} AND "outletId" = ${outletId} FOR UPDATE`;
     const order = await tx.order.findFirst({
@@ -52,6 +54,7 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
       include: { items: true, creditNotes: true, payments: { where: { status: "SUCCESS" } }, outlet: { select: { invoicePrefix: true, timezone: true } } },
     });
     if (!order) throw notFound("Order");
+    await lockOpenShift(tx, outletId); // a cash refund is in this shift's Z-report or the next (QA Phase 7)
     if (order.status !== "PAID") throw conflict("Only paid bills can be refunded. Cancel an unpaid bill instead.");
     const remaining = order.grandTotal - order.refundedAmount;
     if (remaining <= 0) throw conflict("This bill has already been refunded in full");
@@ -138,13 +141,13 @@ export async function createCreditNote(req: Request, orderId: string, input: Ref
     }
     if (input.refundMode === "KHATA") await creditKhata(tx, req, order, amount);
     if (input.refundMode === "GIFT_CARD") {
-      // Back onto the gift card the bill was paid with, at most what was paid by gift card.
+      // Back onto the gift cards the bill was paid with, each at most what it paid (D2).
       const gc = order.payments.filter((p) => p.mode === "GIFT_CARD" && p.giftCardId);
       const already = await tx.creditNote.aggregate({ where: { orderId: order.id, refundMode: "GIFT_CARD" }, _sum: { amount: true } });
       if (!gc.length || amount > gc.reduce((s, p) => s + p.amount, 0) - (already._sum.amount ?? 0)) {
         throw badRequest("Only the part of the bill paid by gift card can be refunded to the gift card");
       }
-      await creditGiftCard(tx, gc[0]!.giftCardId!, amount, { outletId, orderId: order.id, note: `Refund on bill ${order.invoiceNumber}`, userId: req.user!.id });
+      await refundToGiftCards(tx, order.id, amount, { outletId, note: `Refund on bill ${order.invoiceNumber}`, userId: req.user!.id });
     }
 
     const approvedById = approvalsOn() && !opts.systemRefund
@@ -188,10 +191,19 @@ async function creditKhata(tx: Tx, req: Request, order: { id: string; outletId: 
   const khataPaid = order.payments.filter((p) => p.mode === "KHATA").reduce((s, p) => s + p.amount, 0);
   const already = await tx.creditNote.aggregate({ where: { orderId: order.id, refundMode: "KHATA" }, _sum: { amount: true } });
   if (amount > khataPaid - (already._sum.amount ?? 0)) throw badRequest("Only the part of the bill that was put on khata can be refunded to khata");
+  // Never below zero (QA Phase 7, D3): whatever the customer already settled went back to them as
+  // cash / UPI, so that part is refunded the same way, not as khata credit (there are no khata advances).
+  // Compare-and-set, so a settlement at the same moment can't take it below zero either.
+  const moved = await tx.customer.updateMany({ where: { id: order.customerId, khataBalance: { gte: amount } }, data: { khataBalance: { decrement: amount } } });
+  if (!moved.count) {
+    const c = await tx.customer.findUniqueOrThrow({ where: { id: order.customerId }, select: { khataBalance: true } });
+    throw badRequest(
+      `Only ${formatINR(Math.max(0, c.khataBalance))} is outstanding on this customer's khata — refund that to khata and the rest (already settled) in cash / UPI`,
+    );
+  }
   await tx.khataTransaction.create({
     data: { customerId: order.customerId, outletId: order.outletId, orderId: order.id, type: "CREDIT", amount, mode: "REFUND", note: `Refund on bill ${order.invoiceNumber}`, createdById: req.user!.id },
   });
-  await tx.customer.update({ where: { id: order.customerId }, data: { khataBalance: { decrement: amount } } });
 }
 
 /** Put the refunded items' ingredients back (recipe × quantity), booked against the credit note. */

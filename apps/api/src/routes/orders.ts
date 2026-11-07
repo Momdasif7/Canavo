@@ -16,12 +16,13 @@ import {
 import { prisma } from "../db";
 import { env, isProd } from "../env";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, forbidden, notFound, param, parse, publicApiUrl } from "../lib/http";
 import { startOfLocalDay } from "../lib/time";
 import { authenticate, requireAnyPermission, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { approvalsOn, approversFor, canActWithApproval, requireApproval } from "../services/approvals";
 import { createCreditNote } from "../services/credit-notes";
-import { assertCashShiftOpen } from "../services/cash-shifts";
+import { assertCashShiftOpen, lockOpenShift } from "../services/cash-shifts";
 import { redeemGiftCard } from "../services/gift-cards";
 import { seriesForDevice } from "../services/offline-series";
 import { featureOn, moduleEnabled } from "../lib/tenant";
@@ -39,6 +40,9 @@ import { cancelOrderInTx } from "../services/order-cancel";
 import { queueChannelStatus } from "../services/channels/service";
 
 export const ordersRouter = Router();
+
+/** Test-only (NODE_ENV=test): runs at the end of the payment transaction, before commit. */
+export const paymentTestHooks: { beforeCommit?: () => Promise<void> } = {};
 ordersRouter.use(authenticate, requireOutlet, requireModule("BILLING"));
 
 /** This device's offline invoice series (Phase 3.4, OFFLINE_INVOICE_SERIES). */
@@ -239,11 +243,12 @@ ordersRouter.post("/:id/cancel", requireAnyPermission("order:cancel", "payment:c
   const order = await getOrder(param(req, "id"), req.outletId!);
   if (order.status === "CANCELLED") throw conflict("Order already cancelled");
   if (order.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await retryTransaction(async (tx) => {
     // Re-check on the locked bill: a double tap / a refund at the same moment must not void it twice.
     const fresh = await lockOrder(tx, order.id, req.outletId!);
     if (fresh.status === "CANCELLED") throw conflict("Order already cancelled");
     if (fresh.refundedAmount > 0) throw conflict("This bill has refunds. Refund the rest instead of cancelling it.");
+    await lockOpenShift(tx, req.outletId!); // cash handed back is in this shift's Z-report or the next (QA Phase 7)
     if (approvalsOn()) await requireApproval(req, { action: "VOID", outletId: req.outletId!, orderId: order.id, amount: fresh.grandTotal, reason, approval }, tx);
     const u = await cancelOrderInTx(tx, req, fresh, reason);
     // Phase 6.1: an aggregator order is cancelled on the channel too (outbox: retried until the hub answers).
@@ -299,9 +304,13 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
     if (!order.customerId) throw badRequest("Wallet and meal tokens need the member's card on the bill");
   }
 
-  const paid = await prisma.$transaction(async (tx) => {
+  const paid = await retryTransaction(async (tx) => {
     // Two tills collecting at once: re-check on the locked bill so it is never paid twice.
     const fresh = await lockOrder(tx, order.id, req.outletId!);
+    // Hold the open cash shift: a close at this moment waits for this payment (QA Phase 7) — and if it
+    // closed meanwhile, cash is refused again when a shift is required.
+    await lockOpenShift(tx, req.outletId!);
+    if (!order.syncedOffline) await assertCashShiftOpen(req.outletId!, payments.map((p) => p.mode), tx);
     if (fresh.status !== "OPEN") throw conflict(`Order is ${fresh.status.toLowerCase()}`);
     const freshBalance = fresh.grandTotal - amountPaid(fresh);
     if (total > freshBalance) throw badRequest(`Payment ${formatINR(total)} exceeds balance ${formatINR(freshBalance)}`);
@@ -329,7 +338,9 @@ ordersRouter.post("/:id/payments", requirePermission("payment:collect"), async (
     }
     await onPaymentsRecorded(tx, order.id, payments, req.user!.id);
     await audit(req, "payment.collect", "Order", order.id, { payments, tendered }, tx);
-    return settleIfPaid(order.id, tx);
+    const settled = await settleIfPaid(order.id, tx);
+    if (process.env.NODE_ENV === "test") await paymentTestHooks.beforeCommit?.();
+    return settled;
   });
   const updated = await getOrder(order.id, req.outletId!);
   if (paid) emitToOutlet(req.outletId!, "order:paid", { id: order.id, invoiceNumber: order.invoiceNumber });
@@ -383,10 +394,11 @@ ordersRouter.post("/:id/payments/:paymentId/confirm", requirePermission("payment
   const payment = order.payments.find((p) => p.id === param(req, "paymentId"));
   if (!payment) throw notFound("Payment");
   if (payment.status !== "PENDING") throw conflict(`Payment is ${payment.status.toLowerCase()}`);
-  const paid = await prisma.$transaction(async (tx) => {
+  const paid = await retryTransaction(async (tx) => {
     // Re-check on the locked bill: a QR left on screen after the bill was settled another way
     // (or confirmed twice at once) used to be added on top — the bill counted as paid twice (QA Phase 7).
     await assertConfirmable(tx, order.id, payment.id, req.outletId!);
+    await lockOpenShift(tx, req.outletId!); // a close at this moment waits for it (QA Phase 7)
     await tx.payment.update({ where: { id: payment.id }, data: { status: "SUCCESS", confirmedAt: new Date(), reference } });
     await audit(req, "payment.manual_confirm", "Payment", payment.id, { reference }, tx);
     return settleIfPaid(order.id, tx);
@@ -407,7 +419,7 @@ ordersRouter.post("/:id/cod", requirePermission("payment:collect"), async (req, 
   if (order.status !== "OPEN") throw conflict(order.status === "PAID" ? "This order is already paid" : "Order was cancelled");
   if (order.delivery.status === "DELIVERED" || order.delivery.status === "CANCELLED") throw conflict(`Delivery is ${order.delivery.status.toLowerCase()}`);
   const due = order.grandTotal - amountPaid(order);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     // Any QR shown at the counter is no longer valid once it's COD.
     if (cod) await tx.payment.updateMany({ where: { orderId: order.id, status: "PENDING" }, data: { status: "FAILED" } });
     await tx.delivery.update({ where: { id: order.delivery!.id }, data: { cod } });

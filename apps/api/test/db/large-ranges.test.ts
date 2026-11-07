@@ -41,7 +41,15 @@ beforeAll(async () => {
     INSERT INTO "Payment"(id, "orderId", mode, amount, status, "createdAt")
     SELECT '${tag}-p' || g, '${tag}-o' || g, 'CASH', 1000, 'SUCCESS', now() FROM generate_series(1, ${BILLS}) g`);
 }, 180_000);
-afterAll(() => srv.close());
+afterAll(async () => {
+  // 33,000 synthetic bills (invoice "BIG-n", no counter): remove them so the reconciliation checks other
+  // test/db files run afterwards see only real bills.
+  const tag = h.outletId;
+  await db.$executeRawUnsafe(`DELETE FROM "Payment" WHERE id LIKE '${tag}-p%'`);
+  await db.$executeRawUnsafe(`DELETE FROM "OrderItem" WHERE id LIKE '${tag}-i%'`);
+  await db.$executeRawUnsafe(`DELETE FROM "Order" WHERE id LIKE '${tag}-o%'`);
+  await srv.close();
+});
 
 describe(`reports over a range holding ${BILLS.toLocaleString("en-IN")} bills`, () => {
   it("sales report: 200 with every bill and its cash", async () => {

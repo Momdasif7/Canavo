@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   corporateAccountSchema,
   corporateAccountUpdateSchema,
+  formatINR,
   mealTokenPurchaseSchema,
   memberImportSchema,
   memberSchema,
@@ -191,6 +192,14 @@ canteenRouter.post("/accounts/:id/statements", manage, async (req, res) => {
   const overlap = await prisma.corporateStatement.findFirst({ where: { corporateAccountId: a.id, periodFrom: { lte: input.to }, periodTo: { gte: input.from } }, select: { periodFrom: true, periodTo: true } });
   if (overlap) throw conflict(`A statement for ${overlap.periodFrom} to ${overlap.periodTo} overlaps these dates`);
   const st = await corporateStatement(a.id, input.from, input.to, await outletTimezone(req.outletId!));
+  // Refunds count on their own date, so refunds of earlier bills can outweigh a period's meals. An invoice
+  // can't be negative (QA Phase 7, D5): widen the period, or settle the refund with the company separately.
+  if (st.totals.net < 0) {
+    throw badRequest(
+      `Refunds to the company in this period (${formatINR(st.totals.refunds)}) are more than its share of the meals (${formatINR(st.totals.employerShare)}). ` +
+        "Include the next period in this statement, or settle the refund with the company separately.",
+    );
+  }
   const s = await prisma.corporateStatement.create({
     data: { businessId: requireBusinessId(), corporateAccountId: a.id, periodFrom: input.from, periodTo: input.to, meals: st.totals.meals, amount: st.totals.net, invoiceRef: input.invoiceRef, note: input.note, createdById: req.user!.id },
   });

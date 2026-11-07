@@ -10,7 +10,7 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { resolveItemTax } from "./tax";
-import { badRequest } from "../lib/http";
+import { badRequest, conflict } from "../lib/http";
 import { currentBusinessId, moduleEnabled, requireBusinessId } from "../lib/tenant";
 import {
   couponAmount,
@@ -543,10 +543,20 @@ export async function onOrderCancelled(tx: Tx, orderId: string): Promise<void> {
   }
   for (const [customerId, net] of byCustomer) {
     if (net <= 0) continue;
+    // Never below zero (QA Phase 7, D3): if the customer has meanwhile settled this bill's khata, the
+    // money they paid must go back to them — a void can't do that, a refund (credit note) can.
+    // Compare-and-set, so a settlement at the same moment can't take it below zero either.
+    const moved = await tx.customer.updateMany({ where: { id: customerId, khataBalance: { gte: net } }, data: { khataBalance: { decrement: net } } });
+    if (!moved.count) {
+      const c = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { khataBalance: true } });
+      throw conflict(
+        `${formatINR(net)} of this bill is on khata but only ${formatINR(Math.max(0, c.khataBalance))} is still outstanding — the customer has settled part of it. ` +
+          "Refund the bill instead (khata for the outstanding part, cash / UPI for the settled part).",
+      );
+    }
     await tx.khataTransaction.create({
       data: { customerId, outletId: order.outletId, orderId, type: "CREDIT", amount: net, mode: "REVERSAL", note: "Bill cancelled" },
     });
-    await tx.customer.update({ where: { id: customerId }, data: { khataBalance: { decrement: net } } });
   }
 
   // Loyalty: reverse redeemed (give back) and earned (take back) points

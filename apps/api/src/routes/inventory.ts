@@ -25,6 +25,7 @@ import {
 import { prisma } from "../db";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, forbidden, notFound, param, parse } from "../lib/http";
 import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
@@ -208,7 +209,7 @@ inventoryRouter.get("/items/:id", view, async (req, res) => {
 
 inventoryRouter.post("/items", manage, async (req, res) => {
   const { openingStock, ...data } = parse(inventoryItemSchema, req.body);
-  const item = await prisma.$transaction(async (tx) => {
+  const item = await retryTransaction(async (tx) => {
     const created = await tx.inventoryItem.create({ data: { ...data, sku: data.sku || null, barcode: data.barcode || null, businessId: requireBusinessId() } });
     if (openingStock) {
       await applyStockMovement(tx, {
@@ -261,7 +262,7 @@ inventoryRouter.post("/items/:id/adjust", manage, async (req, res) => {
   const id = param(req, "id");
   const data = parse(stockAdjustSchema, req.body);
   const item = await getItem(id);
-  const txn = await prisma.$transaction(async (tx) => {
+  const txn = await retryTransaction(async (tx) => {
     const stock = await tx.inventoryStock.findUnique({ where: { outletId_inventoryItemId: { outletId: req.outletId!, inventoryItemId: id } } });
     const current = stock?.quantity ?? 0;
     const delta = round3(data.setTo !== undefined ? data.setTo - current : data.quantity!);
@@ -422,7 +423,7 @@ inventoryRouter.put("/recipes/:menuItemId", manage, async (req, res) => {
     if (q <= 0) throw badRequest(`Quantity for ${item.name} rounds to zero in ${item.unit}`);
     merged.set(item.id, round3((merged.get(item.id) ?? 0) + q));
   }
-  const recipes = await prisma.$transaction(async (tx) => {
+  const recipes = await retryTransaction(async (tx) => {
     await tx.recipe.deleteMany({ where: { menuItemId, variantId } });
     if (merged.size) {
       await tx.recipe.createMany({ data: [...merged].map(([inventoryItemId, quantity]) => ({ menuItemId, variantId, inventoryItemId, quantity })) });
@@ -609,7 +610,7 @@ inventoryRouter.post("/purchases", manage, async (req, res) => {
   if (!vendor || !vendor.active) throw badRequest("Unknown or inactive vendor");
   await loadItems(data.items.map((i) => i.inventoryItemId));
   const { lines, subtotal, tax, total } = purchaseLines(data.items);
-  const id = await prisma.$transaction(async (tx) => {
+  const id = await retryTransaction(async (tx) => {
     const p = await tx.purchase.create({
       data: {
         outletId: req.outletId!,
@@ -644,7 +645,7 @@ inventoryRouter.patch("/purchases/:id", manage, async (req, res) => {
     if (!v?.active) throw badRequest("Unknown or inactive vendor");
   }
   if (data.items) await loadItems(data.items.map((i) => i.inventoryItemId));
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     let totals = {};
     if (data.items) {
       const { lines, subtotal, tax, total } = purchaseLines(data.items);
@@ -672,7 +673,7 @@ inventoryRouter.patch("/purchases/:id", manage, async (req, res) => {
 inventoryRouter.post("/purchases/:id/receive", manage, async (req, res) => {
   const id = param(req, "id");
   await getPurchase(id, req.outletId!);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await receivePurchase(tx, id, req.outletId!, req.user!.id);
     await audit(req, "inventory.purchase.receive", "Purchase", id, undefined, tx);
   });
@@ -686,7 +687,8 @@ inventoryRouter.post("/purchases/:id/cancel", manage, async (req, res) => {
   const p = await getPurchase(id, req.outletId!);
   if (p.status === "CANCELLED") throw conflict("Purchase already cancelled");
   const returned: string[] = [];
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
+    returned.length = 0; // a retried attempt starts again
     const claimed = await tx.purchase.updateMany({
       where: { id, status: p.status },
       data: { status: "CANCELLED", notes: [p.notes, `Cancelled: ${reason}`].filter(Boolean).join("\n") },
@@ -721,7 +723,7 @@ inventoryRouter.post("/purchases/:id/payments", manage, async (req, res) => {
   const p = await getPurchase(id, req.outletId!);
   if (p.status === "CANCELLED") throw conflict("Purchase is cancelled");
   if (data.amount > p.total - p.paidAmount) throw badRequest(`Payment exceeds balance due (₹${rupees(p.total - p.paidAmount)})`);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     // Guard against concurrent payments overshooting the total.
     const ok = await tx.purchase.updateMany({
       where: { id, paidAmount: { lte: p.total - data.amount } },
@@ -743,7 +745,7 @@ inventoryRouter.post("/purchases/:id/payments", manage, async (req, res) => {
 inventoryRouter.post("/wastage", manage, async (req, res) => {
   const { items } = parse(wastageSchema, req.body);
   const byId = await loadItems(items.map((i) => i.inventoryItemId));
-  const txns = await prisma.$transaction(async (tx) => {
+  const txns = await retryTransaction(async (tx) => {
     const out = [];
     for (const w of inItemOrder(items)) {
       const item = byId.get(w.inventoryItemId)!;
@@ -842,7 +844,7 @@ inventoryRouter.post("/audits", manage, async (req, res) => {
     include: { stocks: { where: { outletId: req.outletId } } },
   });
   if (!items.length) throw badRequest("No active items to audit");
-  const a = await prisma.$transaction(async (tx) => {
+  const a = await retryTransaction(async (tx) => {
     const created = await tx.stockAudit.create({
       data: {
         outletId: req.outletId!,
@@ -867,7 +869,7 @@ inventoryRouter.put("/audits/:id/counts", manage, async (req, res) => {
   const inAudit = new Set(a.lines.map((l) => l.inventoryItemId));
   const unknown = counts.find((c) => !inAudit.has(c.inventoryItemId));
   if (unknown) throw badRequest(`Item ${unknown.inventoryItemId} is not part of this audit`);
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     for (const c of counts) {
       await tx.stockAuditLine.update({
         where: { auditId_inventoryItemId: { auditId: id, inventoryItemId: c.inventoryItemId } },
@@ -889,7 +891,7 @@ inventoryRouter.post("/audits/:id/complete", manage, async (req, res) => {
   const before = await getAudit(id, req.outletId!);
   if (before.status !== "IN_PROGRESS") throw conflict(`Audit is ${before.status.toLowerCase()}`);
   if (!before.summary.counted) throw badRequest("Count at least one item before completing");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     const claimed = await tx.stockAudit.updateMany({ where: { id, status: "IN_PROGRESS" }, data: { status: "COMPLETED", completedAt: new Date() } });
     if (!claimed.count) throw conflict("Audit changed meanwhile");
     for (const l of inItemOrder(before.lines)) {
@@ -1009,7 +1011,7 @@ inventoryRouter.post("/transfers", manage, async (req, res) => {
   const autoApprove = fromOutletId === req.outletId && canApproveFor(req, fromOutletId);
   const merged = new Map<string, number>();
   for (const i of data.items) merged.set(i.inventoryItemId, round3((merged.get(i.inventoryItemId) ?? 0) + i.quantity));
-  const t = await prisma.$transaction(async (tx) => {
+  const t = await retryTransaction(async (tx) => {
     const created = await tx.stockTransfer.create({
       data: {
         fromOutletId,
@@ -1037,7 +1039,7 @@ inventoryRouter.post("/transfers", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/approve", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canApproveFor(req, t.fromOutletId)) throw forbidden("Only the source outlet's manager can approve");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "REQUESTED", { status: "APPROVED", approvedById: req.user!.id });
     await audit(req, "inventory.transfer.approve", "StockTransfer", t.id, undefined, tx);
   });
@@ -1049,7 +1051,7 @@ inventoryRouter.post("/transfers/:id/reject", manage, async (req, res) => {
   const { reason } = parse(stockTransferRejectSchema, req.body);
   const t = await visibleTransfer(req);
   if (!canApproveFor(req, t.fromOutletId)) throw forbidden("Only the source outlet's manager can reject");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, ["REQUESTED", "APPROVED"], {
       status: "REJECTED",
       approvedById: req.user!.id,
@@ -1065,7 +1067,7 @@ inventoryRouter.post("/transfers/:id/reject", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/dispatch", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canActFor(req, t.fromOutletId)) throw forbidden("You don't have access to the source outlet");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "APPROVED", { status: "DISPATCHED" });
     for (const l of inItemOrder(t.items)) {
       await applyStockMovement(tx, {
@@ -1091,7 +1093,7 @@ inventoryRouter.post("/transfers/:id/dispatch", manage, async (req, res) => {
 inventoryRouter.post("/transfers/:id/receive", manage, async (req, res) => {
   const t = await visibleTransfer(req);
   if (!canActFor(req, t.toOutletId)) throw forbidden("You don't have access to the destination outlet");
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, "DISPATCHED", { status: "RECEIVED" });
     const out = await tx.inventoryTransaction.findMany({ where: { refType: "StockTransfer", refId: t.id, type: "TRANSFER_OUT" } });
     const cost = new Map(out.map((o) => [o.inventoryItemId, o.unitCost ?? undefined]));
@@ -1119,7 +1121,7 @@ inventoryRouter.post("/transfers/:id/cancel", manage, async (req, res) => {
   if (t.requestedById !== req.user!.id && !canApproveFor(req, t.fromOutletId) && !canApproveFor(req, t.toOutletId)) {
     throw forbidden("Only the requester or a manager can cancel");
   }
-  await prisma.$transaction(async (tx) => {
+  await retryTransaction(async (tx) => {
     await transition(tx, t.id, ["REQUESTED", "APPROVED"], { status: "CANCELLED" });
     await audit(req, "inventory.transfer.cancel", "StockTransfer", t.id, undefined, tx);
   });

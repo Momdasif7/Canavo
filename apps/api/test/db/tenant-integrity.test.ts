@@ -294,6 +294,8 @@ describe("Phase 7 constraints", () => {
     expect(await sqlState(db.orderItem.update({ where: { id: o.items[0]!.id }, data: { quantity: 0 } }))).toBe("23514");
     expect(await sqlState(db.payment.updateMany({ where: { orderId: o.id }, data: { amount: -100 } }))).toBe("23514");
     expect(await sqlState(db.order.update({ where: { id: o.id }, data: { roundOff: -49 } }))).toBe("ok"); // round-off is signed
+    // Put it back: the reconciliation checks other test/db files run afterwards (A06) would see a broken bill.
+    await db.order.update({ where: { id: o.id }, data: { roundOff: o.roundOff } });
   });
 
   it("one open running tab per table", async () => {
