@@ -83,4 +83,10 @@ UNION ALL
   SELECT 'User_salary_check'::text AS "constraint", count(*) AS violations FROM "User" WHERE NOT ("salaryAmount" >= 0)
 UNION ALL
   SELECT 'TableSession_one_open_per_table', count(*) FROM (SELECT "tableId" FROM "TableSession" WHERE status = 'OPEN' GROUP BY 1 HAVING count(*) > 1) d
+UNION ALL
+  SELECT 'Customer_khata_balance_nonneg_check'::text, count(*) FROM "Customer" WHERE NOT ("khataBalance" >= 0)
+UNION ALL
+  SELECT 'GiftCard_balance_le_initial_check'::text, count(*) FROM "GiftCard" WHERE NOT ("balance" <= "initialValue")
+UNION ALL
+  SELECT 'TaxRate_total_le_100_check'::text, count(*) FROM "TaxRate" WHERE NOT ("cgst" + "sgst" + "cess" <= 100 AND "igst" + "cess" <= 100)
 ) c ORDER BY violations DESC, "constraint";
