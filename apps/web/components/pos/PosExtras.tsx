@@ -201,7 +201,8 @@ export function DeliveryFields({
   /** Outlet position (map marker, zone centre) */
   outlet: LatLng | null;
 }) {
-  const manualZone = !delivery.useCoords || quote?.needsCoordinates;
+  const addressMode = quote?.mode === "ADDRESS";
+  const manualZone = !addressMode && (!delivery.useCoords || quote?.needsCoordinates);
   const onDuty = (agents ?? []).filter((a) => a.clockedIn);
   const available = (agents ?? []).filter((a) => a.available);
   const chosen = agents?.find((a) => a.id === delivery.agentId);
@@ -221,7 +222,33 @@ export function DeliveryFields({
         className={clsx(fieldCls, "py-2")}
       />
       <input aria-label="Landmark" placeholder="Landmark (optional)" maxLength={200} value={delivery.landmark} onChange={(e) => onChange({ landmark: e.target.value })} className={fieldCls} />
-      <DeliveryLocationPicker delivery={delivery} onChange={onChange} outlet={outlet} zones={quote?.zones ?? []} activeZoneId={quote?.zone?.id ?? (manualZone ? delivery.zoneId : null)} />
+      {addressMode ? (
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            aria-label="PIN code"
+            placeholder="PIN code"
+            inputMode="numeric"
+            maxLength={6}
+            value={delivery.pincode}
+            onChange={(e) => onChange({ pincode: e.target.value.replace(/\D/g, "") })}
+            className={fieldCls}
+          />
+          {quote?.areas && quote.areas.length > 0 ? (
+            <select aria-label="Area" value={delivery.area} onChange={(e) => onChange({ area: e.target.value })} className={fieldCls}>
+              <option value="">Area…</option>
+              {quote.areas.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span />
+          )}
+        </div>
+      ) : (
+        <DeliveryLocationPicker delivery={delivery} onChange={onChange} outlet={outlet} zones={quote?.zones ?? []} activeZoneId={quote?.zone?.id ?? (manualZone ? delivery.zoneId : null)} />
+      )}
       {manualZone && quote && quote.zones.length > 0 && (
         <select aria-label="Delivery zone" value={delivery.zoneId} onChange={(e) => onChange({ zoneId: e.target.value })} className={fieldCls}>
           <option value="">Choose zone…</option>
@@ -317,6 +344,24 @@ function QuoteChip({ quote, loading, error, zoneId }: { quote: DeliveryQuote | n
   if (error) return <p className="text-xs font-medium text-red-600">{error}</p>;
   if (!quote) return null;
   if (!quote.deliveryEnabled) return <p className="text-xs font-medium text-red-600">Delivery is switched off for this outlet.</p>;
+  if (quote.mode === "ADDRESS") {
+    if (quote.deliverable === false)
+      return (
+        <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-200" role="alert" data-testid="delivery-quote">
+          {quote.message ?? "We don't deliver there"}
+        </p>
+      );
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 dark:bg-sky-500/15 dark:text-sky-200" data-testid="delivery-quote">
+        <span>{quote.fee ? `Fee ${formatINR(quote.fee)}` : "Free delivery"}</span>
+        <span className="flex items-center gap-1">
+          <Clock size={14} /> ~{quote.etaMinutes} min
+        </span>
+        {(quote.minOrder ?? 0) > 0 && <span>Min order {formatINR(quote.minOrder ?? 0)}</span>}
+        {(quote.areas?.length || quote.pincodes?.length) ? <span className="font-normal">Only {[...(quote.areas ?? []), ...(quote.pincodes ?? [])].slice(0, 6).join(", ")}</span> : null}
+      </div>
+    );
+  }
   const zone = quote.zone ?? quote.zones.find((z) => z.id === zoneId) ?? null;
   if (quote.distanceKm !== undefined && !quote.deliverable)
     return (

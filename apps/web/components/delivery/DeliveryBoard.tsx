@@ -198,6 +198,17 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
                         {d.distanceKm != null && ` · ${d.distanceKm} km`}
                       </span>
                     </a>
+                    {(d.latitude == null || d.longitude == null) && (
+                      <a
+                        href={d.mapsUrl ?? mapsAddressLink(d.address)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline dark:text-sky-300"
+                        data-testid="open-in-maps"
+                      >
+                        <MapTrifold size={14} /> Open in Google Maps
+                      </a>
+                    )}
                     {d.latitude != null && d.longitude != null && (
                       <button
                         type="button"

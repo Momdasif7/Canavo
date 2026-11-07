@@ -96,6 +96,8 @@ export interface DeliveryZone {
 }
 
 export interface DeliveryQuote {
+  /** MAP: pin + zones; ADDRESS: typed address, flat fee (no zones) */
+  mode?: "MAP" | "ADDRESS";
   deliveryEnabled: boolean;
   packagingCharge: number;
   needsCoordinates?: boolean;
@@ -107,6 +109,10 @@ export interface DeliveryQuote {
   etaMinutes?: number | null;
   etaAt?: string | null;
   zones: DeliveryZone[];
+  /** ADDRESS mode: allowed lists (empty = anywhere) and the refusal for a typed PIN / area */
+  areas?: string[];
+  pincodes?: string[];
+  message?: string | null;
 }
 
 export interface AgentLocation {
@@ -208,6 +214,8 @@ export interface Delivery {
   amountDue?: number;
   amountPaid?: number;
   agentLocation?: AgentLocation | null;
+  /** Google Maps search: the pin when there is one, else the typed address */
+  mapsUrl?: string;
   /** WhatsApp status update for the customer; autoSent = already sent through the business's provider */
   customerMessage?: { waLink: string; text: string; autoSent?: boolean };
 }

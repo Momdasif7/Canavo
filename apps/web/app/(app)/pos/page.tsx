@@ -211,6 +211,9 @@ export default function PosPage() {
   const codActive = isDelivery && online && meta.delivery.cod;
   const coords = deliveryCoords(meta.delivery);
   const coordKey = useDebouncedValue(coords ? `${coords.lat},${coords.lng}` : "", 400);
+  // ADDRESS delivery mode: the typed PIN code / area is checked against the outlet's list.
+  const pinValid = /^[1-9]\d{5}$/.test(meta.delivery.pincode.trim());
+  const areaKey = useDebouncedValue(`${pinValid ? meta.delivery.pincode.trim() : ""}|${meta.delivery.area}`, 400);
   const [quote, setQuote] = useState<DeliveryQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -220,17 +223,18 @@ export default function PosPage() {
     if (!isDelivery || !online) return;
     let cancelled = false;
     const [lat, lng] = coordKey ? coordKey.split(",") : [undefined, undefined];
+    const [pincode, area] = areaKey.split("|");
     setQuoteLoading(true);
     setQuoteError(null);
     api
-      .get<DeliveryQuote>("/delivery/quote", { query: { lat, lng } })
+      .get<DeliveryQuote>("/delivery/quote", { query: { lat, lng, pincode: pincode || undefined, area: area || undefined } })
       .then((q) => !cancelled && setQuote(q))
       .catch((e) => !cancelled && setQuoteError(errorMessage(e)))
       .finally(() => !cancelled && setQuoteLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [isDelivery, coordKey, online]);
+  }, [isDelivery, coordKey, areaKey, online]);
   // Who's on duty decides auto-assignment: refresh while the delivery form is open.
   useEffect(() => {
     if (!isDelivery || !online) return;
@@ -251,7 +255,9 @@ export default function PosPage() {
   const localCharges = useMemo(() => {
     const out: { label: string; amount: number }[] = [];
     if ((meta.orderType === "TAKEAWAY" || isDelivery) && outlet?.packagingCharge) out.push({ label: "Packaging", amount: outlet.packagingCharge });
-    if (isDelivery && quote) {
+    if (isDelivery && quote?.mode === "ADDRESS") {
+      if (quote.fee) out.push({ label: "Delivery fee", amount: quote.fee });
+    } else if (isDelivery && quote) {
       const zone = coords ? quote.zone : quote.zones.find((z) => z.id === meta.delivery.zoneId);
       if (zone?.fee) out.push({ label: "Delivery fee", amount: zone.fee });
     }

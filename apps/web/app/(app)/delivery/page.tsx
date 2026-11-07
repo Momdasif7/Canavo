@@ -9,7 +9,7 @@ import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { DeliveryBoard } from "@/components/delivery/DeliveryBoard";
 import { AgentsPanel } from "@/components/delivery/AgentsPanel";
-import { ZonesTab } from "@/components/delivery/ZonesTab";
+import { DeliveryAreaTab } from "@/components/delivery/DeliveryAreaTab";
 import { MyDeliveries } from "@/components/delivery/MyDeliveries";
 import { CashPanel } from "@/components/delivery/CashPanel";
 import { formatINR } from "@/lib/format";
@@ -66,7 +66,7 @@ export default function DeliveryPage() {
               { value: "board", label: "Board" },
               { value: "agents", label: `Agents (${agents.length})` },
               { value: "cash", label: cashTotal ? `Cash with partners · ${formatINR(cashTotal)}` : "Cash with partners" },
-              { value: "zones", label: "Zones" },
+              { value: "zones", label: "Delivery area" },
             ]}
           />
         }
@@ -74,7 +74,7 @@ export default function DeliveryPage() {
       {tab === "board" && <DeliveryBoard agents={agents} onAgentsChanged={() => void loadAgents()} />}
       {tab === "agents" && <AgentsPanel agents={agents} onAgentsChanged={() => void loadAgents()} />}
       {tab === "cash" && <CashPanel onTotal={setCashTotal} />}
-      {tab === "zones" && <ZonesTab />}
+      {tab === "zones" && <DeliveryAreaTab />}
     </PageContainer>
   );
 }
