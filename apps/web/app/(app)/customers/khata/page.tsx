@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, HandCoins, MagnifyingGlass, Warning, WhatsappLogo } from "@phosphor-icons/react";
+import { HandCoins, MagnifyingGlass, Warning, WhatsappLogo } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { api } from "@/lib/api";
 import { fuzzyFilter } from "@/lib/fuzzy";
@@ -37,9 +37,7 @@ export default function KhataPage() {
 
   return (
     <PageContainer>
-      <Link href="/customers" className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
-        <ArrowLeft size={18} /> Customers
-      </Link>
+      {/* Khata is a Customers section tab; the "Customers" tab is the way back (no extra back link). */}
       <PageHeader title="Khata" subtitle={outlet ? `Outstanding credit at ${outlet.name}` : "Outstanding credit"} />
 
       {data.data && (

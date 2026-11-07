@@ -19,8 +19,6 @@ import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { SettingsTabs } from "@/components/settings/SettingsTabs";
 import { MoneyControlsCard } from "@/components/settings/MoneyControlsCard";
-import Link from "next/link";
-import { ArrowRight } from "@phosphor-icons/react";
 
 export default function SettingsPage() {
   const { can } = useSession();
@@ -186,13 +184,10 @@ function OutletSettings() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3">
             <div className="text-sm">
               <p className="font-semibold">GST {gstOn ? "registered" : "not registered"}</p>
-              <p className="text-muted">GSTIN, tax rates, composition scheme and invoice prefix live under GST &amp; Taxes.</p>
+              <p className="text-muted">
+                GSTIN, tax rates, composition scheme and invoice prefix live under {billing ? "the GST & Taxes tab above" : "GST & Taxes"}.
+              </p>
             </div>
-            {billing && (
-              <Link href="/settings/taxes" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-sm font-semibold hover:bg-surface-2">
-                GST &amp; Taxes <ArrowRight size={16} />
-              </Link>
-            )}
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Input label="FSSAI licence" maxLength={14} inputMode="numeric" value={form.fssai} onChange={(e) => set("fssai", e.target.value.replace(/\D/g, ""))} />

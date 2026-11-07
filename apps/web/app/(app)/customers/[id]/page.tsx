@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft,
   Cake,
   Coins,
   Heart,
@@ -20,7 +18,7 @@ import type { Customer, CustomerProfile } from "@/lib/types-crm";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageContainer } from "@/components/layout/PageHeader";
+import { BackLink as SharedBackLink, PageContainer } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -242,9 +240,5 @@ export default function CustomerProfilePage() {
 }
 
 function BackLink() {
-  return (
-    <Link href="/customers" className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
-      <ArrowLeft size={18} /> Customers
-    </Link>
-  );
+  return <SharedBackLink href="/customers" label="Customers" />;
 }

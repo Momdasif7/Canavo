@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft } from "@phosphor-icons/react";
 import { LOYALTY_TIERS, formatINR, loyaltyConfigSchema, type LoyaltyConfig, type LoyaltyTierName } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { parseRupees, rupeesInput } from "@/lib/format";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
+import { BackLink, PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Toggle } from "@/components/ui/Input";
@@ -152,9 +150,7 @@ export default function LoyaltySettingsPage() {
 
   return (
     <PageContainer>
-      <Link href="/customers" className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
-        <ArrowLeft size={18} /> Customers
-      </Link>
+      <BackLink href="/customers" label="Customers" />
       <PageHeader
         title="Loyalty settings"
         subtitle="Applies to all outlets"

@@ -70,14 +70,7 @@ export default function AuditsPage() {
         ) : list.length === 0 ? (
           <EmptyState
             title="No audits yet"
-            description="Start an audit to count stock on the shelf and post the differences."
-            action={
-              manage ? (
-                <Button icon={<Play size={18} />} onClick={() => setStarting(true)}>
-                  Start audit
-                </Button>
-              ) : undefined
-            }
+            description={manage ? "Use Start audit above to count stock on the shelf and post the differences." : "Audits count stock on the shelf and post the differences."}
           />
         ) : (
           <Table>
