@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FloppyDisk, Key, Pause, Play, UserPlus } from "@phosphor-icons/react";
+import { FloppyDisk, Key, Pause, Play, UserPlus } from "@phosphor-icons/react";
 import { businessUpdateSchema, type ModuleKey } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -13,7 +12,7 @@ import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
 import { canManagePlatform } from "@/lib/roles";
 import { useToast } from "@/components/providers/ToastProvider";
-import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
+import { BackLink, PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -57,9 +56,7 @@ export default function BusinessDetailPage() {
 
   return (
     <PageContainer>
-      <Link href="/platform/businesses" className="mb-3 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-fg">
-        <ArrowLeft size={16} /> Businesses
-      </Link>
+      <BackLink href="/platform/businesses" label="Businesses" />
       <PageHeader
         title={b.name}
         subtitle={

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { ArrowLeft, ArrowRight, Check, CheckCircle } from "@phosphor-icons/react";
@@ -10,7 +9,7 @@ import { errorMessage } from "@/lib/api";
 import { platformApi } from "@/lib/platform";
 import type { BusinessCreateResult } from "@/lib/types-platform";
 import { LinkSentNotice } from "@/components/platform/OwnerDialogs";
-import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
+import { BackLink, PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Toggle } from "@/components/ui/Input";
@@ -172,9 +171,7 @@ function NewBusinessWizard() {
 
   return (
     <PageContainer>
-      <Link href="/platform/businesses" className="mb-3 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-fg">
-        <ArrowLeft size={16} /> Businesses
-      </Link>
+      <BackLink href="/platform/businesses" label="Businesses" />
       <PageHeader title="New business" subtitle="Onboard a client: their details, modules, owner login and first outlet." />
 
       <ol className="mb-5 flex flex-wrap gap-2" aria-label="Steps">
