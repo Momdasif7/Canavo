@@ -68,9 +68,20 @@ export interface TablePage extends PublicMenu {
   hours: { from: string; to: string } | null;
 }
 
+/** How the delivery address is given on the online page. */
+export type PublicDeliveryMode =
+  | { mode: "MAP" }
+  | { mode: "ADDRESS"; fee: number; minOrder: number; etaMinutes: number; areas: string[]; pincodes: string[] };
+
 export interface OutletPage extends PublicMenu {
   outlet: PublicBrand;
+  /** Store brand colour (hex) */
+  accent: string;
   ordering: boolean;
+  /** Closed now: when orders open again (outlet time "HH:MM") */
+  opensAt: { at: string; day: "today" | "tomorrow" } | null;
+  /** Null when the page has no delivery */
+  deliveryMode: PublicDeliveryMode | null;
   notice: string | null;
   hours: { from: string; to: string } | null;
   timezone: string;
@@ -88,6 +99,7 @@ export interface OutletPage extends PublicMenu {
 
 /** Zone and fee for a delivery map pin. */
 export interface DeliveryQuote {
+  mode?: "MAP" | "ADDRESS";
   outletLocation: boolean;
   deliverable: boolean;
   distanceKm: number | null;
@@ -128,6 +140,7 @@ export interface TableOrder {
 
 export interface OnlineOrderView {
   outlet: PublicBrand;
+  accent?: string;
   invoiceNumber: string;
   createdAt: string;
   orderType: "TAKEAWAY" | "DELIVERY";

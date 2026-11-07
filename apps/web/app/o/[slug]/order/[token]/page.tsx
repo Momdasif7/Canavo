@@ -6,12 +6,12 @@ import { useParams } from "next/navigation";
 import clsx from "clsx";
 import { QRCodeSVG } from "qrcode.react";
 import { CheckCircle, FilePdf, XCircle } from "@phosphor-icons/react";
-import { formatINR } from "@canavo/shared";
+import { formatINR, primaryCssVars } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { publicCall, REFUND_LABEL, STAGE_LABEL, type OnlineOrderView, type OrderStage } from "@/lib/storefront";
 import { useToast } from "@/components/providers/ToastProvider";
-import { StoreHeader } from "@/components/storefront/StoreMenu";
+import { StoreLogo, ThemeToggle } from "@/components/storefront/online/StoreBanner";
 import { Button } from "@/components/ui/Button";
 import { ErrorState, LoadingState } from "@/components/ui/States";
 
@@ -64,10 +64,19 @@ export default function OnlineOrderStatusPage() {
   const pickup = view.orderType === "TAKEAWAY";
 
   return (
-    <main className="min-h-screen pb-10">
-      <StoreHeader brand={view.outlet} />
-      <div className="mx-auto max-w-xl space-y-4 px-4 pt-4">
-        <section className="rounded-2xl border border-line bg-surface p-4 text-center" aria-live="polite">
+    <main className="min-h-screen bg-bg pb-10" style={view.accent ? (primaryCssVars(view.accent) as React.CSSProperties) : undefined}>
+      <header className="bg-gradient-to-br from-primary to-primary-700 pb-14 pt-3">
+        <div className="mx-auto flex max-w-xl items-center gap-3 px-4">
+          <StoreLogo brand={view.outlet} size="sm" />
+          <div className="min-w-0 flex-1 text-primary-fg">
+            <p className="truncate text-lg font-extrabold">{view.outlet.name}</p>
+            <p className="truncate text-sm opacity-90">{pickup ? "Takeaway" : "Delivery"} · Order {view.invoiceNumber}</p>
+          </div>
+          <ThemeToggle />
+        </div>
+      </header>
+      <div className="mx-auto -mt-10 max-w-xl space-y-4 px-4">
+        <section className="rounded-3xl border border-line bg-surface p-5 text-center shadow-lg" aria-live="polite" data-testid="order-status">
           {cancelled ? <XCircle size={48} className="mx-auto text-red-600" weight="fill" /> : <CheckCircle size={48} className="mx-auto text-secondary" weight="fill" />}
           <h2 className="mt-2 text-xl font-bold text-fg">{cancelled ? "Order not accepted" : view.stage === "ready" ? (pickup ? "Ready for pickup" : "Ready — on its way soon") : "Order placed"}</h2>
           <p className="text-sm text-muted">
@@ -85,7 +94,7 @@ export default function OnlineOrderStatusPage() {
             <ol className="mt-4 grid grid-cols-4 gap-1 text-xs font-semibold">
               {STEPS.map((s, i) => (
                 <li key={s} className="flex flex-col items-center gap-1">
-                  <span className={clsx("h-2 w-full rounded-full", i <= current ? "bg-secondary" : "bg-line")} />
+                  <span className={clsx("h-2 w-full rounded-full", i <= current ? "bg-primary" : "bg-line")} />
                   <span className={i <= current ? "text-fg" : "text-muted"}>{s === "waiting" ? "Placed" : s === "received" ? "Accepted" : STAGE_LABEL[s]}</span>
                 </li>
               ))}
@@ -96,7 +105,7 @@ export default function OnlineOrderStatusPage() {
         </section>
 
         {view.upi && !cancelled && (
-          <section className="rounded-2xl border border-line bg-surface p-4 text-center">
+          <section className="rounded-3xl border border-line bg-surface p-5 text-center">
             <h2 className="font-bold text-fg">Pay {formatINR(view.upi.amount)} with UPI</h2>
             <p className="text-sm text-muted">Scan with any UPI app, or tap the button on this phone.</p>
             {view.upi.qrPayload.startsWith("upi://") ? (
@@ -123,7 +132,7 @@ export default function OnlineOrderStatusPage() {
           <p className="rounded-xl bg-secondary/10 p-3 text-center text-sm font-semibold text-secondary dark:text-green-300">Paid — thank you!</p>
         )}
 
-        <section className="rounded-2xl border border-line bg-surface p-4">
+        <section className="rounded-3xl border border-line bg-surface p-5">
           <h2 className="mb-2 font-bold text-fg">Your order</h2>
           <ul className="divide-y divide-line text-sm">
             {view.items.map((i, n) => (
