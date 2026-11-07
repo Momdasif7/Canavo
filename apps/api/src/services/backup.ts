@@ -424,9 +424,21 @@ export async function tableCounts(): Promise<Record<string, number>> {
 const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey"]);
 const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc"]);
 
+/**
+ * Encrypted secrets inside JSON values (Setting rows: integration keys, WhatsApp tokens) are
+ * named "…Enc"; they are dropped from exports — ciphertext is still a secret (Integrations).
+ */
+function withoutEncrypted(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutEncrypted);
+  if (v && typeof v === "object" && !(v instanceof Date)) {
+    return Object.fromEntries(Object.entries(v).filter(([k]) => !/Enc$/.test(k)).map(([k, x]) => [k, withoutEncrypted(x)]));
+  }
+  return v;
+}
+
 function redact(r: Row): Row {
   const out: Row = {};
-  for (const [k, v] of Object.entries(r)) if (!REDACTED_FIELDS.has(k)) out[k] = v;
+  for (const [k, v] of Object.entries(r)) if (!REDACTED_FIELDS.has(k)) out[k] = k === "value" ? withoutEncrypted(v) : v;
   return out;
 }
 
@@ -508,7 +520,10 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
       tx,
       m,
       (rows) => {
-        for (const r of rows) parts.push(cols.map((c) => csvCell(r[c])).join(","));
+        for (const raw of rows) {
+          const r = redact(raw);
+          parts.push(cols.map((c) => csvCell(r[c])).join(","));
+        }
       },
       whereOf.get(m.name),
     );

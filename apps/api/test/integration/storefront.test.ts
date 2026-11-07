@@ -325,7 +325,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   let fakeBase = "";
   const calls: { method: string; path: string; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
   let refundReply: { status: number; body: object } = { status: 200, body: { id: "rfnd_TEST1", status: "processed" } };
-  const saved = { id: env.RAZORPAY_KEY_ID, secret: env.RAZORPAY_KEY_SECRET, hook: env.RAZORPAY_WEBHOOK_SECRET, base: env.RAZORPAY_BASE_URL };
+  const saved = { base: env.RAZORPAY_BASE_URL };
   let qrSeq = 0;
 
   beforeAll(async () => {
@@ -349,18 +349,31 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
     await settings({ upiPrepaid: true, onlineNeedsConfirmation: true });
   });
   afterAll(async () => {
-    Object.assign(env, { RAZORPAY_KEY_ID: saved.id, RAZORPAY_KEY_SECRET: saved.secret, RAZORPAY_WEBHOOK_SECRET: saved.hook, RAZORPAY_BASE_URL: saved.base });
+    env.RAZORPAY_BASE_URL = saved.base;
+    await owner.call("DELETE", "/admin/integrations/razorpay");
     await settings({ upiPrepaid: false, onlineNeedsConfirmation: true });
     await new Promise<void>((r) => fake.close(() => r()));
   });
 
-  const useRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: "rzp_test_fake", RAZORPAY_KEY_SECRET: "fake_secret", RAZORPAY_WEBHOOK_SECRET: "whsec_fake", RAZORPAY_BASE_URL: fakeBase });
-  const noRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: undefined, RAZORPAY_KEY_SECRET: undefined, RAZORPAY_BASE_URL: fakeBase });
+  // Razorpay is the store's own account (Settings → Integrations; no platform keys any more),
+  // and its events arrive on the store's own webhook URL, signed with the store's secret.
+  const HOOK_SECRET = "whsec_fake_store";
+  let hookPath = "";
+  const useRazorpay = async () => {
+    env.RAZORPAY_BASE_URL = fakeBase;
+    const r = await owner.call("PUT", "/admin/integrations/razorpay", { keyId: "rzp_test_fakeStore1", keySecret: "fakesecret0123456789", webhookSecret: HOOK_SECRET });
+    expect(r.status).toBe(200);
+    hookPath = new URL(r.body.webhookUrl).pathname;
+  };
+  const noRazorpay = async () => {
+    env.RAZORPAY_BASE_URL = fakeBase;
+    expect((await owner.call("DELETE", "/admin/integrations/razorpay")).status).toBe(200);
+  };
 
   async function webhook(event: object) {
     const body = JSON.stringify(event);
-    const sig = crypto.createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET!).update(body).digest("hex");
-    const r = await fetch(`${srv.base}/webhooks/razorpay`, { method: "POST", headers: { "content-type": "application/json", "x-razorpay-signature": sig }, body });
+    const sig = crypto.createHmac("sha256", HOOK_SECRET).update(body).digest("hex");
+    const r = await fetch(`${srv.base}${hookPath}`, { method: "POST", headers: { "content-type": "application/json", "x-razorpay-signature": sig }, body });
     expect(r.status).toBe(200);
     return r.json();
   }
@@ -378,7 +391,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   }
 
   it("rejecting a UPI-paid order refunds it through Razorpay once, with a UPI credit note", async () => {
-    useRazorpay();
+    await useRazorpay();
     const { token, req, order } = await paidUpiOrder("Refund Ravi", "pay_TESTREJ1");
     calls.length = 0;
     const rej = await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Kitchen closed" });
@@ -404,7 +417,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   });
 
   it("a refund Razorpay reports as failed later is flagged for the manager", async () => {
-    useRazorpay();
+    await useRazorpay();
     refundReply = { status: 200, body: { id: "rfnd_TEST2", status: "pending" } };
     const { req } = await paidUpiOrder("Refund Pending", "pay_TESTREJ2");
     await cashier.call("POST", `/storefront/requests/${req.id}/reject`, { reason: "Too busy" });
@@ -416,7 +429,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   });
 
   it("without Razorpay keys: refund pending — do it in the dashboard, manager notified, credit note still issued", async () => {
-    noRazorpay();
+    await noRazorpay();
     calls.length = 0;
     const r = await pub("POST", `/public/o/${slug}/orders`, { orderType: "TAKEAWAY", customerName: "Dev Mode", customerPhone: "9822200002", payment: "UPI", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
     const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: r.body.token } });
@@ -434,7 +447,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   });
 
   it("cancelling an accepted order before the kitchen starts refunds it; once preparing it can't be cancelled", async () => {
-    useRazorpay();
+    await useRazorpay();
     const { req, order } = await paidUpiOrder("Cancel Early", "pay_TESTCAN1");
     expect((await cashier.call("POST", `/storefront/requests/${req.id}/accept`)).status).toBe(200);
     expect(await db.kotTicket.count({ where: { orderId: order.id } })).toBe(1);
@@ -456,7 +469,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   });
 
   it("an unpaid online order is voided as before (no refund)", async () => {
-    useRazorpay();
+    await useRazorpay();
     calls.length = 0;
     const r = await pub("POST", `/public/o/${slug}/orders`, { orderType: "TAKEAWAY", customerName: "Unpaid", customerPhone: "9822200003", payment: "UPI", items: [{ menuItemId: h.items.chai, quantity: 1 }] });
     const req = await db.channelRequest.findUniqueOrThrow({ where: { publicToken: r.body.token } });

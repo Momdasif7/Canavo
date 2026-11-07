@@ -36,9 +36,10 @@ describe("authorization matrix", () => {
     ["GET", "/admin/aadhaar-settings", ["staff:manage"]],
     ["PATCH", "/admin/aadhaar-settings", ["outlet:manage"]],
     ["POST", "/admin/aadhaar/reduce-to-last4", ["outlet:manage"]],
-    ["GET", "/admin/whatsapp", ["settings:outlet"]],
-    ["PUT", "/admin/whatsapp", ["settings:outlet"]],
-    ["POST", "/admin/whatsapp/test", ["settings:outlet"]],
+    // WhatsApp is an integration: owner only since Settings → Integrations (was settings:outlet)
+    ["GET", "/admin/whatsapp", ["outlet:manage"]],
+    ["PUT", "/admin/whatsapp", ["outlet:manage"]],
+    ["POST", "/admin/whatsapp/test", ["outlet:manage"]],
     ["GET", "/admin/backups", ["admin:backup"]],
     ["POST", "/admin/backups", ["admin:backup"]],
     ["GET", "/admin/table-counts", ["admin:backup"]],
@@ -232,7 +233,8 @@ describe("WhatsApp config", () => {
     const token = "EAAG-super-secret-token-1234567890ABCD";
     const r = await owner.call("PUT", "/admin/whatsapp", { provider: "META", meta: { phoneNumberId: "1234567890", accessToken: token } });
     expect(r.status).toBe(200);
-    const g = await manager.call("GET", "/admin/whatsapp");
+    const g = await owner.call("GET", "/admin/whatsapp");
+    expect((await manager.call("GET", "/admin/whatsapp")).status).toBe(403);
     expect(g.status).toBe(200);
     expect(JSON.stringify(g.body)).not.toContain(token);
     expect(JSON.stringify(g.body)).not.toMatch(/accessTokenEnc|tokenEnc/);

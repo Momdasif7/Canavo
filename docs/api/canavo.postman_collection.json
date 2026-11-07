@@ -2282,6 +2282,25 @@
               ]
             }
           }
+        },
+        {
+          "name": "POST /webhooks/razorpay/{hookId}",
+          "request": {
+            "method": "POST",
+            "description": "Per-store Razorpay webhook, verified with that store's own webhook secret; only touches that store's payments",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/razorpay/:hookId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "razorpay",
+                ":hookId"
+              ]
+            }
+          }
         }
       ]
     },
@@ -9786,6 +9805,49 @@
               ]
             }
           }
+        },
+        {
+          "name": "POST /admin/whatsapp/templates/{purpose}/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: send one message type's saved template (name + language) with its sample values to a number. Body: integrationTestPhoneSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/whatsapp/templates/:purpose/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "whatsapp",
+                "templates",
+                ":purpose",
+                "test"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -11369,6 +11431,345 @@
                 ":paymentId",
                 "dev-simulate"
               ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "GET /admin/integrations",
+          "request": {
+            "method": "GET",
+            "description": "Owner: the store's Razorpay, email, SMS and WhatsApp status — secrets masked, never returned; the store's own Razorpay webhook URL.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /admin/integrations/razorpay",
+          "request": {
+            "method": "PUT",
+            "description": "Owner: save the store's Razorpay keys (encrypted; blank keeps the saved secret). Body: razorpayIntegrationSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/razorpay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "razorpay"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /admin/integrations/razorpay",
+          "request": {
+            "method": "DELETE",
+            "description": "Owner: disconnect Razorpay (UPI QR / online UPI off; no platform fallback)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/razorpay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "razorpay"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/integrations/razorpay/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: harmless authenticated Razorpay call with the saved keys (rate-limited per store)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/razorpay/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "razorpay",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /admin/integrations/smtp",
+          "request": {
+            "method": "PUT",
+            "description": "Owner: save the store's mail server (public host, ports 25/465/587/2525; password encrypted). Body: smtpIntegrationSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/smtp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "smtp"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"host\": \"string\",\n  \"port\": 1,\n  \"from\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /admin/integrations/smtp",
+          "request": {
+            "method": "DELETE",
+            "description": "Owner: remove the store's mail server (email falls back to the platform's)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/smtp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "smtp"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/integrations/smtp/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: connect and sign in to the saved mail server, no email sent (rate-limited per store)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/smtp/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "smtp",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /admin/integrations/sms",
+          "request": {
+            "method": "PUT",
+            "description": "Owner: save the store's MSG91 auth key (encrypted) and template ids. Body: smsIntegrationSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/sms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "sms"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /admin/integrations/sms",
+          "request": {
+            "method": "DELETE",
+            "description": "Owner: remove the store's MSG91 account (SMS falls back to the platform's)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/sms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "sms"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/integrations/sms/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: send one alert SMS with the saved account to a number (rate-limited per store). Body: integrationTestPhoneSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/sms/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "integrations",
+                "sms",
+                "test"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         }

@@ -4235,6 +4235,90 @@
           "mode"
         ]
       },
+      "integrationTestPhoneSchema": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^(\\+?91)?[6-9]\\d{9}$"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "additionalProperties": false
+      },
+      "razorpayIntegrationSchema": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "pattern": "^rzp_(live|test)_[A-Za-z0-9]{6,40}$"
+          },
+          "keySecret": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{10,128}$"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "pattern": "^\\S+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "smtpIntegrationSchema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "pattern": "^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "user": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "from": {
+            "type": "string",
+            "maxLength": 254
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "from"
+        ],
+        "additionalProperties": false
+      },
+      "smsIntegrationSchema": {
+        "type": "object",
+        "properties": {
+          "authKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{16,64}$"
+          },
+          "otpTemplateId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{6,40}$"
+          },
+          "alertTemplateId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{6,40}$"
+          }
+        },
+        "additionalProperties": false
+      },
       "businessCreateSchema": {
         "type": "object",
         "properties": {
@@ -18227,6 +18311,442 @@
             "$ref": "#/components/responses/Forbidden"
           }
         }
+      }
+    },
+    "/admin/whatsapp/templates/{purpose}/test": {
+      "post": {
+        "summary": "Owner: send one message type's saved template (name + language) with its sample values to a number. Body: integrationTestPhoneSchema",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "purpose",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/integrationTestPhoneSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/integrations": {
+      "get": {
+        "summary": "Owner: the store's Razorpay, email, SMS and WhatsApp status — secrets masked, never returned; the store's own Razorpay webhook URL.",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/razorpay": {
+      "put": {
+        "summary": "Owner: save the store's Razorpay keys (encrypted; blank keeps the saved secret). Body: razorpayIntegrationSchema",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/razorpayIntegrationSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Owner: disconnect Razorpay (UPI QR / online UPI off; no platform fallback)",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/razorpay/test": {
+      "post": {
+        "summary": "Owner: harmless authenticated Razorpay call with the saved keys (rate-limited per store)",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/smtp": {
+      "put": {
+        "summary": "Owner: save the store's mail server (public host, ports 25/465/587/2525; password encrypted). Body: smtpIntegrationSchema",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/smtpIntegrationSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Owner: remove the store's mail server (email falls back to the platform's)",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/smtp/test": {
+      "post": {
+        "summary": "Owner: connect and sign in to the saved mail server, no email sent (rate-limited per store)",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/sms": {
+      "put": {
+        "summary": "Owner: save the store's MSG91 auth key (encrypted) and template ids. Body: smsIntegrationSchema",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/smsIntegrationSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Owner: remove the store's MSG91 account (SMS falls back to the platform's)",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/admin/integrations/sms/test": {
+      "post": {
+        "summary": "Owner: send one alert SMS with the saved account to a number (rate-limited per store). Body: integrationTestPhoneSchema",
+        "tags": [
+          "Integrations"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/integrationTestPhoneSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/razorpay/{hookId}": {
+      "post": {
+        "summary": "Per-store Razorpay webhook, verified with that store's own webhook secret; only touches that store's payments",
+        "tags": [
+          "Payments"
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "hookId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/platform/summary": {
