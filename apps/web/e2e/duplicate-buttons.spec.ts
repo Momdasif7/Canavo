@@ -263,13 +263,16 @@ async function login(page: Page, email: string) {
   await settle(page);
 }
 
-async function resolveDynamic(page: Page, pattern: string): Promise<string | null> {
+/** A concrete URL for a dynamic route, or the parent page's state when the role can't open it. */
+async function resolveDynamic(page: Page, pattern: string): Promise<{ url: string | null; parentState: PageResult["state"] }> {
   const spec = DYNAMIC_ROUTES[pattern];
-  if (!spec) return null;
+  if (!spec) return { url: null, parentState: "no-instance" };
   await page.goto(spec.from);
   await settle(page);
+  const parentState = await pageState(page);
+  if (parentState !== "ok") return { url: null, parentState };
   const hrefs = await page.$$eval("a[href]", (as) => as.map((a) => a.getAttribute("href") ?? ""));
-  return hrefs.find((h) => spec.link.test(h)) ?? null;
+  return { url: hrefs.find((h) => spec.link.test(h)) ?? null, parentState };
 }
 
 async function sweep(page: Page, role: string, routes: string[], opts: { skipDeniedOnPhone: boolean }): Promise<PageResult[]> {
@@ -280,7 +283,7 @@ async function sweep(page: Page, role: string, routes: string[], opts: { skipDen
   });
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message.slice(0, 300)}`));
   const deniedOnDesktop = new Map<string, PageResult["state"]>();
-  const resolved = new Map<string, string | null>();
+  const resolved = new Map<string, Awaited<ReturnType<typeof resolveDynamic>>>();
 
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
@@ -293,12 +296,14 @@ async function sweep(page: Page, role: string, routes: string[], opts: { skipDen
       let url = route;
       if (route.includes("[")) {
         if (!resolved.has(route)) resolved.set(route, await resolveDynamic(page, route));
-        const r = resolved.get(route);
-        if (!r) {
-          results.push({ ...base, state: "no-instance", elements: 0, unnamed: 0, duplicates: [], consoleErrors: [], note: "no link to an instance on the parent page" });
+        const r = resolved.get(route)!;
+        if (!r.url) {
+          const parent = DYNAMIC_ROUTES[route]?.from;
+          const note = r.parentState === "ok" ? `no link to an instance on ${parent} (no data)` : `parent page ${parent} is ${r.parentState} for this role`;
+          results.push({ ...base, state: r.parentState === "ok" ? "no-instance" : r.parentState, elements: 0, unnamed: 0, duplicates: [], consoleErrors: [], note });
           continue;
         }
-        url = r;
+        url = r.url;
       }
       errors = [];
       try {

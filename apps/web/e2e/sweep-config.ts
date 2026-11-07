@@ -90,4 +90,17 @@ export const NAMED_ALLOWLIST: { route: RegExp; name: string | RegExp; reason: st
  * belongs to another workstream or needs a product decision. They are reported in the
  * results file under "Left (known)" and don't fail the sweep.
  */
-export const KNOWN_LEFT: { route: RegExp; name: string | RegExp; reason: string }[] = [];
+export const KNOWN_LEFT: { route: RegExp; name: string | RegExp; reason: string }[] = [
+  {
+    route: /^\/delivery(\/(cash|dashboard|history))?$/,
+    name: /^(My deliveries|Cash handover|Dashboard|History)$/,
+    reason:
+      "Delivery partner portal (delivery workstream): at phone width the 'My work sections' tabs (AppShell CategoryTabs) and the fixed bottom nav 'Delivery partner' (AppShell, md:hidden) show the same four links. Suggested fix: render CategoryTabs for the partner group only from md up.",
+  },
+  {
+    route: /^\/delivery$/,
+    name: "Clock in",
+    reason:
+      "Delivery partner portal (delivery workstream): the duty bar (components/delivery/partner/duty.tsx DutyBar) and the OffDutyBanner on My deliveries both offer 'Clock in'. Suggested fix: drop the banner's button (keep its text) or hide the banner while the duty bar is visible.",
+  },
+];
