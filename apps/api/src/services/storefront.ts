@@ -5,6 +5,7 @@ import {
   distanceMeters,
   effectiveGstRate,
   formatINR,
+  normalizeBrand,
   normalizeModules,
   storefrontSettingsSchema,
   type OnlineOrderInput,
@@ -26,6 +27,7 @@ import { notify, outletManagers, outletStaff } from "./notify";
 import { createUpiQr, refundPayment, type GatewayRefund } from "./razorpay";
 import { createCreditNote } from "./credit-notes";
 import { onOrderCancelledService, selectZone } from "./service-context";
+import { deliveryLocation } from "./delivery-location";
 import { phoneTokenValid } from "./storefront-otp";
 import { resolveItemTax } from "./tax";
 import { lastKotNumberToday } from "./kot-number";
@@ -83,6 +85,22 @@ export async function outletBySlug(slug: string) {
   const settings = readSettings(outlet);
   if (!settings.onlineOrdering && !settings.menuView) throw notFound("Outlet");
   return { outlet, settings };
+}
+
+/** The business brand colour (Settings → Appearance) for the customer pages. */
+export async function storeAccent(businessId: string) {
+  const b = await platformPrisma.business.findUnique({ where: { id: businessId }, select: { brand: true } });
+  return normalizeBrand(b?.brand).accent;
+}
+
+/**
+ * When a closed page opens again: the accepting-hours start (outlet time, "HH:MM") and whether
+ * that is today or tomorrow. Null when ordering is off or there are no hours.
+ */
+export function nextOpening(s: StorefrontSettings, timezone: string, at = new Date()): { at: string; day: "today" | "tomorrow" } | null {
+  if (!s.onlineOrdering || !s.acceptFrom || !s.acceptTo || acceptingNow(s, timezone, at)) return null;
+  const now = zonedParts(at, timezone).minutes;
+  return { at: s.acceptFrom, day: now < hhmmToMinutes(s.acceptFrom) ? "today" : "tomorrow" };
 }
 
 export const outletBrand = (o: Outlet) => ({
@@ -555,7 +573,11 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
       throw new HttpError(403, "Verify your mobile number with the OTP first", { code: "PHONE_NOT_VERIFIED" });
     }
     let deliveryInput = input.delivery;
-    if (delivery && deliveryInput && deliveryInput.latitude !== undefined && deliveryInput.longitude !== undefined) {
+    const addressMode = delivery && (await deliveryLocation(outlet.id)).mode === "ADDRESS";
+    if (addressMode && deliveryInput) {
+      // ADDRESS mode: no map pin or zone; billing checks the area / PIN list and adds the flat fee.
+      deliveryInput = { ...deliveryInput, latitude: undefined, longitude: undefined, zoneId: undefined };
+    } else if (delivery && deliveryInput && deliveryInput.latitude !== undefined && deliveryInput.longitude !== undefined) {
       // A map pin: the server picks the zone from the distance (the client's zone choice is ignored).
       const quote = await deliveryQuote(outlet, deliveryInput.latitude, deliveryInput.longitude);
       if (quote.outletLocation) {

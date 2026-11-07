@@ -5728,6 +5728,73 @@
       "name": "Delivery",
       "item": [
         {
+          "name": "GET /delivery/settings",
+          "request": {
+            "method": "GET",
+            "description": "Delivery location mode: MAP (pin + zones) or ADDRESS (typed address, flat fee, allowed areas / PIN codes)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "settings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /delivery/settings",
+          "request": {
+            "method": "PUT",
+            "description": "Change the delivery location mode. Body: deliveryLocationUpdateSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "settings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /delivery/zones",
           "request": {
             "method": "GET",
@@ -5867,7 +5934,7 @@
           "name": "GET /delivery/quote",
           "request": {
             "method": "GET",
-            "description": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address)",
+            "description": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address); ADDRESS mode: flat fee / ETA and ?pincode / ?area check",
             "header": [
               {
                 "key": "Authorization",
@@ -11116,7 +11183,7 @@
           "name": "GET /public/o/{slug}/delivery-quote",
           "request": {
             "method": "GET",
-            "description": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema",
+            "description": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema (ADDRESS mode: publicAddressQuoteSchema, flat fee and area / PIN check)",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/public/o/:slug/delivery-quote",

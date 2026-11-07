@@ -4,7 +4,7 @@ import type { Op } from "./openapi";
 export const ops: Op[] = [
   ["post", "/public/o/{slug}/otp/request", "Text a 6-digit code to the customer's phone (outlets with \"Verify customer phone by OTP\"). Body: customerOtpRequestSchema", "Public", false],
   ["post", "/public/o/{slug}/otp/verify", "Check the code → a short-lived signed token the order request carries. Body: customerOtpVerifySchema", "Public", false],
-  ["get", "/public/o/{slug}/delivery-quote", "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema", "Public", false],
+  ["get", "/public/o/{slug}/delivery-quote", "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema (ADDRESS mode: publicAddressQuoteSchema, flat fee and area / PIN check)", "Public", false],
   ["post", "/auth/cookie-probe", "The web app checks it can read this cookie before using cookie sessions (D16 fallback).", "Auth", false],
   ["post", "/auth/2fa/verify", "Second step of sign-in: the code from the authenticator app, or a recovery code. Body validated by verifySchema (route-local)", "Auth", false],
   ["get", "/auth/2fa", "Own two-step login status", "Auth"],

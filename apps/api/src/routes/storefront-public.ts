@@ -1,6 +1,14 @@
 import { Router, type Request } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { customerOtpRequestSchema, customerOtpVerifySchema, onlineOrderSchema, publicDeliveryQuoteSchema, qrOrderSchema, tableCallSchema } from "@canavo/shared";
+import {
+  customerOtpRequestSchema,
+  customerOtpVerifySchema,
+  onlineOrderSchema,
+  publicAddressQuoteSchema,
+  publicDeliveryQuoteSchema,
+  qrOrderSchema,
+  tableCallSchema,
+} from "@canavo/shared";
 import { prisma } from "../db";
 import { env } from "../env";
 import { conflict, param, parse, publicApiUrl } from "../lib/http";
@@ -12,6 +20,7 @@ import {
   deliveryAvailable,
   deliveryQuote,
   findOnlineRequest,
+  nextOpening,
   onlineOrderView,
   outletBrand,
   outletBySlug,
@@ -19,10 +28,12 @@ import {
   placeQrOrder,
   publicMenu,
   requestUpi,
+  storeAccent,
   tableByToken,
   tableOrders,
 } from "../services/storefront";
 import { requestCustomerOtp, verifyCustomerOtp } from "../services/storefront-otp";
+import { addressQuote, deliveryLocation } from "../services/delivery-location";
 
 /**
  * Phase 6.3 / 6.4 public endpoints (no login): the QR page on a table (/t/<token>) and the
@@ -91,17 +102,29 @@ storefrontPublicRouter.post("/public/t/:token/call", qrCallLimiter, async (req, 
 
 storefrontPublicRouter.get("/public/o/:slug", async (req, res) => {
   const { outlet, settings } = await outletBySlug(param(req, "slug"));
-  const data = await runForOutlet(outlet.id, async () => ({
-    menu: await publicMenu(outlet.id, outlet.timezone),
-    delivery: deliveryAvailable(outlet, settings),
-    zones: deliveryAvailable(outlet, settings)
-      ? await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, select: { id: true, name: true, radiusKm: true, fee: true, minOrder: true, etaMinutes: true }, orderBy: { radiusKm: "asc" } })
-      : [],
-  }));
+  const data = await runForOutlet(outlet.id, async () => {
+    const delivery = deliveryAvailable(outlet, settings);
+    const location = await deliveryLocation(outlet.id);
+    const mapMode = location.mode === "MAP";
+    return {
+      menu: await publicMenu(outlet.id, outlet.timezone),
+      delivery,
+      location,
+      zones:
+        delivery && mapMode
+          ? await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, select: { id: true, name: true, radiusKm: true, fee: true, minOrder: true, etaMinutes: true }, orderBy: { radiusKm: "asc" } })
+          : [],
+    };
+  });
   const open = acceptingNow(settings, outlet.timezone);
+  const addressMode = data.location.mode === "ADDRESS";
   res.json({
     outlet: outletBrand(outlet),
+    /** Store brand colour (Settings → Appearance) */
+    accent: await storeAccent(outlet.businessId),
     ordering: settings.onlineOrdering && open,
+    /** Closed for now: when orders open again (accepting hours) */
+    opensAt: nextOpening(settings, outlet.timezone),
     notice: !settings.onlineOrdering ? "Online ordering is off — here's our menu" : !open ? "We're not taking orders right now" : null,
     hours: settings.acceptFrom && settings.acceptTo ? { from: settings.acceptFrom, to: settings.acceptTo } : null,
     timezone: outlet.timezone,
@@ -116,8 +139,14 @@ storefrontPublicRouter.get("/public/o/:slug", async (req, res) => {
     },
     needsConfirmation: settings.onlineNeedsConfirmation,
     verifyPhone: settings.verifyPhoneOtp,
-    /** Map centre / zone circles for the delivery pin */
-    location: data.delivery && outlet.latitude != null && outlet.longitude != null ? { lat: outlet.latitude, lng: outlet.longitude } : null,
+    /** How the delivery address is given: MAP (pin + zones) or ADDRESS (typed, flat fee) */
+    deliveryMode: data.delivery
+      ? addressMode
+        ? { mode: "ADDRESS", fee: data.location.flatFee, minOrder: data.location.minOrder, etaMinutes: data.location.etaMinutes, areas: data.location.areas, pincodes: data.location.pincodes }
+        : { mode: "MAP" }
+      : null,
+    /** Map centre / zone circles for the delivery pin (never in ADDRESS mode) */
+    location: data.delivery && !addressMode && outlet.latitude != null && outlet.longitude != null ? { lat: outlet.latitude, lng: outlet.longitude } : null,
     ...data.menu,
   });
 });
@@ -140,12 +169,21 @@ storefrontPublicRouter.post("/public/o/:slug/otp/verify", otpVerifyLimiter, asyn
 /** Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. */
 storefrontPublicRouter.get("/public/o/:slug/delivery-quote", async (req, res) => {
   const { outlet, settings } = await outletBySlug(param(req, "slug"));
-  const { lat, lng } = parse(publicDeliveryQuoteSchema, req.query);
-  const quote = await runForOutlet(outlet.id, async () => {
+  const result = await runForOutlet(outlet.id, async () => {
+    // The query is checked first (400), then whether delivery is on (409).
+    const location = await deliveryLocation(outlet.id);
+    if (location.mode === "ADDRESS") {
+      const input = parse(publicAddressQuoteSchema, req.query);
+      if (!deliveryAvailable(outlet, settings)) throw conflict("Delivery isn't available — choose takeaway");
+      const q = addressQuote(location, input);
+      return { ...q, outletLocation: false, distanceKm: null, zone: null, deliverable: q.deliverable !== false };
+    }
+    const { lat, lng } = parse(publicDeliveryQuoteSchema, req.query);
     if (!deliveryAvailable(outlet, settings)) throw conflict("Delivery isn't available — choose takeaway");
-    return deliveryQuote(outlet, lat, lng);
+    const quote = await deliveryQuote(outlet, lat, lng);
+    return { mode: "MAP" as const, ...quote, deliverable: Boolean(quote.zone) };
   });
-  res.json({ ...quote, deliverable: Boolean(quote.zone) });
+  res.json(result);
 });
 
 storefrontPublicRouter.post("/public/o/:slug/orders", onlineOrderLimiter, async (req, res) => {
@@ -161,6 +199,7 @@ storefrontPublicRouter.get("/public/o/:slug/orders/:token", async (req, res) => 
   });
   res.json({
     outlet: outletBrand(outlet),
+    accent: await storeAccent(outlet.businessId),
     ...view.view,
     receiptUrl: view.view.status === "PAID" ? `${publicApiUrl(req, env.PUBLIC_API_URL)}/public/receipts/${receiptToken(view.request.orderId!)}` : null,
   });

@@ -98,6 +98,9 @@ export const onlineOrderSchema = z.object({
     .object({
       address: z.string().trim().min(5).max(500),
       landmark: z.string().trim().max(200).optional(),
+      /** ADDRESS delivery mode: PIN code and area */
+      pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "Enter a 6-digit PIN code").optional(),
+      area: z.string().trim().max(60).optional(),
       zoneId: z.string().max(40).optional(),
       latitude: z.number().min(-90).max(90).optional(),
       longitude: z.number().min(-180).max(180).optional(),
@@ -119,6 +122,14 @@ export const customerOtpVerifySchema = z.object({ phone: indianPhone, code: z.st
 export const publicDeliveryQuoteSchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
+});
+
+/** Delivery check for a typed address (ADDRESS delivery mode: no map). */
+export const publicAddressQuoteSchema = z.object({
+  address: z.string().trim().max(500).optional(),
+  landmark: z.string().trim().max(200).optional(),
+  pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "Enter a 6-digit PIN code").optional(),
+  area: z.string().trim().max(60).optional(),
 });
 
 /** Refund status of a rejected / cancelled online order paid by UPI. */

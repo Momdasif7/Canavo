@@ -18,7 +18,9 @@ import {
   partnerLocationSchema,
   deliveryZoneSchema,
   deliveryZoneUpdateSchema,
+  deliveryLocationUpdateSchema,
   distanceMeters,
+  mapsSearchUrl,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
@@ -35,6 +37,7 @@ import { createUpiQr } from "../services/razorpay";
 import { cashBalance, cashCollected, cashHandedOver, pendingCollections, reallocateHandovers } from "../services/delivery-cash";
 import { assignWaitingDeliveries, canTakeOrder, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
 import { alertPartnerCash } from "../services/alerts";
+import { addressQuote, deliveryLocation, saveDeliveryLocation } from "../services/delivery-location";
 
 export const deliveryRouter = Router();
 deliveryRouter.use(authenticate, requireOutlet, requireModule("DELIVERY"));
@@ -59,9 +62,24 @@ const include = {
 /** Last known agent positions (in memory: live tracking only, not history). */
 const lastLocation = new Map<string, { lat: number; lng: number; at: string; deliveryId: string; outletId: string }>();
 
-function withExtras<T extends { agentId: string | null; order: { grandTotal: number; payments: { amount: number; status: string }[] } }>(d: T) {
+type DeliveryRowLike = {
+  agentId: string | null;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  order: { grandTotal: number; payments: { amount: number; status: string }[] };
+};
+
+function withExtras<T extends DeliveryRowLike>(d: T) {
   const paid = d.order.payments.filter((p) => p.status === "SUCCESS").reduce((s, p) => s + p.amount, 0);
-  return { ...d, amountDue: Math.max(0, d.order.grandTotal - paid), amountPaid: paid, agentLocation: d.agentId ? lastLocation.get(d.agentId) ?? null : null };
+  return {
+    ...d,
+    amountDue: Math.max(0, d.order.grandTotal - paid),
+    amountPaid: paid,
+    agentLocation: d.agentId ? lastLocation.get(d.agentId) ?? null : null,
+    /** "Open in Google Maps": the map pin when there is one, else the typed address */
+    mapsUrl: d.latitude != null && d.longitude != null ? `https://www.google.com/maps/search/?api=1&query=${d.latitude},${d.longitude}` : mapsSearchUrl(d.address),
+  };
 }
 
 async function findDelivery(id: string, outletId: string) {
@@ -113,6 +131,19 @@ async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>, opts: {
   return { ...msg, autoSent };
 }
 
+// ---------- How addresses are found: map pin + zones, or typed address + flat fee ----------
+/** Everyone who takes or runs delivery orders reads it (POS cart, board, partner screens). */
+deliveryRouter.get("/settings", requireAnyPermission("delivery:manage", "delivery:own"), async (req, res) => {
+  res.json(await deliveryLocation(req.outletId!));
+});
+
+deliveryRouter.put("/settings", requirePermission("delivery:manage", "settings:outlet"), async (req, res) => {
+  const patch = parse(deliveryLocationUpdateSchema, req.body);
+  const saved = await saveDeliveryLocation(req.outletId!, patch);
+  await audit(req, "delivery.settings", "Outlet", req.outletId!, saved);
+  res.json(saved);
+});
+
 // ---------- Zones ----------
 deliveryRouter.get("/zones", requirePermission("delivery:manage"), async (req, res) => {
   res.json(await prisma.deliveryZone.findMany({ where: { outletId: req.outletId }, orderBy: { radiusKm: "asc" } }));
@@ -150,8 +181,22 @@ deliveryRouter.delete("/zones/:id", requirePermission("delivery:manage", "settin
 deliveryRouter.get("/quote", requirePermission("delivery:manage"), async (req, res) => {
   const q = parse(deliveryQuoteQuerySchema, req.query);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
+  const location = await deliveryLocation(outlet.id);
+  if (location.mode === "ADDRESS") {
+    // No map: flat fee / ETA, and whether the typed PIN code / area is one we deliver to.
+    const quote = addressQuote(location, { address: q.address, landmark: q.landmark, pincode: q.pincode, area: q.area });
+    return res.json({
+      ...quote,
+      deliveryEnabled: outlet.deliveryEnabled,
+      packagingCharge: outlet.packagingCharge,
+      deliverable: outlet.deliveryEnabled && quote.deliverable !== false,
+      zone: null,
+      etaAt: new Date(Date.now() + location.etaMinutes * 60_000),
+      zones: [],
+    });
+  }
   const zones = await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, orderBy: { radiusKm: "asc" } });
-  const base = { deliveryEnabled: outlet.deliveryEnabled, packagingCharge: outlet.packagingCharge };
+  const base = { mode: "MAP" as const, deliveryEnabled: outlet.deliveryEnabled, packagingCharge: outlet.packagingCharge };
   if (q.lat === undefined || q.lng === undefined) {
     return res.json({ ...base, needsCoordinates: true, address: q.address ?? null, zones });
   }

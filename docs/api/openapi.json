@@ -735,6 +735,14 @@
                 "type": "string",
                 "maxLength": 200
               },
+              "pincode": {
+                "type": "string",
+                "pattern": "^[1-9]\\d{5}$"
+              },
+              "area": {
+                "type": "string",
+                "maxLength": 60
+              },
               "latitude": {
                 "type": "number",
                 "minimum": -90,
@@ -2173,6 +2181,57 @@
           }
         }
       },
+      "deliveryLocationUpdateSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "MAP",
+              "ADDRESS"
+            ],
+            "default": "MAP"
+          },
+          "flatFee": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000,
+            "default": 0
+          },
+          "minOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000,
+            "default": 0
+          },
+          "etaMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 300,
+            "default": 30
+          },
+          "pincodes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[1-9]\\d{5}$"
+            },
+            "maxItems": 200,
+            "default": []
+          },
+          "areas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 60
+            },
+            "maxItems": 100,
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      },
       "deliveryZoneSchema": {
         "type": "object",
         "properties": {
@@ -3558,6 +3617,14 @@
               "landmark": {
                 "type": "string",
                 "maxLength": 200
+              },
+              "pincode": {
+                "type": "string",
+                "pattern": "^[1-9]\\d{5}$"
+              },
+              "area": {
+                "type": "string",
+                "maxLength": 60
               },
               "zoneId": {
                 "type": "string",
@@ -10293,6 +10360,78 @@
         }
       }
     },
+    "/delivery/settings": {
+      "get": {
+        "summary": "Delivery location mode: MAP (pin + zones) or ADDRESS (typed address, flat fee, allowed areas / PIN codes)",
+        "tags": [
+          "Delivery"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "put": {
+        "summary": "Change the delivery location mode. Body: deliveryLocationUpdateSchema",
+        "tags": [
+          "Delivery"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/deliveryLocationUpdateSchema"
+              }
+            }
+          }
+        }
+      }
+    },
     "/delivery/zones": {
       "get": {
         "summary": "List delivery zones",
@@ -10461,7 +10600,7 @@
     },
     "/delivery/quote": {
       "get": {
-        "summary": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address)",
+        "summary": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address); ADDRESS mode: flat fee / ETA and ?pincode / ?area check",
         "tags": [
           "Delivery"
         ],
@@ -15539,7 +15678,7 @@
     },
     "/public/o/{slug}/delivery-quote": {
       "get": {
-        "summary": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema",
+        "summary": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema (ADDRESS mode: publicAddressQuoteSchema, flat fee and area / PIN check)",
         "tags": [
           "Public"
         ],

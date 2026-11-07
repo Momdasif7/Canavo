@@ -205,6 +205,10 @@ export const deliveryQuoteQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
   address: z.string().max(500).optional(),
+  /** ADDRESS mode: check a typed PIN code / area against the allowed list */
+  landmark: z.string().max(200).optional(),
+  pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "Enter a 6-digit PIN code").optional(),
+  area: z.string().trim().max(60).optional(),
 });
 export const deliveryListQuerySchema = z.object({
   status: z.enum(DELIVERY_STATUSES).optional(),
