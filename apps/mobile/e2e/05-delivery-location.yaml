@@ -1,0 +1,21 @@
+appId: in.canavo.app
+name: Delivery partner - location denied, then granted
+---
+- launchApp:
+    clearState: true
+    permissions:
+      location: deny
+- tapOn: "Use email & password instead"
+- tapOn: "Email"
+- inputText: "delivery@canavo.local"
+- tapOn: "Password"
+- inputText: "Canavo@123"
+- tapOn: "Sign in"
+- assertVisible:
+    text: ".*(location|Location).*"
+- launchApp:
+    permissions:
+      location: allow
+- assertNotVisible:
+    text: "Allow location so the outlet can track the delivery."
+# Background / foreground: press home for 2 min, reopen, confirm "last sent" updates within 30 s.

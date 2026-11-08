@@ -74,7 +74,7 @@ export default function More() {
   // Hotel logo + name for business users (platform admins keep the CANAVO identity).
   const hotel = useBusinessBrand();
   const { unread } = useNotifications();
-  const { pendingCount, syncing, syncNow, online, lastError, failed } = useOffline();
+  const { pendingCount, syncing, syncNow, retryFailed, online, lastError, failed } = useOffline();
   const cart = useCart();
   const [switching, setSwitching] = useState<string | null>(null);
 
@@ -245,6 +245,9 @@ export default function More() {
               message={f.lastError ?? "Rejected by server"}
             />
           ))}
+          {failed.length ? (
+            <Button title="Retry failed bills" icon="refresh" variant="secondary" loading={syncing} disabled={!online} onPress={retryFailed} />
+          ) : null}
           <Button title="Sync now" icon="sync" variant="secondary" loading={syncing} disabled={!online} onPress={syncNow} />
         </Card>
       ) : null}

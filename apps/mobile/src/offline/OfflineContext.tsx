@@ -1,19 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import { useAuth } from "../auth/AuthContext";
-import { api, ApiError, endpoints, errorMessage } from "../lib/api";
-import {
-  countUnsynced,
-  enqueueOrder,
-  listQueue,
-  markCreated,
-  markState,
-  pruneQueue,
-  type PendingOrder,
-} from "../lib/db";
-
-const MAX_ATTEMPTS = 3;
-const SYNC_INTERVAL_MS = 30_000;
+import { api, errorMessage } from "../lib/api";
+import { countUnsynced, enqueueOrder, listQueue, requeueFailed, type PendingOrder } from "../lib/db";
+import { nextSyncDelay, runSyncPass } from "./sync";
 
 interface OfflineState {
   online: boolean;
@@ -23,22 +13,19 @@ interface OfflineState {
   failed: PendingOrder[];
   enqueue: (o: Parameters<typeof enqueueOrder>[0]) => Promise<void>;
   syncNow: () => Promise<void>;
+  /** Put bills set aside as "failed" back in the queue and sync them again */
+  retryFailed: () => Promise<void>;
 }
 
 const OfflineContext = createContext<OfflineState | null>(null);
-
-function groupBy<T>(arr: T[], key: (t: T) => string): Map<string, T[]> {
-  const m = new Map<string, T[]>();
-  for (const t of arr) m.set(key(t), [...(m.get(key(t)) ?? []), t]);
-  return m;
-}
 
 /**
  * Network status + offline bill queue. Bills raised without a connection are
  * stored in SQLite with a client UUID and flushed through POST /orders/sync
  * (idempotent on clientOrderId). /orders/sync only creates the bill, so the
  * payment taken at the counter is recorded afterwards with POST
- * /orders/:id/payments.
+ * /orders/:id/payments. See ./sync for one pass; automatic retries back off
+ * (30 s doubling to 5 min) while the server keeps failing.
  */
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
@@ -56,59 +43,34 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     setFailed(await listQueue(["failed"]));
   }, []);
 
+  /** Consecutive failed passes → automatic retry delay (manual "Sync now" always runs). */
+  const failures = useRef(0);
+  const [nextDelay, setNextDelay] = useState(nextSyncDelay(0));
+
   const syncNow = useCallback(async () => {
     if (busy.current || !api.hasSession) return;
     busy.current = true;
     setSyncing(true);
     setLastError(null);
     try {
-      // 1. Create queued bills on the server, per outlet, in batches of ≤200.
-      const pending = await listQueue(["pending"]);
-      for (const [outletId, group] of groupBy(pending, (p) => p.outletId)) {
-        for (let i = 0; i < group.length; i += 200) {
-          const batch = group.slice(i, i + 200);
-          const { results } = await endpoints.syncOrders(
-            batch.map((b) => b.payload),
-            outletId,
-          );
-          for (const r of results) {
-            const local = batch.find((b) => b.clientOrderId === r.clientOrderId);
-            if (!local) continue;
-            if (r.ok && r.orderId) {
-              await markCreated(local.clientOrderId, r.orderId, r.invoiceNumber ?? null, r.grandTotal ?? local.grandTotal);
-            } else {
-              const giveUp = local.attempts + 1 >= MAX_ATTEMPTS;
-              await markState(local.clientOrderId, giveUp ? "failed" : "pending", r.error ?? "Sync failed");
-            }
-          }
-        }
-      }
-
-      // 2. Record the counter payment for bills that now exist server-side.
-      for (const o of await listQueue(["unpaid"])) {
-        if (!o.orderId) continue;
-        try {
-          await endpoints.pay(o.orderId, [{ mode: o.paymentMode, amount: o.grandTotal }], undefined, o.outletId);
-          await markState(o.clientOrderId, "done");
-        } catch (e) {
-          if (e instanceof ApiError && e.isNetwork) throw e;
-          // 409 "Order is paid" → an earlier attempt already went through.
-          if (e instanceof ApiError && e.status === 409) await markState(o.clientOrderId, "done");
-          else {
-            const giveUp = o.attempts + 1 >= MAX_ATTEMPTS;
-            await markState(o.clientOrderId, giveUp ? "failed" : "unpaid", `Payment: ${errorMessage(e)}`);
-          }
-        }
-      }
-      await pruneQueue();
+      await runSyncPass();
+      failures.current = 0;
     } catch (e) {
+      failures.current += 1;
       setLastError(errorMessage(e, "Sync failed"));
     } finally {
       busy.current = false;
       setSyncing(false);
+      setNextDelay(nextSyncDelay(failures.current));
       await refreshCounts();
     }
   }, [refreshCounts]);
+
+  const retryFailed = useCallback(async () => {
+    await requeueFailed();
+    await refreshCounts();
+    await syncNow();
+  }, [refreshCounts, syncNow]);
 
   useEffect(() => {
     void refreshCounts();
@@ -117,15 +79,21 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     });
   }, [refreshCounts]);
 
-  // Flush when we come online / sign in, and periodically while bills are waiting.
+  // Flush when we come online / sign in…
   useEffect(() => {
     if (status !== "signedIn" || !online) return;
+    failures.current = 0;
     void syncNow();
+  }, [online, status, syncNow]);
+
+  // …and periodically while bills are waiting, backing off while the server keeps failing.
+  useEffect(() => {
+    if (status !== "signedIn" || !online) return;
     const t = setInterval(() => {
       if (pendingCountRef.current > 0) void syncNow();
-    }, SYNC_INTERVAL_MS);
+    }, nextDelay);
     return () => clearInterval(t);
-  }, [online, status, syncNow]);
+  }, [online, status, syncNow, nextDelay]);
 
   const enqueue = useCallback(
     async (o: Parameters<typeof enqueueOrder>[0]) => {
@@ -136,8 +104,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ online, pendingCount, syncing, lastError, failed, enqueue, syncNow }),
-    [online, pendingCount, syncing, lastError, failed, enqueue, syncNow],
+    () => ({ online, pendingCount, syncing, lastError, failed, enqueue, syncNow, retryFailed }),
+    [online, pendingCount, syncing, lastError, failed, enqueue, syncNow, retryFailed],
   );
   return <OfflineContext.Provider value={value}>{children}</OfflineContext.Provider>;
 }

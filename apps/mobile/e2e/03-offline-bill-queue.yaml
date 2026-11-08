@@ -1,0 +1,32 @@
+appId: in.canavo.app
+name: Offline bill - saved on the phone, survives a kill, syncs once online (Android emulator)
+---
+- launchApp
+# (signed in already - run 01/02 first)
+# 1. go offline
+- setAirplaneMode: enabled
+- assertVisible:
+    text: "Offline.*"
+- tapOn: "Bill"
+- tapOn: "Masala Dosa"
+- tapOn:
+    text: "View cart.*"
+- tapOn:
+    text: "Charge.*"
+- assertVisible: "Save bill offline"
+- tapOn: "Cash received"
+- assertVisible: "New bill"
+# 2. kill and relaunch while still offline: the bill must still be pending
+- stopApp
+- launchApp
+- assertVisible:
+    text: ".*1 pending.*"
+# 3. back online: it syncs exactly once (check the bill list on the web for one bill)
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    notVisible:
+      text: ".*pending.*"
+    timeout: 60000
+- tapOn: "More"
+- scrollUntilVisible:
+    element: "Everything is synced."

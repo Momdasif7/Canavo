@@ -1,0 +1,21 @@
+appId: in.canavo.app
+name: Login with email + password, then OTP screen sanity
+---
+- launchApp:
+    clearState: true
+- tapOn: "Use email & password instead"
+- tapOn: "Email"
+- inputText: "cashier@canavo.local"
+- tapOn: "Password"
+- inputText: "Canavo@123"
+- tapOn: "Sign in"
+- assertVisible: "Bill"
+- tapOn: "More"
+- scrollUntilVisible:
+    element: "Sign out"
+- tapOn: "Sign out"
+- tapOn: "Sign out"            # confirm dialog
+- assertVisible: "Send OTP"
+- tapOn: "Mobile number"
+- inputText: "12345"
+- assertVisible: "Send OTP"     # stays disabled under 10 digits

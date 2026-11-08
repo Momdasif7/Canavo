@@ -184,6 +184,13 @@ export async function markState(clientOrderId: string, state: PendingState, erro
   );
 }
 
+/** "Retry" on bills set aside as failed: back to the step they failed at, with a fresh attempt count. */
+export async function requeueFailed(): Promise<void> {
+  await (await db()).runAsync(
+    "UPDATE pending_orders SET state = CASE WHEN order_id IS NULL THEN 'pending' ELSE 'unpaid' END, attempts = 0, last_error = NULL WHERE state = 'failed'",
+  );
+}
+
 /** Drop fully-synced rows older than a day. */
 export async function pruneQueue() {
   const cutoff = new Date(Date.now() - 86_400_000).toISOString();
