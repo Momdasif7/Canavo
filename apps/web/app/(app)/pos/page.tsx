@@ -427,6 +427,10 @@ export default function PosPage() {
     setCheckout(null);
     setLookup(null);
     pendingInput.current = null;
+    // A new bill is a new order: never reuse the last bill's clientOrderId. Otherwise an identical
+    // next cart (same items) got the same id, and the server's idempotency returned the earlier bill —
+    // offline, the second queued bill was silently dropped at sync (QA ui-6).
+    attempt.current = { key: "", id: null };
     if (userId && outletId) clearSavedCart(userId, outletId);
     searchRef.current?.focus();
   }, [userId, outletId]);

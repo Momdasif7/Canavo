@@ -28,18 +28,31 @@ const sizes: Record<Size, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "primary", size = "md", loading, icon, block, className, children, disabled, type = "button", ...rest },
+  { variant = "primary", size = "md", loading, icon, block, className, children, disabled, type = "button", onClick, ...rest },
   ref,
 ) {
+  // While loading the button stays focusable (natively disabling it threw keyboard focus to <body>,
+  // so closing the dialog it opened could not return focus — QA ui-8) but swallows every click /
+  // implicit form submit: double-click protection is unchanged.
+  const busy = Boolean(loading) && !disabled;
   return (
     <button
       ref={ref}
       type={type}
-      disabled={disabled || loading}
+      disabled={disabled}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
+      onClick={(e) => {
+        if (busy) {
+          e.preventDefault();
+          return;
+        }
+        onClick?.(e);
+      }}
       className={clsx(
         "inline-flex select-none items-center justify-center rounded-xl font-semibold transition-colors",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-        "disabled:cursor-not-allowed disabled:opacity-50",
+        "disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-wait aria-disabled:opacity-70",
         variants[variant],
         sizes[size],
         block && "w-full",

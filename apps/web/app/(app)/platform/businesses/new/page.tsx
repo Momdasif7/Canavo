@@ -82,7 +82,18 @@ const STEP_FIELDS: Record<Step, string[]> = {
   4: [],
 };
 
-const FIELD_LABELS: Record<string, string> = { owner: "Owner", outlet: "Outlet", modules: "Modules" };
+const FIELD_LABELS: Record<string, string> = {
+  owner: "Owner",
+  outlet: "Outlet",
+  modules: "Modules",
+  name: "name",
+  legalName: "legal name",
+  phone: "phone",
+  email: "email",
+  stateCode: "state code",
+  address: "address",
+  gstEnabled: "GST",
+};
 
 function stepError(w: WizardState, step: Step): string | null {
   if (step === 2 && !w.ownerEmail.trim()) return "The owner signs in with an email address";
@@ -92,7 +103,9 @@ function stepError(w: WizardState, step: Step): string | null {
   const issue = parsed.error.issues.find((i) => !fields || fields.includes(String(i.path[0])));
   if (!issue) return null;
   const path = issue.path.map(String);
-  const label = [FIELD_LABELS[path[0]] ?? path[0], ...path.slice(1)].join(" ");
+  // Human words, never schema keys (QA ui-1: "Outlet stateCode: …").
+  const words = path.filter((p) => !/^\d+$/.test(p)).map((p) => FIELD_LABELS[p] ?? p.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase());
+  const label = words.join(" ").replace(/^./, (c) => c.toUpperCase());
   return `${label}: ${issue.message}`;
 }
 

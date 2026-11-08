@@ -481,7 +481,7 @@ function ItemCard({
   );
   return (
     <li className="flex gap-4 py-5" data-testid="menu-item">
-      <div className={clsx("min-w-0 flex-1", !i.available && "opacity-60")}>
+      <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <FoodMark type={i.foodType} size={15} />
           {bestseller && (

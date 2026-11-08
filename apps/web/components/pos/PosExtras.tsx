@@ -409,7 +409,7 @@ export function PreOrderField({ value, onChange }: { value: string; onChange: (v
 export function OffersBanner({ offers }: { offers: ActiveOffer[] }) {
   if (!offers.length) return null;
   return (
-    <div className="scrollbar-thin flex items-center gap-2 overflow-x-auto border-b border-line bg-primary-50/60 px-3 py-2 dark:bg-primary/10" aria-label="Active offers">
+    <div className="scrollbar-thin flex items-center gap-2 overflow-x-auto border-b border-line bg-primary-50/60 px-3 py-2 dark:bg-primary/10" role="region" aria-label="Active offers" tabIndex={0}>
       <Sparkle size={18} weight="fill" className="shrink-0 text-primary" />
       {offers.map((o) => (
         <span key={o.id} title={o.name} className="shrink-0">

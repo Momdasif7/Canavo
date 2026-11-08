@@ -72,7 +72,8 @@ export function NotificationBell() {
   };
 
   const hasRead = feed.items.some((n) => n.read);
-  const label = `Notifications${unread ? ` (${unread} unread)` : ""}`;
+  // "Notifications 4 unread": the badge number appears as a word of the name (axe label-content-name-mismatch).
+  const label = `Notifications${unread ? ` ${unread > 99 ? "99+" : unread} unread` : ""}`;
 
   return (
     <div className="relative" ref={ref}>

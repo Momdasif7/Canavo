@@ -296,7 +296,7 @@ export function TabPanel({
             <section aria-label="Items">
               {rounds.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">
-                  Nothing ordered yet.{s.status === "OPEN" && " Use Add items above to start the order."}
+                  Nothing ordered yet.{s.status === "OPEN" && " Use Add items below to start the order."}
                 </div>
               ) : (
                 <div className="space-y-3">

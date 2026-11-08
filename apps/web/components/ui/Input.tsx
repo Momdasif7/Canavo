@@ -28,7 +28,15 @@ export function Field({
         </label>
       )}
       {children}
-      {error ? <p className="text-sm font-medium text-red-600">{error}</p> : hint ? <p className="text-xs text-muted">{hint}</p> : null}
+      {error ? (
+        <p id={htmlFor ? `${htmlFor}-msg` : undefined} className="text-sm font-medium text-red-600">
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={htmlFor ? `${htmlFor}-msg` : undefined} className="text-xs text-muted">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -54,6 +62,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ref={ref}
         id={inputId}
         aria-invalid={!!error}
+        aria-describedby={error || hint ? `${inputId}-msg` : undefined}
         className={clsx(fieldBase, "min-h-tap", prefix && "pl-9", error && "border-red-500", className)}
         {...rest}
       />
@@ -81,7 +90,14 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const autoId = useId();
   const selectId = id ?? autoId;
   const select = (
-    <select ref={ref} id={selectId} className={clsx(fieldBase, "min-h-tap pr-8", className)} {...rest}>
+    <select
+      ref={ref}
+      id={selectId}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error || hint ? `${selectId}-msg` : undefined}
+      className={clsx(fieldBase, "min-h-tap pr-8", className)}
+      {...rest}
+    >
       {children}
     </select>
   );
@@ -101,7 +117,7 @@ export const Textarea = forwardRef<
   const tid = id ?? autoId;
   return (
     <Field label={label} error={error} htmlFor={tid}>
-      <textarea ref={ref} id={tid} className={clsx(fieldBase, "min-h-[80px] py-2.5", className)} {...rest} />
+      <textarea ref={ref} id={tid} aria-invalid={error ? true : undefined} aria-describedby={error ? `${tid}-msg` : undefined} className={clsx(fieldBase, "min-h-[80px] py-2.5", className)} {...rest} />
     </Field>
   );
 });

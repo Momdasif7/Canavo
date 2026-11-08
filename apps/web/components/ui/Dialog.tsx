@@ -6,6 +6,8 @@ import clsx from "clsx";
 import { X } from "@phosphor-icons/react";
 import { IconButton } from "./Button";
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /** Open overlays, top-most last, so Esc only closes the top one. */
 const stack: symbol[] = [];
 
@@ -31,9 +33,26 @@ function useOverlay(open: boolean, onClose: () => void, panelRef: React.RefObjec
     }, 30);
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && stack[stack.length - 1] === id) {
+      if (stack[stack.length - 1] !== id) return;
+      if (e.key === "Escape") {
         e.stopPropagation();
         closeRef.current();
+        return;
+      }
+      // Keep Tab / Shift+Tab inside the top-most dialog (aria-modal promises it; QA ui-8).
+      const panel = panelRef.current;
+      if (e.key !== "Tab" || !panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (!items.length) return void e.preventDefault();
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const inside = panel.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -63,11 +82,13 @@ export interface DialogProps {
   size?: "sm" | "md" | "lg" | "xl";
   /** Prevent closing via backdrop click (e.g. while a payment is in flight) */
   dismissible?: boolean;
+  /** Control shown before the title (e.g. a Back button); kept out of the heading so it isn't part of the dialog's name */
+  leading?: React.ReactNode;
 }
 
 const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-4xl" };
 
-export function Dialog({ open, onClose, title, description, children, footer, size = "md", dismissible = true }: DialogProps) {
+export function Dialog({ open, onClose, title, description, children, footer, size = "md", dismissible = true, leading }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useOverlay(open, () => dismissible && onClose(), panelRef);
@@ -89,13 +110,16 @@ export function Dialog({ open, onClose, title, description, children, footer, si
         >
           {(title || dismissible) && (
             <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3">
-              <div className="py-1.5">
-                {title && (
-                  <h2 id={titleId} className="text-lg font-bold text-fg">
-                    {title}
-                  </h2>
-                )}
-                {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+              <div className="flex min-w-0 items-start gap-2">
+                {leading && <div className="pt-1.5">{leading}</div>}
+                <div className="py-1.5">
+                  {title && (
+                    <h2 id={titleId} className="text-lg font-bold text-fg">
+                      {title}
+                    </h2>
+                  )}
+                  {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+                </div>
               </div>
               {dismissible && (
                 <IconButton label="Close" onClick={onClose} className="-mr-2">

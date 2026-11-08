@@ -303,7 +303,7 @@ function BrandMark({ brand, size }: { brand: Brand; size: number }) {
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[10px] bg-primary/15 text-sm font-extrabold text-primary"
+      className="flex shrink-0 items-center justify-center rounded-[10px] bg-primary-50 text-sm font-extrabold text-primary-700 dark:bg-primary/15 dark:text-primary-200"
       style={{ width: size, height: size }}
     >
       {initials}
@@ -396,7 +396,7 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
       // eslint-disable-next-line @next/next/no-img-element
       <img src={mediaUrl(photoUrl)} alt="" className={clsx(size, "rounded-full object-cover")} />
     ) : (
-      <span className={clsx(size, "flex items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary")}>{initials}</span>
+      <span className={clsx(size, "flex items-center justify-center rounded-full bg-primary-50 text-sm font-bold text-primary-700 dark:bg-primary/15 dark:text-primary-200")} aria-hidden>{initials}</span>
     );
   return (
     <div className="relative" data-user-menu>
@@ -405,9 +405,11 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Account"
         className="flex min-h-tap items-center gap-2 rounded-xl px-1.5 hover:bg-surface-2 md:pr-2"
       >
+        {/* Name from the visible text (axe label-content-name-mismatch); below lg the text is hidden, so say it for screen readers */}
+        <span className="sr-only lg:hidden">{`${name}, ${role}`}</span>
+        <span className="sr-only">account menu</span>
         {avatar("h-9 w-9")}
         <span className="hidden min-w-0 text-left leading-tight lg:block">
           <span className="block max-w-[140px] truncate text-sm font-bold">{name}</span>

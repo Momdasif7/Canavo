@@ -31,7 +31,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       auth: (cb) => cb({ token: getSession()?.accessToken ?? "", outletId }),
       transports: ["websocket", "polling"],
       reconnectionDelayMax: 10_000,
+      // Connect on the next tick: a mount that is torn down at once (React strict mode, a session /
+      // outlet change during start-up) then never opens a socket it immediately kills — those
+      // half-open sockets showed up as console errors in WebKit and Firefox (QA ui-4).
+      autoConnect: false,
     });
+    const startTimer = window.setTimeout(() => s.connect(), 0);
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
     s.on("connect", onConnect);
@@ -48,6 +53,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     });
     setSocket(s);
     return () => {
+      window.clearTimeout(startTimer);
       s.disconnect();
       setSocket(null);
       setConnected(false);

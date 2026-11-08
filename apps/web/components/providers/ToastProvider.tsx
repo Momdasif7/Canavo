@@ -36,6 +36,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
+            role={t.tone === "error" ? "alert" : "status"}
             className={clsx(
               "pointer-events-auto flex animate-pop-in items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg",
               t.tone === "success" && "bg-secondary",

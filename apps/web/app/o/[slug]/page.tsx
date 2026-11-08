@@ -350,16 +350,14 @@ export default function OnlineOrderPage() {
       <Dialog
         open={step !== null}
         onClose={() => setStep(null)}
-        title={
-          <span className="flex items-center gap-2">
-            {stepIndex > 0 && (
-              <button type="button" aria-label="Back" onClick={() => setStep(STEPS[stepIndex - 1].id)} className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full hover:bg-surface-2">
-                <ArrowLeft size={20} />
-              </button>
-            )}
-            {step === "cart" ? "Your cart" : step === "details" ? (delivery ? "Delivery details" : "Pickup details") : "Payment"}
-          </span>
+        leading={
+          stepIndex > 0 ? (
+            <button type="button" aria-label="Back" onClick={() => setStep(STEPS[stepIndex - 1].id)} className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full hover:bg-surface-2">
+              <ArrowLeft size={20} />
+            </button>
+          ) : undefined
         }
+        title={step === "cart" ? "Your cart" : step === "details" ? (delivery ? "Delivery details" : "Pickup details") : "Payment"}
         description={<StepDots index={stepIndex} />}
         footer={footer || undefined}
       >

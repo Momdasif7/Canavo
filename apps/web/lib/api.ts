@@ -336,12 +336,24 @@ async function send(path: string, opts: RequestOptions, token: string | undefine
   }
 }
 
+/** Words a cashier can act on when the server (or a proxy in front of it) sends no JSON error (QA ui-5). */
+function fallbackMessage(status: number): string {
+  if (status === 429) return "Too many requests — please wait a moment and try again";
+  if (status === 502 || status === 503 || status === 504) return "The server is not reachable right now — please try again in a moment";
+  if (status >= 500) return "Something went wrong on the server — please try again";
+  if (status === 404) return "Not found — it may have been deleted";
+  if (status === 403) return "You don't have permission to do that";
+  return `Request failed (${status})`;
+}
+
 async function toApiError(res: Response): Promise<ApiError> {
-  let message = `Request failed (${res.status})`;
+  let message = fallbackMessage(res.status);
   let details: unknown;
   try {
-    const data = (await res.json()) as { error?: string; details?: unknown };
+    const data = (await res.json()) as { error?: string; details?: unknown; requestId?: string };
     if (data.error) message = data.error;
+    // The API's generic 500 text means nothing to staff: say what to do, keep a reference for support.
+    if (res.status >= 500 && data.error === "Internal server error") message = `${fallbackMessage(res.status)}${data.requestId ? ` (ref ${String(data.requestId).slice(0, 8)})` : ""}`;
     details = data.details;
   } catch {
     /* non-JSON error body */

@@ -16,5 +16,6 @@ apps/api/storage/
 playwright-report/
 test-results/
 .next-verify/
+.next-*/
 apps/mobile/.env
 *.tsbuildinfo

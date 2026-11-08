@@ -289,13 +289,13 @@ function KotCard({
     <article
       className={clsx(
         "overflow-hidden rounded-xl border-2 bg-surface shadow-sm",
-        level === "late" ? "border-red-500" : level === "warn" ? "border-amber-400" : "border-transparent",
+        level === "late" ? "border-red-600" : level === "warn" ? "border-amber-400" : "border-transparent",
       )}
     >
       <div
         className={clsx(
           "flex items-center gap-2 px-3 py-2",
-          level === "late" ? "bg-red-500 text-white" : level === "warn" ? "bg-amber-400 text-black" : "bg-surface-2",
+          level === "late" ? "bg-red-600 text-white" : level === "warn" ? "bg-amber-400 text-black" : "bg-surface-2",
         )}
       >
         <span className="text-lg font-extrabold">#{kot.kotNumber}</span>
@@ -309,8 +309,9 @@ function KotCard({
         disabled={!canUpdate}
         onClick={() => onAdvance(kot)}
         className="block w-full px-3 py-2 text-left disabled:cursor-default"
-        aria-label={canUpdate ? `Mark KOT ${kot.kotNumber} as ${NEXT_LABEL[kot.status]}` : undefined}
       >
+        {/* The action is read first, then the ticket text that is visible (axe label-content-name-mismatch). */}
+        {canUpdate && <span className="sr-only">{`Mark KOT ${kot.kotNumber} as ${NEXT_LABEL[kot.status]}: `}</span>}
         {seat && (
           <p className="mb-1.5 flex flex-wrap items-center gap-2 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-white dark:bg-black" data-testid="kot-seat">
             <FilmSlate size={22} weight="fill" className="shrink-0 opacity-80" aria-hidden />

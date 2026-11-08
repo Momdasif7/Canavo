@@ -114,7 +114,6 @@ export function AdjustStockDialog({ item, onClose, onSaved }: { item: StockItem 
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label={mode === "set" ? `New quantity (${unit})` : `Quantity to ${mode} (${unit})`}
-            aria-label="Adjustment quantity"
             inputMode="decimal"
             value={qty}
             onChange={(e) => setQty(qtyChars(e.target.value))}
@@ -124,7 +123,6 @@ export function AdjustStockDialog({ item, onClose, onSaved }: { item: StockItem 
           {adding && (
             <Input
               label={`Unit cost per ${unit} (optional)`}
-              aria-label="Unit cost"
               inputMode="decimal"
               prefix="₹"
               value={cost}
