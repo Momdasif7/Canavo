@@ -7,7 +7,10 @@ import { BellRinging, CheckCircle, ForkKnife, Receipt, ShoppingCartSimple } from
 import { formatINR } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
-import { publicCall, STAGE_LABEL, type TableOrder, type TablePage } from "@/lib/storefront";
+import { publicCall, STAGE_LABEL, type TableOrder } from "@/lib/storefront";
+import type { SeatTablePage } from "@/lib/theatre";
+import { SeatOrderView } from "@/components/theatre/SeatOrder";
+import { useCinemaMode } from "@/components/theatre/cinema";
 import { useToast } from "@/components/providers/ToastProvider";
 import { BrandStyle, CartBar, CartLines, EmptyCart, MenuSkeleton, StoreHero, StoreMenu, useCart, type Cart } from "@/components/storefront/StoreMenu";
 import { Button } from "@/components/ui/Button";
@@ -26,7 +29,7 @@ const STAGE_TONE: Record<string, string> = {
 export default function TableOrderPage() {
   const { token } = useParams<{ token: string }>();
   const toast = useToast();
-  const [page, setPage] = useState<TablePage | null>(null);
+  const [page, setPage] = useState<SeatTablePage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<TableOrder[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -36,14 +39,19 @@ export default function TableOrderPage() {
   const [placing, setPlacing] = useState(false);
   const [calling, setCalling] = useState<"WAITER" | "BILL" | null>(null);
   const cart = useCart(`canavo.qrcart.${token}`);
+  // Cinema seat (THEATRE): its own dark, quiet ordering flow.
+  const seat = Boolean(page?.theatre);
+  useCinemaMode(seat);
   const { prune } = cart;
 
   const load = useCallback(async () => {
     try {
-      const p = await publicCall<TablePage>("GET", `/public/t/${token}`);
+      const p = await publicCall<SeatTablePage>("GET", `/public/t/${token}`);
       setPage(p);
       setError(null);
-      document.title = `${p.outlet.name} · Table ${p.table.label}`;
+      document.title = p.theatre ? `${p.outlet.name} · ${p.theatre.seat.screenName} · ${p.theatre.seat.row}${p.theatre.seat.seatNumber}` : `${p.outlet.name} · Table ${p.table.label}`;
+      // Opened with the cinema flag but it's a normal table: back to the usual look.
+      if (!p.theatre) document.documentElement.classList.remove("cinema");
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -58,8 +66,10 @@ export default function TableOrderPage() {
 
   useEffect(() => {
     void load();
-    void loadOrders();
-  }, [load, loadOrders]);
+  }, [load]);
+  useEffect(() => {
+    if (page && !seat) void loadOrders();
+  }, [page, seat, loadOrders]);
   useEffect(() => {
     if (page) prune(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,13 +77,15 @@ export default function TableOrderPage() {
   // Order status: poll while something is still on its way (slower otherwise); menu every few minutes.
   const active = orders.some((o) => !["served", "cancelled"].includes(o.stage));
   useEffect(() => {
+    if (!page || seat) return;
     const id = window.setInterval(() => document.visibilityState === "visible" && void loadOrders(), active ? 8_000 : 30_000);
     return () => window.clearInterval(id);
-  }, [loadOrders, active]);
+  }, [loadOrders, active, page, seat]);
   useEffect(() => {
+    if (seat) return;
     const id = window.setInterval(() => document.visibilityState === "visible" && void load(), 180_000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [load, seat]);
 
   const place = async () => {
     setPlacing(true);
@@ -116,6 +128,7 @@ export default function TableOrderPage() {
       </main>
     );
   if (!page) return <MenuSkeleton />;
+  if (page.theatre) return <SeatOrderView token={token} page={page} onReload={load} />;
 
   const phoneBad = phone.trim() !== "" && !/^[6-9]\d{9}$/.test(phone.trim());
   const checkout = (c: Cart) => (

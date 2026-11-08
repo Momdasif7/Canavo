@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowRight, Printer, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
+import { ArrowRight, FilmSlate, Printer, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import { ORDER_TYPE_LABELS, formatTime } from "@/lib/format";
 import { getKotPaperWidth } from "@/lib/prefs";
 import { printReceiptText } from "@/lib/print";
+import { parseSeatHeader } from "@/lib/theatre";
 import type { Kot, KotStatus } from "@/lib/types";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useNow } from "@/hooks/useNow";
@@ -279,6 +280,10 @@ function KotCard({
   const mins = Math.floor(elapsedSec / 60);
   const level = mins >= 20 ? "late" : mins >= 10 ? "warn" : "ok";
   const timer = `${mins}:${String(elapsedSec % 60).padStart(2, "0")}`;
+  // Cinema seat order: the KOT header carries screen, seat and timing ("SCREEN S2 · F12 · INTERVAL").
+  const seat = parseSeatHeader(kot.header, kot.order?.notes);
+  // The seat order's note repeats the header (shown big above) and "UPI prepaid": show only the guest's own note.
+  const orderNote = seat ? (kot.order?.notes ?? "").replace(/^SCREEN [^·]+·[^·]+·\s*[A-Z]+(?:\s*#\d+)?\s*(·\s*)?/, "").replace(/^UPI prepaid\s*(·\s*)?/, "").trim() : kot.order?.notes;
 
   return (
     <article
@@ -306,6 +311,21 @@ function KotCard({
         className="block w-full px-3 py-2 text-left disabled:cursor-default"
         aria-label={canUpdate ? `Mark KOT ${kot.kotNumber} as ${NEXT_LABEL[kot.status]}` : undefined}
       >
+        {seat && (
+          <p className="mb-1.5 flex flex-wrap items-center gap-2 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-white dark:bg-black" data-testid="kot-seat">
+            <FilmSlate size={22} weight="fill" className="shrink-0 opacity-80" aria-hidden />
+            <span className="text-2xl font-black tracking-tight">
+              {seat.screen} · {seat.seat}
+            </span>
+            {seat.timing === "INTERVAL" ? (
+              <span className="rounded-md bg-amber-400 px-2 py-0.5 text-sm font-extrabold uppercase tracking-wide text-black">Interval</span>
+            ) : seat.timing === "COUNTER" ? (
+              <span className="rounded-md bg-sky-400 px-2 py-0.5 text-sm font-extrabold uppercase tracking-wide text-black">Counter{seat.token != null ? ` #${seat.token}` : ""}</span>
+            ) : (
+              <span className="rounded-md bg-white/15 px-2 py-0.5 text-sm font-extrabold uppercase tracking-wide">To seat now</span>
+            )}
+          </p>
+        )}
         {kot.order?.scheduledFor && (
           <p className="mb-1.5 inline-flex items-center gap-1 rounded-lg bg-violet-100 px-2 py-0.5 text-sm font-extrabold uppercase tracking-wide text-violet-800 dark:bg-violet-500/20 dark:text-violet-200">
             Pre-order for {formatTime(kot.order.scheduledFor)}
@@ -344,7 +364,7 @@ function KotCard({
             </li>
           ))}
         </ul>
-        {kot.order?.notes && <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-sm dark:bg-amber-500/10">Note: {kot.order.notes}</p>}
+        {orderNote && <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-sm dark:bg-amber-500/10">Note: {orderNote}</p>}
       </button>
       <div className="flex items-center gap-2 border-t border-line px-2 py-1.5">
         <IconButton label="Print KOT" onClick={() => onPrint(kot)}>

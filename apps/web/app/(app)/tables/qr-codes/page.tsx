@@ -41,7 +41,7 @@ export default function TableQrCodesPage() {
         <Alert tone="info">
           Guests can only order when QR ordering is on in{" "}
           <Link href="/settings/online-ordering" className="font-semibold underline">
-            Settings → Online ordering
+            Settings → QR &amp; online ordering → Order at table
           </Link>
           ; otherwise the code shows the menu. If a code is misused, make a new one — the old printout stops working.
         </Alert>

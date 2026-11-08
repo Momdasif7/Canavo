@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Input, Toggle } from "@/components/ui/Input";
 import { Alert, ErrorState, LoadingState } from "@/components/ui/States";
+import { TheatreSettingsCard } from "@/components/theatre/TheatreSettingsCard";
 
 const slugify = (s: string) =>
   s
@@ -25,7 +26,8 @@ const slugify = (s: string) =>
 
 /** Settings → Online ordering (channel:manage): QR ordering, the online page, and its share kit. */
 export function OnlineOrderingSettings() {
-  const { outletId } = useSession();
+  const { outletId, me } = useSession();
+  const theatre = Boolean(me?.modules?.includes("THEATRE"));
   const toast = useToast();
   const q = useApiQuery<StorefrontSettingsView>(outletId ? `storefront:${outletId}` : null, () => api.get<StorefrontSettingsView>("/storefront/settings"));
   const [s, setS] = useState<StorefrontSettings | null>(null);
@@ -81,8 +83,8 @@ export function OnlineOrderingSettings() {
       {view.tablesAvailable && (
         <Card>
           <CardHeader
-            title="QR table ordering"
-            subtitle="Guests scan the code on their table, see the menu and order. Items go on the table's running bill."
+            title="Order at table (dine-in QR)"
+            subtitle="For guests sitting in your restaurant: they scan the QR on their table and order; it goes on that table's bill and they pay when they leave."
             action={
               <Link href="/tables/qr-codes" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-line px-3 text-sm font-semibold hover:bg-surface-2">
                 <QrCode size={18} /> Print table QR codes
@@ -101,8 +103,13 @@ export function OnlineOrderingSettings() {
         </Card>
       )}
 
+      {theatre && <TheatreSettingsCard />}
+
       <Card>
-        <CardHeader title="Online ordering page" subtitle="Your own page for takeaway and delivery orders — no commission. Customers order with their name and mobile number." />
+        <CardHeader
+          title="Online ordering (delivery & pickup link)"
+          subtitle="For customers who are not at a table: one web link (share it or print its QR) to order for delivery or pickup — no commission. They order with their name and mobile number."
+        />
         <div className="space-y-4 px-5 py-4">
           <Input
             label="Web address"

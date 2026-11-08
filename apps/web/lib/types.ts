@@ -276,6 +276,8 @@ export interface Kot {
   sessionId?: string | null;
   /** Pre-orders: hidden from the kitchen until this time */
   releaseAt?: string | null;
+  /** THEATRE seat orders: big header line, e.g. "SCREEN S2 · F12 · INTERVAL" (or "… · COUNTER #7") */
+  header?: string | null;
   outletId: string;
   kotNumber: number;
   station: string;
