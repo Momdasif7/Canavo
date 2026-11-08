@@ -44,6 +44,10 @@ export function renderReceiptPdf(r: ReceiptData): Promise<Buffer> {
     );
     doc.text(`Cashier: ${r.cashierName}`, { align: "right" });
     if (r.customerName) doc.text(`Customer: ${r.customerName}`, left);
+    if (r.buyer && !plainBill) {
+      doc.text(`Bill to: ${[r.buyer.name, r.buyer.address].filter(Boolean).join(", ")}`, left);
+      doc.text(`Buyer GSTIN: ${r.buyer.gstin}`, left);
+    }
     if (r.placeOfSupply && !plainBill) doc.text(`Place of supply: ${r.placeOfSupply}`, left);
     doc.moveDown(0.5);
 

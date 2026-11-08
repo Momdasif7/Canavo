@@ -31,7 +31,7 @@ export interface OutletRef {
   businessName?: string;
 }
 
-export type BusinessStatus = "ACTIVE" | "SUSPENDED";
+export type BusinessStatus = "ACTIVE" | "SUSPENDED" | "ARCHIVED";
 
 export interface BusinessRef {
   id: string;

@@ -702,6 +702,10 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
           customerName: body.customerName ?? session.customerName ?? undefined,
           customerPhone: body.customerPhone ?? session.customerPhone ?? undefined,
           interState: body.interState,
+          buyerGstin: body.buyerGstin,
+          buyerName: body.buyerName,
+          buyerAddress: body.buyerAddress,
+          placeOfSupply: body.placeOfSupply,
           items: groupItems.map((i) => ({
             menuItemId: i.menuItemId,
             variantId: i.variantId ?? undefined,

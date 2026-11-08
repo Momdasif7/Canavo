@@ -91,6 +91,8 @@ export const ops: Op[] = [
   ["post", "/platform/businesses", "Onboard a business with its modules. Body: businessCreateSchema", "Platform"],
   ["get", "/platform/businesses/{id}", "One business", "Platform"],
   ["patch", "/platform/businesses/{id}", "Update a business (name, modules, status). Body: businessUpdateSchema", "Platform"],
+  ["post", "/platform/businesses/{id}/archive", "Archive a business that left the platform: nobody can sign in, data kept until deleteAfter (statutory retention). Body: businessArchiveSchema", "Platform"],
+  ["post", "/platform/businesses/{id}/restore", "Undo an archive: the business is ACTIVE again.", "Platform"],
   ["post", "/platform/businesses/{id}/users", "Add an owner account to a business (owners then create their managers and staff). Body: platformUserCreateSchema", "Platform"],
   ["post", "/platform/businesses/{id}/owners/{userId}/reset-link", "Owner locked out: send them a reset link (Phase 2.2).", "Platform"],
   ["post", "/platform/businesses/{id}/owners/{userId}/reset-2fa", "Owner lost their phone and recovery codes: turn off two-step login and sign them out.", "Platform"],

@@ -16,7 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessTable } from "@/components/platform/BusinessTable";
 
-type StatusFilter = "ALL" | "ACTIVE" | "SUSPENDED";
+type StatusFilter = "ALL" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
 
 export default function BusinessesPage() {
   const { me } = useSession();
@@ -56,6 +56,7 @@ export default function BusinessesPage() {
               { value: "ALL", label: "All" },
               { value: "ACTIVE", label: "Active" },
               { value: "SUSPENDED", label: "Suspended" },
+              { value: "ARCHIVED", label: "Archived" },
             ]}
           />
         </div>

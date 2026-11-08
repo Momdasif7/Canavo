@@ -36,7 +36,7 @@ import {
 import type { Request } from "express";
 import { clearSessionCookies, cookieRefreshToken, readCookie, REFRESH_COOKIE, sendSession, setProbeCookie } from "../lib/session-cookies";
 import { sendOtpSms } from "../services/sms";
-import { authenticate, TWO_FACTOR_REQUIRED_ROLES } from "../middleware/auth";
+import { authenticate, businessClosedMessage, TWO_FACTOR_REQUIRED_ROLES } from "../middleware/auth";
 
 export const authRouter = Router();
 
@@ -418,5 +418,5 @@ async function customRoleSummary(id: string) {
 async function assertBusinessActive(businessId: string | null) {
   if (!businessId) return;
   const b = await platformPrisma.business.findUnique({ where: { id: businessId }, select: { status: true } });
-  if (b?.status !== "ACTIVE") throw new HttpError(403, "This business account is suspended. Contact your CANAVO administrator.");
+  if (b?.status !== "ACTIVE") throw new HttpError(403, businessClosedMessage(b?.status));
 }

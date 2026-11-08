@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Outlet } from "@prisma/client";
 import {
   computeBill,
   withTaxMode,
@@ -141,6 +141,7 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
   }
 
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId } });
+  input = { ...input, interState: resolveSupply(input, outlet) };
   const ids = [...new Set(input.items.map((i) => i.menuItemId))];
   const menuItems = await prisma.menuItem.findMany({
     where: { id: { in: ids } },
@@ -280,6 +281,10 @@ export async function createOrder(req: Request, input: OrderCreateInput, opts: C
         customerName: input.customerName,
         customerPhone: input.customerPhone,
         interState: input.interState,
+        buyerGstin: input.buyerGstin ?? null,
+        buyerName: input.buyerGstin ? input.buyerName : null,
+        buyerAddress: input.buyerGstin ? input.buyerAddress : null,
+        placeOfSupply: input.placeOfSupply ?? null,
         notes: input.notes,
         subtotal: bill.subtotal,
         discount: bill.discount,
@@ -433,6 +438,27 @@ export async function settleIfPaid(orderId: string, tx: Prisma.TransactionClient
   return order.status === "PAID";
 }
 
+/**
+ * QA 16b (gap 2): validate the B2B buyer and place of supply, and return whether the bill is inter-state.
+ * A place of supply decides it (another state → IGST); without one the cashier's interState flag is kept.
+ */
+export function resolveSupply(
+  input: Pick<OrderCreateInput, "interState" | "buyerGstin" | "buyerName" | "placeOfSupply">,
+  outlet: Pick<Outlet, "stateCode" | "gstin" | "gstEnabled" | "compositionScheme">,
+): boolean {
+  if (input.buyerGstin) {
+    if (!outlet.gstEnabled || outlet.compositionScheme) {
+      throw badRequest("Only a GST tax invoice can carry the buyer's GSTIN (this outlet issues bills without GST)");
+    }
+    if (!input.buyerName) throw badRequest("Enter the buyer's legal name for a B2B invoice (Rule 46)");
+    if (outlet.gstin && input.buyerGstin === outlet.gstin.toUpperCase()) throw badRequest("The buyer's GSTIN is this outlet's own GSTIN");
+  }
+  if (!input.placeOfSupply) return input.interState;
+  const inter = input.placeOfSupply !== outlet.stateCode;
+  if (input.interState && !inter) throw badRequest("Inter-state (IGST) needs a place of supply outside the outlet's state");
+  return inter;
+}
+
 export async function buildReceipt(order: OrderWithRelations): Promise<ReceiptData> {
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: order.outletId } });
   return {
@@ -452,6 +478,7 @@ export async function buildReceipt(order: OrderWithRelations): Promise<ReceiptDa
     tableLabel: order.tableLabel,
     cashierName: order.cashier.name,
     customerName: order.customerName,
+    buyer: order.buyerGstin && order.documentType === "TAX_INVOICE" ? { name: order.buyerName, gstin: order.buyerGstin, address: order.buyerAddress } : null,
     // Lines show pre-tax value so they add up to the subtotal even when menu
     // prices are tax-inclusive (the GST is then shown separately below).
     items: order.items.map((i) => ({
@@ -479,7 +506,13 @@ export async function buildReceipt(order: OrderWithRelations): Promise<ReceiptDa
     // Restaurant service is supplied where the outlet is (IGSTA s.12(3)); an IGST bill went to another
     // state, which the POS does not record, so it is shown as such rather than as the outlet's state.
     placeOfSupply:
-      order.documentType === "BILL" ? null : order.interState ? `Outside ${placeOfSupplyLabel(outlet.stateCode)} (inter-state)` : placeOfSupplyLabel(outlet.stateCode),
+      order.documentType === "BILL"
+        ? null
+        : order.placeOfSupply
+          ? placeOfSupplyLabel(order.placeOfSupply)
+          : order.interState
+            ? `Outside ${placeOfSupplyLabel(outlet.stateCode)} (inter-state)`
+            : placeOfSupplyLabel(outlet.stateCode),
     gstEnabled: outlet.gstEnabled,
     legalName: outlet.legalName,
     payments: order.payments.filter((p) => p.status === "SUCCESS").map((p) => ({ mode: p.mode, amount: p.amount })),

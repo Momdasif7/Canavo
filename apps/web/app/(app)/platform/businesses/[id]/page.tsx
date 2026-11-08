@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FloppyDisk, Key, Pause, Play, UserPlus } from "@phosphor-icons/react";
+import { Archive, ArrowCounterClockwise, ArrowLeft, FloppyDisk, Key, Pause, Play, UserPlus } from "@phosphor-icons/react";
 import { businessUpdateSchema, type ModuleKey } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -36,6 +36,9 @@ export default function BusinessDetailPage() {
   const readOnly = !canManagePlatform(me);
   const detail = useApiQuery<BusinessDetail>(`platform-business:${id}`, () => platformApi.get<BusinessDetail>(`/platform/businesses/${id}`));
   const [statusOpen, setStatusOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<BusinessOwner | null>(null);
   const [resetting2fa, setResetting2fa] = useState<BusinessOwner | null>(null);
@@ -48,6 +51,7 @@ export default function BusinessDetailPage() {
   if (detail.error || !b) return <ErrorState message={detail.error ?? "Business not found"} onRetry={detail.reload} />;
 
   const suspended = b.status === "SUSPENDED";
+  const archived = b.status === "ARCHIVED";
 
   const toggleStatus = async () => {
     const updated = await platformApi.patch<BusinessMeta>(`/platform/businesses/${b.id}`, { status: suspended ? "ACTIVE" : "SUSPENDED" });
@@ -71,13 +75,38 @@ export default function BusinessDetailPage() {
           </span>
         }
         actions={
-          readOnly ? undefined : (
-            <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
-              {suspended ? "Reactivate" : "Suspend"}
+          readOnly ? undefined : archived ? (
+            <Button variant="secondary" icon={<ArrowCounterClockwise size={20} />} onClick={() => setRestoreOpen(true)}>
+              Restore
             </Button>
+          ) : (
+            <span className="flex flex-wrap gap-2">
+              <Button variant={suspended ? "secondary" : "danger"} icon={suspended ? <Play size={20} /> : <Pause size={20} />} onClick={() => setStatusOpen(true)}>
+                {suspended ? "Reactivate" : "Suspend"}
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<Archive size={20} />}
+                onClick={() => {
+                  setConfirmName("");
+                  setArchiveOpen(true);
+                }}
+              >
+                Archive
+              </Button>
+            </span>
           )
         }
       />
+      {archived && (
+        <div className="mb-5">
+          <Alert tone="warning">
+            Archived {b.archivedAt ? formatDate(b.archivedAt) : ""}
+            {b.archiveReason ? ` (${b.archiveReason})` : ""}. Nobody in this business can sign in. Its records are kept
+            {b.deleteAfter ? ` until at least ${formatDate(b.deleteAfter)}` : ""} for GST and income-tax retention.
+          </Alert>
+        </div>
+      )}
       {suspended && (
         <div className="mb-5">
           <Alert tone="warning">This business is suspended. Its users can&apos;t sign in and its outlets can&apos;t bill until you reactivate it.</Alert>
@@ -110,6 +139,49 @@ export default function BusinessDetailPage() {
         onConfirm={async () => {
           try {
             await toggleStatus();
+          } catch (e) {
+            throw new Error(errorMessage(e));
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        title={`Archive ${b.name}?`}
+        description={
+          <span className="block space-y-3">
+            <span className="block">
+              For a business that has left CANAVO. Everyone is signed out and can&apos;t sign in, and its storefront and scheduled jobs stop. Ask the owner
+              to export their data (Settings → Data export) first. Records are kept for the statutory retention period and can be restored.
+            </span>
+            <Input label="Type the business name to confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={b.name} />
+          </span>
+        }
+        confirmLabel="Archive & sign everyone out"
+        tone="danger"
+        reason={{ label: "Reason", placeholder: "e.g. Contract ended", minLength: 3, required: true }}
+        onConfirm={async (reason) => {
+          try {
+            const updated = await platformApi.post<Partial<BusinessMeta>>(`/platform/businesses/${b.id}/archive`, { confirmName, reason });
+            detail.setData((d) => (d ? { ...d, ...updated } : d));
+            toast(`${b.name} archived — everyone was signed out`, "success");
+          } catch (e) {
+            throw new Error(errorMessage(e));
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={restoreOpen}
+        onClose={() => setRestoreOpen(false)}
+        title={`Restore ${b.name}?`}
+        description="The business becomes active again and its users can sign in with their existing passwords."
+        confirmLabel="Restore"
+        tone="primary"
+        onConfirm={async () => {
+          try {
+            const updated = await platformApi.post<Partial<BusinessMeta>>(`/platform/businesses/${b.id}/restore`, {});
+            detail.setData((d) => (d ? { ...d, ...updated } : d));
+            toast(`${b.name} restored`, "success");
           } catch (e) {
             throw new Error(errorMessage(e));
           }

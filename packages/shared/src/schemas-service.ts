@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { approvalSchema } from "./schemas";
 import { indianPhone } from "./schemas";
+import { gstinSchema, gstStateCode } from "./india";
 
 const paise = z.number().int().nonnegative();
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
@@ -128,6 +129,11 @@ export const sessionBillSchema = z
     customerPhone: indianPhone.optional(),
     customerName: z.string().trim().max(100).optional(),
     interState: z.boolean().default(false),
+    /** QA 16b: B2B tax invoice for a registered buyer (see orderCreateSchema) */
+    buyerGstin: gstinSchema.optional(),
+    buyerName: z.string().trim().min(2).max(200).optional(),
+    buyerAddress: z.string().trim().max(300).optional(),
+    placeOfSupply: gstStateCode.optional(),
     notes: z.string().max(300).optional(),
   })
   .refine((v) => v.mode !== "BY_ITEMS" || (v.itemIds?.length ?? 0) > 0 || (v.groups?.length ?? 0) > 0, {

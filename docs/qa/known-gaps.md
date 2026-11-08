@@ -1,0 +1,174 @@
+# Known gaps from the spec (QA Phase 16b)
+
+Each gap has a test (passing, or `it.skip` with the reason), a priority with a reason, and a status:
+**Done** (fixed by an earlier phase, verified), **Implemented now** (built in 16b), or **Proposed P2 awaiting approval**.
+
+Tests: `apps/api/test/integration/known-gaps.test.ts` (12 pass, 4 skipped P2 tests), `apps/api/src/services/gstr1.test.ts` (+1 unit test).
+Migration: `20261109200000_b2b_buyer_business_archive`. It adds 4 nullable `Order` columns and 3 nullable `Business` columns, plus the `BusinessStatus.ARCHIVED` value. Every step is additive and needs no backfill.
+
+| # | Gap | Priority | Status |
+|---|-----|----------|--------|
+| 1 | Scheduler single-instance (pg-boss, many API instances) | P1 | Done (Phase 1.2) |
+| 2 | GSTR-1 B2B / B2CL / CDNR / CDNUR | P1 | Implemented now |
+| 3 | Delivery-partner GPS in the background | P2 | Proposed P2 awaiting approval |
+| 4 | One offer per bill / optional stacking | P2 | Done (rule tested), coupon stacking is Proposed P2 |
+| 5 | Coupon GST treatment and gift cards | P0 check | Done (verified, no defect) |
+| 6 | Tab split atomicity | P1 | Done (Phase 9) |
+| 7 | Clock-in face match | P2 | Proposed P2 awaiting approval |
+| 8 | Business archive / delete after retention | P1 archive, P2 delete | Archive implemented now. Delete is Proposed P2 |
+
+---
+
+## 1. Scheduler single-instance: Done
+Every API instance and the worker tick each job with `singletonKey = job name` and `singletonSeconds = window`
+(`apps/api/src/jobs.ts`). pg-boss therefore keeps one job per window across all instances, and its queue gives one
+worker at a time. `test/integration/jobs.test.ts` runs 3 runners (2 API instances + 1 worker) all ticking the same 1 s job for 6.5 s.
+Each window runs once and never overlaps (`maxActive = 1`). Jobs that act on many businesses also skip any business that is not `ACTIVE`.
+Report schedules have their own guard against sending twice (`jobs-platform.ts`). Nothing more to do.
+
+## 2. GSTR-1 B2B, B2CL, CDNR, CDNUR: Implemented now (P1)
+**Why P1:** a GST-registered buyer (a corporate canteen client, or a company paying for a team lunch) needs a B2B invoice
+that shows its GSTIN (Rule 46(e)), and that invoice must appear in table 4 of the outlet's GSTR-1, or the buyer can't claim
+input tax credit. This was a sales blocker for those customers, but it was not wrong money for B2C bills.
+
+**What was built**
+- **Bill:** new optional fields `buyerGstin` (checked for shape, state code and checksum), `buyerName` (required with a GSTIN),
+  `buyerAddress` and `placeOfSupply` (a 2-digit state code). They are on `POST /orders`, on offline sync, and on table bills
+  (`POST /tables/sessions/:id/bill`). The API refuses:
+  - a buyer GSTIN when the outlet doesn't issue tax invoices (GST off, or composition scheme);
+  - the outlet's own GSTIN as the buyer;
+  - `interState: true` together with a place of supply in the outlet's own state.
+- **Place of supply:** restaurant and catering service is supplied where it is performed (IGST Act s.12(4)). An out-of-state
+  B2B buyer therefore still pays CGST + SGST, and POS stays the outlet's state. A `placeOfSupply` in another state (for
+  example, outdoor catering there) makes the bill inter-state (IGST) and decides `interState`. Without it, the old flag is kept.
+- **Receipt (thermal + PDF):** prints "Bill to: name, address", "Buyer GSTIN" and the real place of supply (for example "29-Karnataka").
+- **GSTR-1 builder (`services/gstr1.ts`):**
+  - `b2b`: grouped by `ctin`, with `inum`, `idt` (dd-mm-yyyy IST), `val`, `pos`, `rchrg: N`, `inv_typ: R`, and items per rate.
+  - `b2cl`: unregistered, inter-state, invoice value **> ₹1,00,000**, grouped by POS.
+  - `cdnr`: credit notes on B2B invoices.
+  - `cdnur` (`typ: B2CL`): credit notes on B2CL invoices.
+  - Credit notes on B2CS bills still reduce `b2cs`.
+  - `b2cs` now groups by POS too. HSN still covers all supplies, and totals are unchanged, so they still reconcile with `/reports/gst`.
+  - The xlsx and pdf exports gain a "B2B, B2CL, CDNR, CDNUR" sheet.
+- **Web:**
+  - POS cart → Customer panel: "Buyer GSTIN (B2B, optional)" and "Buyer legal name", checked on the client too.
+  - Table bill dialog: the same two fields.
+  - Mobile is not changed. Mobile bills stay B2C until the same two fields are added there.
+
+**B2CL threshold source:** Notification 12/2024-Central Tax (10 Jul 2024) amended FORM GSTR-1 tables 5 and 7. It lowered the
+limit for invoice-wise reporting of inter-state supplies to unregistered persons from ₹2.5 lakh to ₹1 lakh, effective 1 Aug 2024
+(GSTN advisory, 3 Sep 2024). The limit is `B2CL_LIMIT_PAISE`, and a bill of exactly ₹1,00,000 stays in B2CS.
+
+**Not done (later):**
+- Mobile POS fields.
+- Editing the buyer after the bill is created (today: cancel and re-bill).
+- E-invoicing (IRN) for B2B when turnover is above ₹5 cr (Phase 14 recommendation).
+- The HSN B2B/B2C split of table 12 (GSTN phase III).
+- Upload of the JSON through the GSTN offline tool (not verified, no portal access).
+
+## 3. Delivery-partner GPS in the background: Proposed P2 awaiting approval
+**Today:** live location is foreground only (`apps/mobile/src/delivery/useLiveLocation.ts`). `ACCESS_BACKGROUND_LOCATION` is
+blocked in `app.config.ts`, and STORE_RELEASE.md documents this. When the screen locks, the outlet's map shows the last point,
+and "back at outlet" is detected when the app reopens, at clock-in, or by a manager.
+
+**Why P2:** dispatch still works. The outlet loses live tracking only while the partner's phone is locked, and the partner can
+be marked back by GPS on reopen, clock-in or a manager. Background location also brings Play / App Store review risk and a privacy cost.
+
+**Proposal:**
+- Add `expo-task-manager` and `Location.startLocationUpdatesAsync` (Balanced accuracy, every 30 s / 50 m, `pausesUpdatesAutomatically`).
+- Run it **only between pickup and the partner's return to the outlet**, with a foreground-service notification on Android ("Delivering order #…").
+- Show a prominent in-app disclosure before asking for "Allow all the time", and fall back to foreground-only if refused.
+- Add a per-outlet setting (off by default).
+- Points post to the existing `POST /delivery/me/location` / `POST /delivery/:id/location` endpoints, with offline batching.
+- Store work: Play background-location declaration and review video, iOS `UIBackgroundModes: location`, and a privacy-policy update.
+
+Test: `it.skip("gap 3 …")`.
+
+## 4. One offer per bill: Done, optional coupon stacking Proposed P2
+**Rule:** only the best-saving offer *or* coupon applies (`bestOffer` in `offer-engine.ts`). Loyalty points and the manual
+discount still apply on top. Optional stacking **already exists for automatic offers**: offers flagged `combinable` (Phase 3.7)
+apply on top, but only on items that no other offer has discounted.
+
+**Covered by tests:**
+- `test/integration/offers-combine.test.ts`: "One offer per bill" explanation, combinable stacking, and still one offer without combinable.
+- `offer-engine` / `promotions` unit tests.
+
+**Proposal (P2):** add a `combinable` flag on **coupons** too, so a coupon can stack on a combinable offer.
+- The order would be: item offers, then the bill offer, then the coupon on the remaining pre-tax value.
+- Add a per-business cap (`maxStackedDiscountPercent`, default 30 %) so stacked discounts can't push margins negative.
+- The comparison panel would explain each step.
+
+**Why P2:** this is a business-rule change, and it needs the owner to decide the cap.
+Test: `it.skip("gap 4 …")`.
+
+## 5. Coupon GST treatment and gift cards: Done (verified, no defect)
+- Item and bill discounts, offers, coupons and points all reduce the **taxable value before GST** (`computeBill` in
+  `packages/shared/src/gst.ts`, which follows CGST s.15(3)(a): the discount is shown on the invoice).
+- Bill-level discounts are allocated to lines in proportion to their value, and each line is taxed at its own rate.
+- ₹ discounts can be GST-inclusive (D1), but they are still converted to a pre-tax reduction.
+- A gift card is a **payment mode** (`GIFT_CARD`), not a discount. Selling a card creates no tax invoice (it is a voucher, and GST
+  is charged on the supply when the card is spent). Spending it changes neither the taxable value nor the GST of the bill.
+
+New tests:
+- "a coupon reduces each line's taxable value…": per line, taxable = gross − discount, and GST = 5 % of the reduced value.
+- "paying with a gift card changes neither…".
+
+## 6. Tab split atomicity: Done (Phase 9)
+`test/integration/tab-split-atomic.test.ts`:
+- A failure on the 2nd split bill rolls back the 1st.
+- The same split succeeds as one unit.
+- Invoice numbers are distinct.
+
+Also covered by `test/db/concurrency.test.ts`. Green in this run.
+
+## 7. Clock-in face match: Proposed P2 awaiting approval
+**Today:** `CLOCK_IN_SELFIE` requires a selfie uploaded through CANAVO and stores it for the manager to review. There is no
+face matching (schema comment on `Attendance.clockInSelfieUrl`). Buddy punching is deterred by the selfie plus geofence, PIN
+lockout and fake-GPS flags.
+
+**Why P2:** this is a new kind of processing of biometric-like personal data. It needs consent and policy decisions before any
+code, and the review deterrent already exists.
+
+**Proposal:**
+- **On-device matching, never server-side biometric templates.** Run a small face-embedding model in the mobile app
+  (ML Kit face detection + a MobileFaceNet-class TFLite model) and compare with the profile photo's embedding, computed on the
+  device. The embedding stays on the device. Only `{matched: boolean, score}` is sent and stored with the attendance.
+- **DPDP Act 2023:**
+  - Explicit, specific consent per staff member, recorded with its version.
+  - Clock-in without matching must stay possible (PIN + selfie review), so consent is free.
+  - The purpose is limited to attendance, with a retention limit (selfies purged after 90 days).
+  - A notice in the privacy policy.
+  - Erasure is covered by the existing staff-erasure flow.
+- **Behaviour:** a mismatch never blocks clock-in. It flags the record for the manager, as fake GPS does today.
+- The feature flag stays off by default.
+
+Test: `it.skip("gap 7 …")`.
+
+## 8. Business archive: Implemented now (P1). Delete after retention: Proposed P2
+**Why P1 (archive):** without it, a hotel that leaves can only be "suspended", which looks temporary. Its logins and storefront
+must stop for good while its tax records are kept.
+
+**What was built:**
+- `POST /platform/businesses/:id/archive {confirmName, reason}`: super admin only (support users and owners get 403). It needs the
+  exact business name (case-insensitive) and sets:
+  - `status = ARCHIVED`, `archivedAt`, `archiveReason`;
+  - `deleteAfter` = **1 April, 7 years after the end of the financial year the business was archived in** (IST). This is the later of
+    GST (s.36 + Rule 56: 72 months from the due date of the annual return, 31 Dec after the FY) and income tax (Rule 6F: 6 years from the end of the assessment year).
+  - Everyone in the business is signed out. Login, every API request and sockets refuse non-ACTIVE businesses, and the message says "closed (archived)".
+  - The storefront and every job already skip non-ACTIVE businesses.
+  - The action is audited.
+- `POST /platform/businesses/:id/restore` sets the business back to ACTIVE and clears the archive fields. `PATCH` on an archived business returns 409.
+- Data is untouched. Because the super admin can't download hotel data (privacy rule), the console tells the operator to have the
+  owner export their data (`data:export`) *before* archiving.
+- **Web:** Platform → business: an **Archive** button (type the name, then give a reason), an archived banner with the retention date,
+  **Restore**, and an "Archived" filter and badge.
+
+**Proposal (P2), delete after retention:**
+- A monthly platform job lists businesses whose `deleteAfter` has passed.
+- The super admin approves each one (a dry-run report of row counts per table).
+- The owner gets an emailed final export link 30 days before.
+- The purge runs with `app.bypass_rls`, deleting every business-scoped table in FK order (plus uploads in storage) in batches.
+- It leaves a tombstone (`Business` row with name hash, dates and a deletion audit entry) and removes the business from backups as they age out.
+
+**Why P2:** deletion is irreversible, it touches every table, and it needs an approved retention policy and legal sign-off.
+Test: `it.skip("P2 … gap 8b")`.

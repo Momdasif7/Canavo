@@ -36,6 +36,8 @@ export interface ReceiptData {
   tableLabel?: string | null;
   cashierName: string;
   customerName?: string | null;
+  /** B2B tax invoice: the registered buyer (Rule 46(e): name, address and GSTIN of the recipient) */
+  buyer?: { name: string | null; gstin: string; address?: string | null } | null;
   items: {
     name: string;
     quantity: number;
@@ -161,6 +163,11 @@ export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): strin
   if (r.tableLabel) lines.push(`Table: ${r.tableLabel}`);
   lines.push(`Cashier: ${r.cashierName}`);
   if (r.customerName) lines.push(`Customer: ${r.customerName}`);
+  if (r.buyer && !plainBill) {
+    if (r.buyer.name) wrap(`Bill to: ${r.buyer.name}`, w).forEach((l) => lines.push(l));
+    if (r.buyer.address) wrap(r.buyer.address, w).forEach((l) => lines.push(l));
+    lines.push(`Buyer GSTIN: ${r.buyer.gstin}`);
+  }
   if (r.placeOfSupply && !plainBill) wrap(`Place of supply: ${r.placeOfSupply}`, w).forEach((l) => lines.push(l));
   lines.push(rule);
   lines.push(leftRight("Item", "Qty    Amount", w));

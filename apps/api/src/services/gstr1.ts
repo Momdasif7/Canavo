@@ -23,11 +23,18 @@
  * non-GST levies (e.g. VAT) are excluded from the taxable value.
  *
  * Bills of supply (composition scheme) are excluded: composition dealers file
- * CMP-08 / GSTR-4, not GSTR-1. B2B (registered buyer GSTIN), B2CL (inter-state
- * > ₹1 lakh) are not produced because the POS does not capture buyer GSTINs.
- * Credit notes on B2C bills (Phase 3.1) reduce b2cs and hsn in the month they're issued
- * (GST rules for unregistered buyers) and are listed in doc_issue as nature 5; CDNR/CDNUR
- * need buyer GSTINs (Phase 8.4).
+ * CMP-08 / GSTR-4, not GSTR-1.
+ *
+ * QA 16b (gap 2) — sections by recipient:
+ *  - b2b   : bills with a buyer GSTIN (table 4A), grouped by buyer (ctin), one entry per invoice
+ *  - b2cl  : unregistered inter-state invoices with invoice value > ₹1,00,000 (table 5). The limit was
+ *            ₹2,50,000 until Notification 12/2024-Central Tax (10 Jul 2024; amended FORM GSTR-1 tables 5
+ *            and 7) lowered it, effective 1 Aug 2024 (GSTN advisory of 3 Sep 2024).
+ *  - b2cs  : everything else (table 7)
+ *  - cdnr  : credit notes on B2B invoices (table 9B registered)
+ *  - cdnur : credit notes on B2CL invoices (table 9B unregistered, typ "B2CL"); credit notes on B2CS
+ *            bills keep reducing b2cs in the month they're issued.
+ * Place of supply: the bill's placeOfSupply when captured, else the outlet's state.
  */
 
 export interface Gstr1Line {
@@ -55,6 +62,35 @@ export interface Gstr1Order {
   documentType: "TAX_INVOICE" | "BILL_OF_SUPPLY" | "BILL";
   interState: boolean;
   items: Gstr1Line[];
+  /** QA 16b: invoice date, invoice value (paise), registered buyer and place of supply (B2B / B2CL) */
+  createdAt?: Date | string;
+  grandTotal?: number;
+  buyerGstin?: string | null;
+  placeOfSupply?: string | null;
+}
+
+export interface Gstr1CreditNote {
+  number: string;
+  documentType: Gstr1Order["documentType"];
+  interState: boolean;
+  items: Gstr1Line[];
+  /** QA 16b: note date, note value (paise), and the original invoice's buyer / place of supply / value */
+  createdAt?: Date | string;
+  amount?: number;
+  buyerGstin?: string | null;
+  placeOfSupply?: string | null;
+  invoiceTotal?: number;
+}
+
+/** Unregistered inter-state invoices above this value (paise) go to B2CL: > ₹1 lakh since 1 Aug 2024 (Notification 12/2024-CT). */
+export const B2CL_LIMIT_PAISE = 1_00_000_00;
+
+export type SupplyKind = "B2B" | "B2CL" | "B2CS";
+/** Which GSTR-1 table a bill belongs to. */
+export function supplyKind(o: { buyerGstin?: string | null; interState: boolean; total?: number }): SupplyKind {
+  if (o.buyerGstin) return "B2B";
+  if (o.interState && (o.total ?? 0) > B2CL_LIMIT_PAISE) return "B2CL";
+  return "B2CS";
 }
 
 export interface Gstr1Input {
@@ -65,7 +101,7 @@ export interface Gstr1Input {
   compositionScheme: boolean;
   orders: Gstr1Order[];
   /** Credit notes issued in the month, as negative lines at the original rates (Phase 3.1) */
-  creditNotes?: { number: string; documentType: Gstr1Order["documentType"]; interState: boolean; items: Gstr1Line[] }[];
+  creditNotes?: Gstr1CreditNote[];
   /** HSN code → description (defaults to a restaurant-service description) */
   hsnDescriptions?: Record<string, string>;
 }
@@ -105,9 +141,24 @@ export interface DocRange {
   net_issue: number;
 }
 
+export interface ItemDetail {
+  num: number;
+  itm_det: { rt: number; txval: number; iamt: number; camt?: number; samt?: number; csamt: number };
+}
+export interface B2bInvoice { inum: string; idt: string; val: number; pos: string; rchrg: "N"; inv_typ: "R"; itms: ItemDetail[] }
+export interface B2bEntry { ctin: string; inv: B2bInvoice[] }
+export interface B2clEntry { pos: string; inv: { inum: string; idt: string; val: number; itms: ItemDetail[] }[] }
+export interface CdnrNote { ntty: "C"; nt_num: string; nt_dt: string; val: number; pos: string; rchrg: "N"; inv_typ: "R"; itms: ItemDetail[] }
+export interface CdnrEntry { ctin: string; nt: CdnrNote[] }
+export interface CdnurEntry { typ: "B2CL"; ntty: "C"; nt_num: string; nt_dt: string; val: number; pos: string; itms: ItemDetail[] }
+
 export interface Gstr1Payload {
   gstin: string;
   fp: string;
+  b2b?: B2bEntry[];
+  b2cl?: B2clEntry[];
+  cdnr?: CdnrEntry[];
+  cdnur?: CdnurEntry[];
   b2cs: B2csEntry[];
   hsn: { data: HsnEntry[] };
   doc_issue: { doc_det: { doc_num: number; doc_typ: string; docs: DocRange[] }[] };
@@ -197,6 +248,36 @@ export function docRanges(docs: { number: string; cancelled: boolean }[], others
     });
 }
 
+/** GSTN date format dd-mm-yyyy, in IST. */
+export function gstDate(d: Date | string | undefined): string {
+  if (!d) return "";
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(d));
+  return p.replace(/\//g, "-");
+}
+
+/** Item details of one document, one row per GST rate. `sign` -1 turns credit-note lines (negative) positive. */
+function itemDetails(lines: Gstr1Line[], interState: boolean, sign: 1 | -1, intraFields: boolean): ItemDetail[] {
+  const byRate = new Map<number, { txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
+  for (const l of lines) {
+    const rt = lineRate(l, interState);
+    const r = byRate.get(rt) ?? { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+    r.txval += sign * lineTxval(l);
+    r.iamt += sign * l.igst;
+    r.camt += sign * l.cgst;
+    r.samt += sign * l.sgst;
+    r.csamt += sign * (l.cess ?? 0);
+    byRate.set(rt, r);
+  }
+  return [...byRate.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([rt, r], i) => ({
+      num: i + 1,
+      itm_det: intraFields
+        ? { rt, txval: rupees(r.txval), iamt: rupees(r.iamt), camt: rupees(r.camt), samt: rupees(r.samt), csamt: rupees(r.csamt) }
+        : { rt, txval: rupees(r.txval), iamt: rupees(r.iamt), csamt: rupees(r.csamt) },
+    }));
+}
+
 export function buildGstr1(input: Gstr1Input): Gstr1Result {
   const notes: string[] = [];
   const warnings: string[] = [];
@@ -228,27 +309,66 @@ export function buildGstr1(input: Gstr1Input): Gstr1Result {
   }
 
   // --- b2cs ---
-  const b2cs = new Map<string, { sply_ty: "INTRA" | "INTER"; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
+  const b2cs = new Map<string, { sply_ty: "INTRA" | "INTER"; pos: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
   const hsn = new Map<string, { hsn: string; rt: number; qty: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
   const tot = { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 };
   const interInvoices: string[] = [];
   const credits = (input.creditNotes ?? []).filter((c) => c.documentType === "TAX_INVOICE");
-  if (credits.length) notes.push(`${credits.length} credit note(s) issued this month reduce B2CS and HSN.`);
-  for (const o of [...supplies, ...credits.map((c) => ({ ...c, invoiceNumber: c.number }))]) {
-    if (o.interState && !credits.some((c) => c.number === o.invoiceNumber)) interInvoices.push(o.invoiceNumber);
+  const posOf = (d: { placeOfSupply?: string | null }) => d.placeOfSupply ?? input.stateCode;
+  const b2b = new Map<string, B2bInvoice[]>();
+  const b2cl = new Map<string, B2clEntry["inv"]>();
+  const cdnr = new Map<string, CdnrNote[]>();
+  const cdnur: CdnurEntry[] = [];
+  const docs: { invoiceNumber: string; interState: boolean; items: Gstr1Line[]; kind: SupplyKind; credit: boolean; placeOfSupply?: string | null }[] = [];
+  for (const o of supplies) {
+    const kind = supplyKind({ buyerGstin: o.buyerGstin, interState: o.interState, total: o.grandTotal });
+    docs.push({ ...o, kind, credit: false });
+    const pos = posOf(o);
+    if (kind === "B2B") {
+      const list = b2b.get(o.buyerGstin!) ?? [];
+      list.push({ inum: o.invoiceNumber, idt: gstDate(o.createdAt), val: rupees(o.grandTotal ?? 0), pos, rchrg: "N", inv_typ: "R", itms: itemDetails(o.items, o.interState, 1, true) });
+      b2b.set(o.buyerGstin!, list);
+    } else if (kind === "B2CL") {
+      const list = b2cl.get(pos) ?? [];
+      list.push({ inum: o.invoiceNumber, idt: gstDate(o.createdAt), val: rupees(o.grandTotal ?? 0), itms: itemDetails(o.items, true, 1, false) });
+      b2cl.set(pos, list);
+    }
+  }
+  for (const c of credits) {
+    const kind = supplyKind({ buyerGstin: c.buyerGstin, interState: c.interState, total: c.invoiceTotal });
+    docs.push({ ...c, invoiceNumber: c.number, kind, credit: true });
+    const pos = posOf(c);
+    if (kind === "B2B") {
+      const list = cdnr.get(c.buyerGstin!) ?? [];
+      list.push({ ntty: "C", nt_num: c.number, nt_dt: gstDate(c.createdAt), val: rupees(c.amount ?? 0), pos, rchrg: "N", inv_typ: "R", itms: itemDetails(c.items, c.interState, -1, true) });
+      cdnr.set(c.buyerGstin!, list);
+    } else if (kind === "B2CL") {
+      cdnur.push({ typ: "B2CL", ntty: "C", nt_num: c.number, nt_dt: gstDate(c.createdAt), val: rupees(c.amount ?? 0), pos, itms: itemDetails(c.items, true, -1, false) });
+    }
+  }
+  const count = (k: SupplyKind, credit: boolean) => docs.filter((d) => d.kind === k && d.credit === credit).length;
+  if (count("B2CS", true)) notes.push(`${count("B2CS", true)} credit note(s) issued this month reduce B2CS and HSN.`);
+  if (count("B2B", false)) notes.push(`${count("B2B", false)} B2B invoice(s) to registered buyers reported in table 4 (B2B).`);
+  if (count("B2CL", false)) notes.push(`${count("B2CL", false)} inter-state B2C invoice(s) above ₹1,00,000 reported in table 5 (B2CL).`);
+  if (count("B2B", true) + count("B2CL", true)) notes.push(`${count("B2B", true) + count("B2CL", true)} credit note(s) on B2B / B2CL invoices reported in table 9B (CDNR / CDNUR).`);
+  for (const o of docs) {
+    if (o.interState && !o.credit && !o.placeOfSupply) interInvoices.push(o.invoiceNumber);
     for (const l of o.items) {
       const sply_ty = o.interState ? "INTER" : "INTRA";
       const txval = lineTxval(l);
       const rt = lineRate(l, o.interState);
       const cess = l.cess ?? 0;
-      const bk = `${sply_ty}|${rt}`;
-      const b = b2cs.get(bk) ?? { sply_ty, rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
-      b.txval += txval;
-      b.iamt += l.igst;
-      b.camt += l.cgst;
-      b.samt += l.sgst;
-      b.csamt += cess;
-      b2cs.set(bk, b);
+      if (o.kind === "B2CS") {
+        const pos = posOf(o);
+        const bk = `${sply_ty}|${pos}|${rt}`;
+        const b = b2cs.get(bk) ?? { sply_ty, pos, rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+        b.txval += txval;
+        b.iamt += l.igst;
+        b.camt += l.cgst;
+        b.samt += l.sgst;
+        b.csamt += cess;
+        b2cs.set(bk, b);
+      }
 
       const hk = `${l.hsnCode}|${rt}`;
       const h = hsn.get(hk) ?? { hsn: l.hsnCode, rt, qty: 0, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
@@ -268,15 +388,15 @@ export function buildGstr1(input: Gstr1Input): Gstr1Result {
     }
   }
   if (interInvoices.length) {
-    warnings.push(`${interInvoices.length} inter-state (IGST) bill(s) reported as INTER with POS ${input.stateCode} (customer state not captured): ${interInvoices.slice(0, 10).join(", ")}${interInvoices.length > 10 ? "…" : ""}`);
+    warnings.push(`${interInvoices.length} inter-state (IGST) bill(s) reported with POS ${input.stateCode} (no place of supply captured on the bill): ${interInvoices.slice(0, 10).join(", ")}${interInvoices.length > 10 ? "…" : ""}`);
   }
 
   const b2csOut: B2csEntry[] = [...b2cs.values()]
     .filter((b) => b.txval !== 0 || b.iamt + b.camt + b.samt + b.csamt !== 0)
-    .sort((a, b) => a.sply_ty.localeCompare(b.sply_ty) || a.rt - b.rt)
+    .sort((a, b) => a.sply_ty.localeCompare(b.sply_ty) || a.pos.localeCompare(b.pos) || a.rt - b.rt)
     .map((b) => ({
       sply_ty: b.sply_ty,
-      pos: input.stateCode,
+      pos: b.pos,
       typ: "OE" as const,
       rt: b.rt,
       txval: rupees(b.txval),
@@ -325,13 +445,17 @@ export function buildGstr1(input: Gstr1Input): Gstr1Result {
   const payload: Gstr1Payload = {
     gstin: input.gstin ?? "",
     fp,
+    ...(b2b.size && { b2b: [...b2b.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ctin, inv]) => ({ ctin, inv })) }),
+    ...(b2cl.size && { b2cl: [...b2cl.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([pos, inv]) => ({ pos, inv })) }),
+    ...(cdnr.size && { cdnr: [...cdnr.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ctin, nt]) => ({ ctin, nt })) }),
+    ...(cdnur.length && { cdnur }),
     b2cs: b2csOut,
     hsn: { data: hsnOut },
     doc_issue: { doc_det: docDet },
   };
   notes.push(
-    "Place of supply = outlet state (customer state is not captured).",
-    "B2B, B2CL, exports and CDNR/CDNUR are not generated (the POS does not record buyer GSTINs); credit notes are netted in B2CS/HSN and listed in the document summary.",
+    "Place of supply = the bill's place of supply when captured, else the outlet's state (restaurant service: IGST Act s.12(4)).",
+    "Exports (EXP), advances (AT/TXP) and amendments are not generated; the HSN summary is one table (B2B + B2C).",
   );
   return {
     excluded: false,

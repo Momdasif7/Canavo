@@ -327,6 +327,19 @@ export const orderCreateSchema = z.object({
   customerName: z.string().max(100).optional(),
   customerPhone: indianPhone.optional(),
   interState: z.boolean().default(false),
+  /**
+   * QA 16b (gap 2): B2B tax invoice — the registered buyer's GSTIN, legal name and address (Rule 46(e)).
+   * Bills with a buyer GSTIN are reported in GSTR-1 table 4 (B2B) instead of B2CS.
+   */
+  buyerGstin: gstinSchema.optional(),
+  buyerName: z.string().trim().min(2).max(200).optional(),
+  buyerAddress: z.string().trim().max(300).optional(),
+  /**
+   * Two-digit GST state code of the place of supply. Restaurant / catering service is supplied where it is
+   * performed (IGST Act s.12(4)), so this defaults to the outlet's state; set it only for outdoor catering in
+   * another state. A place of supply in another state makes the bill inter-state (IGST).
+   */
+  placeOfSupply: gstStateCode.optional(),
   items: z.array(orderItemInputSchema).min(1),
   discount: z
     .discriminatedUnion("type", [
