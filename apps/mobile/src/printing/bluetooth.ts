@@ -81,7 +81,10 @@ export function createBluetoothPrinter(): ThermalPrinter | null {
     },
     async printLines(lines: string[], _paper: PaperWidth) {
       // Lines are already laid out for the paper width (32 / 48 columns).
-      const text = lines.map((l) => l.replace(/₹/g, "Rs")).join("\n") + "\n\n\n";
+      // Control characters are dropped: item names and guest notes (QR orders) must not be able to send
+      // ESC/POS commands such as "open the cash drawer" (ESC p) or a paper cut (QA Phase 8, sec1-9).
+      // eslint-disable-next-line no-control-regex
+      const text = lines.map((l) => l.replace(/₹/g, "Rs").replace(/[\u0000-\u001f\u007f-\u009f]/g, "")).join("\n") + "\n\n\n";
       await BluetoothEscposPrinter.printText(text, { encoding: "UTF-8", codepage: 0 });
       try {
         await BluetoothEscposPrinter.cutPaper();

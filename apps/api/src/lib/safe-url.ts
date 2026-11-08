@@ -6,6 +6,8 @@
  * Our own local uploads (PUBLIC_API_URL/uploads/files/…) stay allowed in development.
  */
 import { lookup } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import { isIP } from "node:net";
 import { env } from "../env";
 
@@ -62,6 +64,20 @@ export function publicImageUrlError(raw: string): string | null {
   return null;
 }
 
+/**
+ * Links the web app shows as clickable <a href> (invoice photos, selfies): only http(s).
+ * React 18 renders javascript: / data: hrefs as-is, so a stored link would run script in the
+ * session of whoever clicks it (QA Phase 8, sec1-1/2). null when fine, else the reason.
+ */
+export function httpLinkError(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? null : "Link must start with http:// or https://";
+  } catch {
+    return "Link must be a full http:// or https:// address";
+  }
+}
+
 // ---------- Outbound calls to a channel hub (QA BUG-048: SSRF) ----------
 
 /** Link-local / cloud metadata: never a legitimate hub, in any environment. */
@@ -100,6 +116,9 @@ export function hubUrlError(raw: string, production = env.NODE_ENV === "producti
 /**
  * fetch() for hub calls: re-checks the URL, resolves the host and refuses internal addresses
  * (a public name can resolve to 10.x / 169.254.x — DNS rebinding), and never follows redirects.
+ * The connection goes to the address that was checked (QA Phase 8, sec1-6): the name is not
+ * resolved a second time, so a rebinding DNS server can't swap in an internal address between
+ * the check and the call. TLS still verifies the certificate for the hub's name (SNI + Host).
  */
 export async function hubFetch(
   url: string,
@@ -111,10 +130,52 @@ export async function hubFetch(
   if (reason) throw new Error(reason);
   const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
   const addrs = isIP(host) ? [host] : await resolve(host);
+  if (!addrs.length) throw new Error("Hub address could not be resolved");
   if (addrs.some((a) => metadataHost(a) || (production && isInternalHost(a)))) throw new Error("Hub address resolves to an internal network address");
-  const res = await fetch(url, { ...init, redirect: "manual" });
+  const res = await pinnedRequest(url, init, addrs[0]!);
   if (res.status >= 300 && res.status < 400) throw new Error(`Hub answered with a redirect (${res.status}); enter its final address`);
   return res;
+}
+
+const MAX_HUB_RESPONSE_BYTES = 5 * 1024 * 1024;
+
+/** One HTTP(S) request whose socket connects to `address` (no DNS), answered as a fetch Response. */
+function pinnedRequest(url: string, init: RequestInit, address: string): Promise<Response> {
+  const u = new URL(url);
+  const family = isIP(address);
+  const headers = Object.fromEntries(new Headers(init.headers ?? {}).entries());
+  const pinnedLookup = (_host: string, opts: { all?: boolean }, cb: (...args: unknown[]) => void) =>
+    opts?.all ? cb(null, [{ address, family }]) : cb(null, address, family);
+  return new Promise<Response>((resolvePromise, reject) => {
+    const request = (u.protocol === "https:" ? https : http).request(
+      u,
+      { method: init.method ?? "GET", headers, signal: init.signal ?? undefined, lookup: pinnedLookup as never },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on("data", (c: Buffer) => {
+          size += c.length;
+          if (size > MAX_HUB_RESPONSE_BYTES) return request.destroy(new Error("Hub reply is too large"));
+          chunks.push(c);
+        });
+        res.on("error", reject);
+        res.on("end", () => {
+          const out = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) for (const x of [v].flat()) out.append(k, x);
+          const status = res.statusCode ?? 502;
+          const noBody = status === 204 || status === 205 || status === 304 || init.method === "HEAD";
+          try {
+            resolvePromise(new Response(noBody ? null : Buffer.concat(chunks), { status: status < 200 || status > 599 ? 502 : status, statusText: res.statusMessage, headers: out }));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      },
+    );
+    request.on("error", reject);
+    if (init.body !== undefined && init.body !== null) request.write(typeof init.body === "string" ? init.body : Buffer.from(init.body as ArrayBuffer));
+    request.end();
+  });
 }
 
 /** A hub's error for the user: only its JSON message / error field, short — never the raw body. */

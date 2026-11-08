@@ -30,3 +30,47 @@ describe("hub URL rules (QA BUG-048)", () => {
     expect((await hubErrorMessage(new Response(JSON.stringify({ error: "x".repeat(500) })))).length).toBe(120);
   });
 });
+
+describe("hub calls connect to the address that was checked (QA Phase 8, sec1-6: DNS rebinding)", () => {
+  it("uses the resolved, checked address for the connection — the name is not looked up again", async () => {
+    const http = await import("node:http");
+    const seen: { host?: string } = {};
+    const server = http.createServer((req, res) => {
+      seen.host = req.headers.host;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as import("node:net").AddressInfo).port;
+    let lookups = 0;
+    try {
+      // "hub.rebind.invalid" can't be resolved by the system: only the pinned address can reach the server.
+      const res = await hubFetch(`http://hub.rebind.invalid:${port}/v1/ping`, { method: "POST", headers: { "x-api-key": "k" }, body: "{}" }, false, async () => {
+        lookups++;
+        return ["127.0.0.1"];
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(lookups).toBe(1);
+      expect(seen.host).toBe(`hub.rebind.invalid:${port}`);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("a redirect is still refused", async () => {
+    const http = await import("node:http");
+    const server = http.createServer((_req, res) => {
+      res.statusCode = 302;
+      res.setHeader("location", "http://169.254.169.254/");
+      res.end();
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as import("node:net").AddressInfo).port;
+    try {
+      await expect(hubFetch(`http://127.0.0.1:${port}/v1`, {}, false)).rejects.toThrow(/redirect/);
+    } finally {
+      server.close();
+    }
+  });
+});

@@ -5,6 +5,7 @@ import { platformPrisma } from "../db";
 import { sessionActive, verifyAccess } from "../lib/tokens";
 import { badRequest, forbidden, HttpError, notFound, unauthorized } from "../lib/http";
 import { runWithTenant, tenant, type TenantContext } from "../lib/tenant";
+import { assertPlatformIpAllowed } from "./ip-whitelist";
 
 export interface AuthUser {
   id: string;
@@ -144,6 +145,8 @@ async function enterSupport(req: Request, ctx: TenantContext, businessId: string
   });
   if (!grant) throw forbidden("This hotel's owner hasn't granted support access, or it has ended.");
   if (!user.totpEnabledAt) throw forbidden("Turn on two-step login (Account → Security) before using support access.");
+  // A support view is platform access: the platform IP whitelist applies (QA Phase 8, sec1-4).
+  await assertPlatformIpAllowed(req);
   enterBusiness(req, ctx, await loadBusiness(businessId));
   const outletIds = (await platformPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id);
   req.user = { ...req.user!, role: "OUTLET_MANAGER", businessId, outletIds, customRoleId: null, customPermissions: null };

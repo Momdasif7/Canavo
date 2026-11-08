@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import bcrypt from "bcryptjs";
 import {
   businessCreateSchema,
@@ -30,7 +31,7 @@ import { disableTwoFactor } from "../services/two-factor";
  * Platform support users (Phase 4.2) may read every route here; writes are super admin only.
  */
 export const platformRouter = Router();
-platformRouter.use(authenticate, requirePlatformUser);
+platformRouter.use(authenticate, requirePlatformUser, superAdminIpWhitelist);
 
 const userFields = {
   id: true,

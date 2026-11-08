@@ -186,6 +186,9 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   if (id !== req.user!.id) assertCanAssign(req, existing.role);
   assertCanAssign(req, data.role, data.outletIds);
   if (id === req.user!.id && (data.role || data.status || data.outletIds || data.customRoleId !== undefined)) throw forbidden("You cannot change your own role, status or outlets");
+  // Your own password needs the current one (POST /auth/password/change): a stolen session must not
+  // be able to lock the owner of the account out (QA Phase 8, sec1-5).
+  if (id === req.user!.id && data.password) throw badRequest("Change your own password under Account → Security (it asks for the current one)");
   // A role change drops a custom role based on the old role unless a matching one is given.
   const nextRole = data.role ?? existing.role;
   let customRoleId = data.customRoleId;
@@ -220,8 +223,11 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
 
   const roleChanged = data.role && data.role !== existing.role;
   const deactivated = data.status && data.status !== "ACTIVE";
-  if (roleChanged || deactivated) await forceLogout(id);
-  await audit(req, "staff.update", "User", id, { fields: Object.keys(data), forcedLogout: Boolean(roleChanged || deactivated) });
+  // A new password set by a manager (lost / leaked password) ends every session that used the old one.
+  const passwordReset = Boolean(data.password);
+  const forcedLogout = Boolean(roleChanged || deactivated || passwordReset);
+  if (forcedLogout) await forceLogout(id);
+  await audit(req, "staff.update", "User", id, { fields: Object.keys(data), forcedLogout });
   res.json(user);
 });
 

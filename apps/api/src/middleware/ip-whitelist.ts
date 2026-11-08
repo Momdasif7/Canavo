@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { isIP } from "node:net";
-import { prisma } from "../db";
+import { platformPrisma } from "../db";
 import { forbidden } from "../lib/http";
 
 /** Strip IPv4-mapped IPv6 prefix ("::ffff:1.2.3.4" → "1.2.3.4"). */
@@ -39,8 +39,9 @@ export function ipMatches(ipRaw: string, entry: string): boolean {
 
 export const ipAllowed = (ip: string, list: string[]) => list.length === 0 || list.some((e) => ipMatches(ip, e));
 
+/** The platform-wide list (a GLOBAL setting, read with the platform client: no tenant needed). */
 export async function loadIpWhitelist(): Promise<string[]> {
-  const s = await prisma.setting.findUnique({ where: { scope_key: { scope: "GLOBAL", key: "security.ipWhitelist" } } });
+  const s = await platformPrisma.setting.findUnique({ where: { scope_key: { scope: "GLOBAL", key: "security.ipWhitelist" } } });
   return Array.isArray(s?.value) ? (s.value as string[]) : [];
 }
 
@@ -51,7 +52,16 @@ export async function loadIpWhitelist(): Promise<string[]> {
  */
 export async function superAdminIpWhitelist(req: Request, _res: Response, next: NextFunction) {
   if (req.user?.role !== "SUPER_ADMIN" && req.user?.role !== "PLATFORM_SUPPORT") return next();
+  await assertPlatformIpAllowed(req);
+  next();
+}
+
+/**
+ * Every platform route (/admin, /platform) and support views check this (QA Phase 8, sec1-4:
+ * it used to guard /admin only). Escape hatch when the list locks everyone out (the office IP
+ * changed): delete the setting in the database, see docs/qa/phase-8/sec1.md.
+ */
+export async function assertPlatformIpAllowed(req: Request) {
   const list = await loadIpWhitelist();
   if (!ipAllowed(req.ip ?? "", list)) throw forbidden(`Super admin access is not allowed from ${normalizeIp(req.ip ?? "unknown")}`);
-  next();
 }

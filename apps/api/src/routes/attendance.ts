@@ -9,6 +9,7 @@ import { addDays, isValidYmd as isRealDate } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
 import { canManageAttendanceOf, clockIn, clockOut, dayOutcome, manualRecordFields, upsertManualAttendance } from "../services/attendance";
 import { notify, outletManagers } from "../services/notify";
+import { safeCellText } from "../services/report-export";
 import { alertAttendanceMarked } from "../services/alerts";
 
 export const attendanceRouter = Router();
@@ -146,10 +147,11 @@ attendanceRouter.get("/export", requireOutlet, requirePermission("attendance:man
     { header: "Distance (m)", key: "dist", width: 12 },
   ];
   ws.getRow(1).font = { bold: true };
+  // Names and notes are typed by staff: formula-safe like every other export (QA Phase 8, sec1-3).
   for (const r of records) {
     ws.addRow({
       date: r.workDate,
-      name: r.user.name,
+      name: safeCellText(r.user.name),
       role: ROLE_LABELS[r.user.role],
       in: hasTimes(r) ? fmtTime(r.clockInAt) : "",
       out: hasTimes(r) ? fmtTime(r.clockOutAt) : "",
@@ -159,8 +161,8 @@ attendanceRouter.get("/export", requireOutlet, requirePermission("attendance:man
       ot: r.overtimeMinutes,
       status: !hasTimes(r) || r.clockOutAt ? r.status : "OPEN",
       source: r.source === "MANUAL" ? "Manual" : r.markedById ? "Self (edited)" : "Self",
-      markedBy: r.markedBy?.name ?? "",
-      note: r.note ?? "",
+      markedBy: safeCellText(r.markedBy?.name ?? ""),
+      note: safeCellText(r.note ?? ""),
       dist: r.clockInDistance >= 0 ? r.clockInDistance : "",
     });
   }

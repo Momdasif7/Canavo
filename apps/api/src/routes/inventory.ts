@@ -47,8 +47,15 @@ import {
 } from "../services/inventory";
 import { announceAvailability, refreshMenuAvailability } from "../services/stock-availability";
 import { safeCellText } from "../services/report-export";
+import { httpLinkError } from "../lib/safe-url";
 
 type Tx = Prisma.TransactionClient;
+
+/** The invoice photo is shown as a link: http(s) only, never javascript: / data: (QA Phase 8, sec1-2). */
+function assertInvoiceLink(url: string | null | undefined) {
+  const reason = url ? httpLinkError(url) : null;
+  if (reason) throw badRequest(`Invoice image: ${reason}`);
+}
 
 export const inventoryRouter = Router();
 // Every inventory screen works in the context of the active outlet (X-Outlet-Id).
@@ -606,6 +613,7 @@ inventoryRouter.get("/purchases/:id", view, async (req, res) => {
 
 inventoryRouter.post("/purchases", manage, async (req, res) => {
   const data = parse(purchaseCreateSchema, req.body);
+  assertInvoiceLink(data.invoiceImageUrl);
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || !vendor.active) throw badRequest("Unknown or inactive vendor");
   await loadItems(data.items.map((i) => i.inventoryItemId));
@@ -636,6 +644,7 @@ inventoryRouter.post("/purchases", manage, async (req, res) => {
 inventoryRouter.patch("/purchases/:id", manage, async (req, res) => {
   const id = param(req, "id");
   const data = parse(purchaseUpdateSchema, req.body);
+  assertInvoiceLink(data.invoiceImageUrl);
   const p = await getPurchase(id, req.outletId!);
   if (p.status === "CANCELLED") throw conflict("Purchase is cancelled");
   // After receipt only the paperwork fields may change; quantities/costs are locked into the ledger.
