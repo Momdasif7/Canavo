@@ -14,6 +14,7 @@ export const MODULES = [
   "REPORTS",
   "CANTEEN",
   "CHANNELS",
+  "THEATRE",
 ] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
@@ -37,6 +38,11 @@ export const MODULE_INFO: Record<ModuleKey, { label: string; description: string
     label: "Online orders & channels",
     description: "QR table ordering, online ordering page, digital menu, Zomato / Swiggy via a partner hub",
     requires: ["BILLING"],
+  },
+  THEATRE: {
+    label: "Cinema seat ordering",
+    description: "Screens and seats with seat QR codes, showtimes, interval delivery, runner board",
+    requires: ["BILLING", "TABLES", "CHANNELS"],
   },
 };
 

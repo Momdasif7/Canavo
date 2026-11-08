@@ -16,6 +16,7 @@ export * from "./password";
 export * from "./schemas-canteen";
 export * from "./schemas-meals";
 export * from "./schemas-storefront";
+export * from "./schemas-theatre";
 export * from "./packing-slip";
 export * from "./appearance";
 export * from "./delivery-address";
