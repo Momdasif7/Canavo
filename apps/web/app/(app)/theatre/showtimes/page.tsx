@@ -224,6 +224,7 @@ export default function ShowtimesPage() {
       <ShowDialog
         draft={draft}
         screens={list}
+        shows={shows.data ?? []}
         tz={tz}
         onClose={() => setDraft(null)}
         onSaved={(s, created) => {
@@ -275,6 +276,7 @@ function instants(d: Draft, tz: string) {
 function ShowDialog({
   draft,
   screens,
+  shows,
   tz,
   onClose,
   onSaved,
@@ -282,6 +284,8 @@ function ShowDialog({
 }: {
   draft: Draft | null;
   screens: Screen[];
+  /** Shows of the day on screen, to spot an overlap before saving */
+  shows: ShowTime[];
   tz: string;
   onClose: () => void;
   onSaved: (s: ShowTime, created: boolean) => void;
@@ -302,7 +306,20 @@ function ShowDialog({
   const times = d.start && d.end ? instants(d, tz) : null;
   const body = times ? { screenId: d.screenId, title: d.title, startsAt: times.startsAt, intervalAt: times.intervalAt, endsAt: times.endsAt, orderCutoffMin: Number(d.cutoff || 0) } : null;
   const parsed = body ? showTimeSchema.safeParse(body) : null;
-  const problem = !d.title.trim() ? "Enter the movie / show name" : !d.start || !d.end ? "Enter the start and end times" : parsed && !parsed.success ? parsed.error.issues[0]?.message : null;
+  const clash =
+    times && times.endsAt
+      ? shows.find((x) => x.screenId === d.screenId && x.id !== d.id && new Date(x.startsAt) < new Date(times.endsAt) && new Date(x.endsAt) > new Date(times.startsAt))
+      : undefined;
+  const clashText = (x: ShowTime) => `This overlaps “${x.title}” (${clock(x.startsAt, tz)}–${clock(x.endsAt, tz)}) on ${screens.find((sc) => sc.id === x.screenId)?.name ?? "this screen"}. Pick another time or screen.`;
+  const problem = !d.title.trim()
+    ? "Enter the movie / show name"
+    : !d.start || !d.end
+      ? "Enter the start and end times"
+      : parsed && !parsed.success
+        ? parsed.error.issues[0]?.message
+        : clash
+          ? clashText(clash)
+          : null;
   const durationMin = times ? Math.round((new Date(times.endsAt).getTime() - new Date(times.startsAt).getTime()) / 60_000) : null;
 
   const save = async () => {
@@ -315,7 +332,8 @@ function ShowDialog({
       const s = d.id ? await theatreApi.updateShow(d.id, rest) : await theatreApi.createShow({ screenId, ...rest });
       onSaved(s, !d.id);
     } catch (e) {
-      setError(e instanceof ApiError && e.status === 409 ? `${e.message} Pick another time or screen.` : errorMessage(e));
+      // The API names the other show with UTC timestamps: keep the title, drop the raw times.
+      setError(e instanceof ApiError && e.status === 409 ? `${e.message.replace(/\s*\([^)]*\d{4}-\d{2}-\d{2}T[^)]*\)/, "")}. Pick another time or screen.`.replace("..", ".") : errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -324,6 +342,7 @@ function ShowDialog({
   return (
     <Dialog
       open
+      size="lg"
       onClose={onClose}
       title={d.id ? "Edit show" : "Add show"}
       footer={
@@ -358,8 +377,8 @@ function ShowDialog({
           ))}
         </Select>
         <Input label="Movie / show" autoFocus={!d.id} maxLength={120} value={d.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Kalki 2898 AD (Telugu)" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Input label="Date" type="date" value={d.date} onChange={(e) => set({ date: e.target.value })} wrapperClassName="col-span-2 sm:col-span-1" />
+        <Input label="Date" type="date" value={d.date} onChange={(e) => set({ date: e.target.value })} wrapperClassName="max-w-xs" />
+        <div className="grid grid-cols-3 gap-3">
           <Input label="Starts" type="time" value={d.start} onChange={(e) => set({ start: e.target.value })} />
           <Input label="Interval" type="time" value={d.interval} onChange={(e) => set({ interval: e.target.value })} hint="Optional" />
           <Input label="Ends" type="time" value={d.end} onChange={(e) => set({ end: e.target.value })} />
@@ -379,7 +398,7 @@ function ShowDialog({
             {times?.intervalAt ? ` · interval at ${clock(times.intervalAt, tz)}` : ""}
           </p>
         )}
-        {touched && problem && <Alert tone="warning">{problem}</Alert>}
+        {(touched || clash) && problem && <Alert tone="warning">{problem}</Alert>}
         {error && <Alert>{error}</Alert>}
         <button type="submit" hidden />
       </form>

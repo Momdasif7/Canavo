@@ -242,7 +242,7 @@ function OrderCard({
 }) {
   const ageMin = Math.max(0, Math.floor((now - new Date(o.createdAt).getTime()) / 60_000));
   return (
-    <article className={clsx("overflow-hidden rounded-xl border-2 bg-surface shadow-sm", STAGE_TONE[o.stage])} data-testid="board-order" data-stage={o.stage}>
+    <article className={clsx("overflow-hidden rounded-xl border-2 bg-surface shadow-sm", o.paid ? STAGE_TONE[o.stage] : "border-dashed border-red-300 dark:border-red-500/40")} data-testid="board-order" data-stage={o.stage}>
       <div className="flex items-start gap-3 px-3 pt-2.5">
         {big && o.pickupToken != null ? (
           <div className="text-center">
@@ -259,7 +259,7 @@ function OrderCard({
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <Badge tone={o.timing === "INTERVAL" ? "warning" : o.timing === "COUNTER" ? "info" : "primary"}>{TIMING_SHORT[o.timing]}</Badge>
-            <span className={clsx("text-xs font-bold", o.stage === "READY" ? "text-secondary dark:text-green-300" : "text-muted")}>{STAGE_LABEL[o.stage]}</span>
+            <span className={clsx("text-xs font-bold", o.stage === "READY" ? "text-secondary dark:text-green-300" : "text-muted")}>{o.paid ? STAGE_LABEL[o.stage] : "Waiting for payment"}</span>
           </p>
         </div>
         <span className="tabular text-xs text-muted" title={`Ordered ${ageMin} min ago`}>
@@ -267,7 +267,7 @@ function OrderCard({
           {ageMin}m
         </span>
       </div>
-      {o.stage === "WAITING" && o.releaseAt && (
+      {o.paid && o.stage === "WAITING" && o.releaseAt && (
         <p className="mx-3 mt-2 flex items-center gap-1.5 rounded-lg bg-amber-100 px-2 py-1 text-sm font-bold text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" data-testid="release-countdown">
           <Hourglass size={16} />
           {new Date(o.releaseAt).getTime() > now ? (
@@ -313,7 +313,7 @@ function OrderCard({
             Delivered
           </Button>
         )}
-        {o.stage === "WAITING" && <span className="text-xs text-muted">Kitchen gets it before the interval</span>}
+        {o.paid && o.stage === "WAITING" && <span className="text-xs text-muted">Kitchen gets it before the interval</span>}
       </div>
     </article>
   );

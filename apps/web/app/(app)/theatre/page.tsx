@@ -242,7 +242,7 @@ function SeatMap({ screen, onSeat }: { screen: Screen; onSeat: (s: Seat) => void
           {screen.rows.map((r) => {
             const byNum = new Map(r.seats.map((s) => [s.seatNumber, s]));
             return (
-              <div key={r.row} className="flex items-center gap-1.5">
+              <div key={r.row} className="flex items-center gap-1">
                 <span className="w-7 shrink-0 text-center text-sm font-extrabold text-muted">{r.row}</span>
                 {Array.from({ length: maxSeat }, (_, i) => i + 1).map((n) => {
                   const s = byNum.get(n);
@@ -254,14 +254,14 @@ function SeatMap({ screen, onSeat }: { screen: Screen; onSeat: (s: Seat) => void
                       title={s.label}
                       aria-label={`Seat ${seatPart(s.label)}${s.active ? "" : " (not in use)"}`}
                       className={clsx(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-t-lg rounded-b-sm border text-[11px] font-bold tabular-nums transition-colors",
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-t-lg rounded-b-sm border text-[11px] font-bold tabular-nums transition-colors",
                         s.active ? "border-primary/40 bg-primary-50 text-primary-700 hover:bg-primary hover:text-primary-fg dark:bg-primary/15 dark:text-primary-200" : "border-dashed border-line bg-surface-2 text-muted line-through",
                       )}
                     >
                       {n}
                     </button>
                   ) : (
-                    <span key={n} className="h-8 w-8 shrink-0" aria-hidden />
+                    <span key={n} className="h-7 w-7 shrink-0" aria-hidden />
                   );
                 })}
                 <span className="w-7 shrink-0 text-center text-sm font-extrabold text-muted">{r.row}</span>
