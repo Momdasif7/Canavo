@@ -181,6 +181,25 @@ function scanInPage() {
   };
   by((it) => (it.name && !LEGIT.test(it.name) ? it.name.toLowerCase() : null), "same-name");
   by((it) => (it.href && it.href !== "#" && !it.href.startsWith("javascript") ? it.href.replace(/\/$/, "") : null), "same-href");
+  // Same destination in two regions at once (e.g. section tabs at the top AND phone bottom tabs). The desktop
+  // sidebar (<aside>) is excluded: it links sections, the tab row links pages inside them, by design.
+  {
+    const m = new Map();
+    for (const it of items) {
+      if (!it.href || it.href === "#" || it.region.startsWith("aside") || it.region.startsWith("dialog")) continue;
+      const k = it.href.replace(/\/$/, "");
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(it);
+    }
+    for (const [href, list] of m) {
+      const regions = new Set(list.map((x) => x.region));
+      if (regions.size < 2) continue;
+      const gid = groups.length;
+      const uniq = [...regions].map((r) => list.find((x) => x.region === r));
+      uniq.forEach((x, mi) => { x.el.setAttribute("data-dup", `g${gid}-${mi}`); x.el.style.outline = "3px solid #7c3aed"; });
+      groups.push({ id: gid, kind: "cross-region", region: [...regions].join(" + "), key: href, count: uniq.length, sameCard: false, members: uniq.map((x) => ({ name: x.name, context: x.region, href: x.href, tag: x.el.tagName.toLowerCase(), box: x.box, cls: (x.el.className || "").toString().slice(0, 120) })) });
+    }
+  }
   // Look-alikes in one card: a bare verb next to the same verb with an object ("Copy" + "Copy message") reads as
   // two identical buttons, especially with the same icon. Reported for review, not necessarily a bug.
   for (const a of items) {
@@ -251,7 +270,12 @@ async function runRole(browser, role, results) {
     const context = await browser.newContext({ viewport: VIEWPORTS[vp] });
     let page;
     try {
-      page = await login(context, role);
+      try {
+        page = await login(context, role);
+      } catch {
+        for (const p of context.pages()) await p.close().catch(() => {});
+        page = await login(context, role); // one retry: first compile of a page in `next dev` can be slow
+      }
     } catch (e) {
       console.log(`  x ${role}: login failed (${e.message.split("\n")[0]})`);
       await context.close();
@@ -311,6 +335,7 @@ async function runRole(browser, role, results) {
         }
       } catch (e) {
         console.log(`  x ${role} ${vp} ${route}: ${e.message.split("\n")[0]}`);
+        if (/has been closed/.test(e.message)) break; // browser gone: stop this role instead of failing every page
       }
     }
     console.log(`${role} ${vp}: ${visited} pages`);

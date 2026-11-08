@@ -235,7 +235,7 @@ function Shell({ pathname, children }: { pathname: string; children: React.React
         </header>
         {me.support && <SupportBanner support={me.support} onExit={() => void exitSupport().then(() => router.push("/platform"))} />}
         <main className="flex min-h-0 flex-1 flex-col print:block">
-          <CategoryTabs groups={groups} pathname={pathname} />
+          <CategoryTabs groups={groups} pathname={pathname} bottomTabsGroup={partnerTabs.length > 0 ? "partner" : undefined} />
           <div className={clsx("min-h-0 flex-1 overflow-y-auto print:overflow-visible", partnerTabs.length > 0 && "pb-[76px] md:pb-0")}>{children}</div>
         </main>
         {partnerTabs.length > 0 && (
@@ -461,11 +461,12 @@ function UserMenu({ name, role, email, photoUrl, onLogout }: { name: string; rol
 }
 
 /** The current category's screens as tabs above the page (categories with their own tabs render them in-page). */
-function CategoryTabs({ groups, pathname }: { groups: NavGroup[]; pathname: string }) {
+/** `bottomTabsGroup`: the group already shown as phone bottom tabs — its top tabs are hidden on phones (no duplicate row). */
+function CategoryTabs({ groups, pathname, bottomTabsGroup }: { groups: NavGroup[]; pathname: string; bottomTabsGroup?: string }) {
   const group = activeNavGroup(groups, pathname);
   if (!group || groups.length === 1 || group.ownTabs || group.items.length < 2) return null;
   return (
-    <div className="mx-auto w-full max-w-[1440px] shrink-0 px-4 pt-3 md:px-6 print:hidden">
+    <div className={clsx("mx-auto w-full max-w-[1440px] shrink-0 px-4 pt-3 md:px-6 print:hidden", group.id === bottomTabsGroup && "hidden md:block")}>
       <TabNav tabs={group.items} label={`${group.label} sections`} className="" />
     </div>
   );

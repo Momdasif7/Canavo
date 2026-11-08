@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CaretLeft, CaretRight, Crown, MagnifyingGlass, Notebook, UserPlus } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, Crown, MagnifyingGlass, UserPlus } from "@phosphor-icons/react";
 import { LOYALTY_TIERS, formatINR, type LoyaltyTierName } from "@canavo/shared";
 import { api } from "@/lib/api";
 import type { CustomerList } from "@/lib/types-crm";
@@ -52,9 +52,6 @@ export default function CustomersPage() {
         subtitle={data ? `${data.total} customer${data.total === 1 ? "" : "s"}${filtered ? " match" : ""}` : undefined}
         actions={
           <>
-            <Link href="/customers/khata" className="inline-flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surface px-4 text-[15px] font-semibold hover:bg-surface-2">
-              <Notebook size={20} /> Khata
-            </Link>
             {can("customer:manage") && (
               <Link
                 href="/customers/loyalty"
