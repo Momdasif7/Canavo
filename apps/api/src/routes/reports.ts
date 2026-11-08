@@ -114,15 +114,22 @@ const taxOf = (o: { cgst: number; sgst: number; igst: number; cess: number; othe
 
 async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
   const groupBy = parse(z.enum(["day", "week", "month"]).default("day"), ctx.q.groupBy);
-  const orders = await prisma.order.findMany({
-    where: { ...window(ctx), status: { in: ["PAID", "CANCELLED"] } },
-    select: {
-      status: true, createdAt: true, orderType: true, channel: true, grandTotal: true, discount: true, promoDiscount: true,
-      extraCharges: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
-      // Filtered in code: a `where` here overflows the bind-value cap on >32k bills (QA Phase 7)
-      payments: { select: { mode: true, amount: true, status: true } },
-    },
-  });
+  const [orders, modes] = await Promise.all([
+    prisma.order.findMany({
+      where: { ...window(ctx), status: { in: ["PAID", "CANCELLED"] } },
+      select: {
+        status: true, createdAt: true, orderType: true, channel: true, grandTotal: true, discount: true, promoDiscount: true,
+        extraCharges: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
+      },
+    }),
+    // Payment modes of the paid bills, summed in PostgreSQL (QA Phase 13 perf-1: no per-bill relation load).
+    prisma.payment.groupBy({
+      by: ["mode"],
+      where: { status: "SUCCESS", order: { ...window(ctx), status: "PAID" } },
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+  ]);
 
   type Bucket = {
     period: string; orders: number; gross: number; net: number; tax: number; discounts: number; promoDiscounts: number;
@@ -172,14 +179,8 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
     ch.gross += o.grandTotal;
     ch.net += o.grandTotal - taxOf(o) - o.roundOff;
     byChannel.set(o.channel, ch);
-    for (const p of o.payments) {
-      if (p.status !== "SUCCESS") continue;
-      const m = byMode.get(p.mode) ?? { mode: p.mode, count: 0, amount: 0 };
-      m.count++;
-      m.amount += p.amount;
-      byMode.set(p.mode, m);
-    }
   }
+  for (const m of modes) byMode.set(m.mode, { mode: m.mode, count: m._count._all, amount: m._sum.amount ?? 0 });
   const periods = [...buckets.values()].map((b) => ({ ...b, aov: avg(b.gross, b.orders) }));
   total.aov = avg(total.gross, total.orders);
   const orderTypes = [...byType.values()].map((t) => ({ ...t, share: pct(t.gross, total.gross) })).sort((a, b) => b.gross - a.gross);
@@ -267,24 +268,24 @@ async function salesReport(ctx: ReportCtx): Promise<BuiltReport> {
 // Items & categories
 // =====================================================================
 
+/** Summed in PostgreSQL: a busy outlet's year is ~300k order lines (QA Phase 13 perf-1: 4 s → <1 s). */
+const LINE_SUMS = { quantity: true, total: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } as const;
+type LineSums = { quantity: number | null; total: number | null; cgst: number | null; sgst: number | null; igst: number | null; cess: number | null; otherTaxes: number | null };
+const lineAgg = (s: LineSums) => {
+  const n = (v: number | null) => v ?? 0;
+  const revenue = n(s.total);
+  return { quantity: n(s.quantity), revenue, net: revenue - (n(s.cgst) + n(s.sgst) + n(s.igst) + n(s.cess) + n(s.otherTaxes)) };
+};
+
 async function itemSales(ctx: ReportCtx) {
   const [lines, menu] = await Promise.all([
-    prisma.orderItem.findMany({
-      where: { order: { ...window(ctx), status: "PAID" } },
-      select: { menuItemId: true, quantity: true, total: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true },
-    }),
+    prisma.orderItem.groupBy({ by: ["menuItemId"], where: { order: { ...window(ctx), status: "PAID" } }, _sum: LINE_SUMS }),
     prisma.menuItem.findMany({
       select: { id: true, name: true, status: true, categoryId: true, category: { select: { name: true, parent: { select: { name: true } } } } },
     }),
   ]);
   const agg = new Map<string, { quantity: number; revenue: number; net: number }>();
-  for (const l of lines) {
-    const a = agg.get(l.menuItemId) ?? { quantity: 0, revenue: 0, net: 0 };
-    a.quantity += l.quantity;
-    a.revenue += l.total;
-    a.net += l.total - taxOf(l);
-    agg.set(l.menuItemId, a);
-  }
+  for (const l of lines) agg.set(l.menuItemId, lineAgg(l._sum));
   const totalRevenue = [...agg.values()].reduce((s, a) => s + a.revenue, 0);
   const totalQty = [...agg.values()].reduce((s, a) => s + a.quantity, 0);
   const rows = menu
@@ -641,14 +642,15 @@ function recipeFor(recipes: RecipeLite[], menuItemId: string, variantId: string 
 const recipeCost = (rows: RecipeLite[]) => Math.round(rows.reduce((s, r) => s + r.quantity * r.item.costPerUnit, 0));
 
 async function profitReport(ctx: ReportCtx): Promise<BuiltReport> {
-  const [orders, stockTxns, wastage, purchases, recipes, menu] = await Promise.all([
-    prisma.order.findMany({
-      where: { ...window(ctx), status: "PAID" },
-      select: {
-        id: true, grandTotal: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true,
-        items: { select: { menuItemId: true, variantId: true, quantity: true, total: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true } },
-      },
+  // Bills and their lines are summed in PostgreSQL (QA Phase 13 perf-1: a busy year was 84k bills + 300k lines in Node).
+  const paid = { ...window(ctx), status: "PAID" as const };
+  const [orderSums, lineGroups, stockTxns, wastage, purchases, recipes, menu] = await Promise.all([
+    prisma.order.aggregate({
+      where: paid,
+      _count: { _all: true },
+      _sum: { grandTotal: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, roundOff: true },
     }),
+    prisma.orderItem.groupBy({ by: ["menuItemId", "variantId"], where: { order: paid }, _sum: LINE_SUMS }),
     prisma.inventoryTransaction.findMany({
       where: { ...window(ctx), type: { in: ["SALE", "SALE_REVERSAL"] } },
       select: { quantity: true, unitCost: true, refType: true, refId: true, item: { select: { costPerUnit: true } } },
@@ -665,7 +667,8 @@ async function profitReport(ctx: ReportCtx): Promise<BuiltReport> {
     prisma.menuItem.findMany({ where: { status: { not: "HIDDEN" } }, select: { id: true, name: true, price: true, gstRate: true, taxRateId: true, variants: { select: { id: true, name: true, price: true } } } }),
   ]);
 
-  const revenue = orders.reduce((s, o) => s + o.grandTotal - taxOf(o) - o.roundOff, 0);
+  const os = orderSums._sum;
+  const revenue = (os.grandTotal ?? 0) - ((os.cgst ?? 0) + (os.sgst ?? 0) + (os.igst ?? 0) + (os.cess ?? 0) + (os.otherTaxes ?? 0)) - (os.roundOff ?? 0);
   // Actual COGS from stock deductions (SALE − SALE_REVERSAL) at the unit cost recorded on each movement.
   let cogsFromStock = 0;
   const ordersWithStock = new Set<string>();
@@ -675,21 +678,25 @@ async function profitReport(ctx: ReportCtx): Promise<BuiltReport> {
   }
   cogsFromStock = Math.round(cogsFromStock);
   // Orders without stock movements (e.g. sold before recipes were set up): estimate from recipes × current cost.
+  // = recipe cost of every paid line − that of the lines of paid bills that have stock movements.
   let cogsEstimated = 0;
-  let estimatedOrders = 0;
   const sold = new Map<string, { quantity: number; net: number }>();
-  for (const o of orders) {
-    const estimate = !ordersWithStock.has(o.id);
-    if (estimate) estimatedOrders++;
-    for (const l of o.items) {
-      const k = `${l.menuItemId}|${l.variantId ?? ""}`;
-      const s = sold.get(k) ?? { quantity: 0, net: 0 };
-      s.quantity += l.quantity;
-      s.net += l.total - taxOf(l);
-      sold.set(k, s);
-      if (estimate) cogsEstimated += recipeCost(recipeFor(recipes, l.menuItemId, l.variantId)) * l.quantity;
-    }
+  for (const l of lineGroups) {
+    const a = lineAgg(l._sum);
+    sold.set(`${l.menuItemId}|${l.variantId ?? ""}`, { quantity: a.quantity, net: a.net });
+    cogsEstimated += recipeCost(recipeFor(recipes, l.menuItemId, l.variantId)) * a.quantity;
   }
+  const stockIds = [...ordersWithStock];
+  const [stockedLines, stockedBills] = stockIds.length
+    ? await Promise.all([
+        inChunks(stockIds, (ids) =>
+          prisma.orderItem.groupBy({ by: ["menuItemId", "variantId"], where: { order: { ...paid, id: { in: ids } } }, _sum: { quantity: true } }),
+        ),
+        inChunks(stockIds, async (ids) => [await prisma.order.count({ where: { ...paid, id: { in: ids } } })]),
+      ])
+    : [[], [0]];
+  for (const l of stockedLines) cogsEstimated -= recipeCost(recipeFor(recipes, l.menuItemId, l.variantId)) * (l._sum.quantity ?? 0);
+  const estimatedOrders = orderSums._count._all - stockedBills.reduce((s, n) => s + n, 0);
   const cogs = cogsFromStock + cogsEstimated;
   const wastageValue = Math.round(wastage.reduce((s, t) => s + Math.abs(t.quantity) * (t.unitCost ?? t.item.costPerUnit), 0));
   const purchasesTotal = purchases.reduce((s, p) => s + p.total, 0);

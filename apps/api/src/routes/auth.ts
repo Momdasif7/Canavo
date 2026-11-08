@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import bcrypt from "bcryptjs";
+import { bcrypt } from "../lib/bcrypt-pool";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, passwordProblems,

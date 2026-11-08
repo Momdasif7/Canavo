@@ -1,5 +1,5 @@
 import { Router } from "express";
-import bcrypt from "bcryptjs";
+import { bcrypt } from "../lib/bcrypt-pool";
 import { z } from "zod";
 import { customRoleSchema, customRoleUpdateSchema, PERMISSION_LABELS, ROLE_LABELS, ROLE_PERMISSIONS, staffCreateSchema, staffUpdateSchema, type Permission, type Role } from "@canavo/shared";
 import { prisma } from "../db";
