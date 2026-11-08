@@ -383,8 +383,7 @@
           },
           "selfieUrl": {
             "type": "string",
-            "format": "uri",
-            "maxLength": 500
+            "format": "uri"
           }
         },
         "required": [
@@ -3293,8 +3292,7 @@
           },
           "baseUrl": {
             "type": "string",
-            "format": "uri",
-            "maxLength": 300
+            "format": "uri"
           },
           "externalStoreId": {
             "type": "string",

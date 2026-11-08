@@ -2,6 +2,13 @@ import { z } from "zod";
 import { newPasswordSchema } from "./password";
 import { CUSTOM_ROLE_BASES, PERMISSIONS, ROLES } from "./rbac";
 
+/** An http(s) link only: z.string().url() also accepts javascript:, data: and file: (QA Phase 8). */
+export const httpUrl = z
+  .string()
+  .trim()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), "Use a link starting with http:// or https://");
+
 export const indianPhone = z
   .string()
   .trim()
@@ -35,7 +42,7 @@ export const outletSchema = z.object({
     .or(z.literal("")),
   fssai: z.string().regex(/^\d{14}$/, "FSSAI licence is 14 digits").optional().or(z.literal("")),
   phone: z.string().max(20).optional(),
-  logoUrl: z.string().url().optional().or(z.literal("")),
+  logoUrl: httpUrl.optional().or(z.literal("")),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   geofenceMeters: z.number().int().min(20).max(5000).default(150),
@@ -113,7 +120,7 @@ export const clockSchema = z.object({
   /** The phone says the location is fake (Android "mock location" apps) */
   mocked: z.boolean().optional(),
   /** Selfie uploaded via POST /uploads/image just before clocking in (feature CLOCK_IN_SELFIE) */
-  selfieUrl: z.string().url().max(500).optional(),
+  selfieUrl: httpUrl.pipe(z.string().max(500)).optional(),
 });
 
 /** Manager / owner attendance entry for one employee on one day. Times are HH:MM in outlet time. */
@@ -184,7 +191,7 @@ export const menuItemSchema = z.object({
   /** Custom tax rate of the business; null = business default rate */
   taxRateId: z.string().nullable().optional(),
   hsnCode: z.string().max(8).default("996331"),
-  imageUrl: z.string().url().optional().or(z.literal("")),
+  imageUrl: httpUrl.optional().or(z.literal("")),
   status: z.enum(["AVAILABLE", "OUT_OF_STOCK", "HIDDEN"]).default("AVAILABLE"),
   allergens: z.array(z.string()).default([]),
   availableFrom: hhmm.nullable().optional(),
@@ -289,7 +296,7 @@ export const channelBoardSettingsSchema = z.object({ autoPrint: z.boolean() });
 export const channelConnectionSchema = z.object({
   provider: z.enum(CHANNEL_PROVIDERS).default("HUB"),
   enabled: z.boolean().default(false),
-  baseUrl: z.string().trim().url().max(300),
+  baseUrl: httpUrl.pipe(z.string().max(300)),
   externalStoreId: z.string().trim().min(1).max(100),
   apiKey: z.string().trim().min(1).max(500).optional(),
   webhookSecret: z.string().trim().min(8).max(500).optional(),
