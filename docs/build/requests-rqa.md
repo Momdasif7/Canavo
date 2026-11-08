@@ -189,6 +189,19 @@ Each business connects its **own** accounts. No `.env` and no redeploy per store
   - `sweep-auth.test.ts`: the per-store webhook is on the public allowlist.
   - `integration/storefront.test.ts`: the env Razorpay path sets `RAZORPAY_SHARED_ACCOUNT`.
 - OpenAPI index updated (`openapi.ts`, `openapi-extra.ts`); `docs/api` regenerated (397 operations).
+  `docs/qa/sql/tenant-integrity.sql` was regenerated for the new table (343 checks).
+- **Results on `canavo_it_rqa`:**
+  - `tsc` clean for api and web; `npm run lint` clean; migrate diff empty.
+  - Unit tests: 160/160.
+  - Integration: 206 passed, 1 skipped.
+  - test:api: 748/748, 24 files.
+  - test:db: **all 10 files pass** (third run). Two files failed in earlier runs, neither because of this change:
+    - `reconciliation.test.ts` ("each query really catches its kind of damage") once hit the Phase 7 CHECK
+      `GiftCard_balance_le_initial_check` with its deliberate `balance + 1` corruption. That only happens when the
+      card is at its full loaded value, so this test is order- or data-dependent.
+    - `kot-numbering.test.ts` (12 concurrent bills) once returned two 500s.
+
+    Both are worth a look by the Phase 7 owner.
 
 ## Screenshots
 
