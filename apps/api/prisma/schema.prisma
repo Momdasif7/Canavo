@@ -1370,6 +1370,39 @@ model Business {
   aadhaarMode    AadhaarMode     @default(LAST4)
   /// Brand look for everyone in the business { accent, corners } — see brandSchema in @canavo/shared
   brand          Json            @default("{}")
+  integrations   BusinessIntegration[]
+}
+
+enum IntegrationKind {
+  RAZORPAY
+  SMTP
+  SMS
+  WHATSAPP
+}
+
+/// A business's own third-party account (Razorpay, SMTP, MSG91 SMS, WhatsApp), managed by the owner in
+/// Settings → Integrations. Secrets are AES-256-GCM ciphertexts (lib/crypto.ts) and never leave the API.
+model BusinessIntegration {
+  id              String          @id @default(cuid())
+  businessId      String
+  kind            IntegrationKind
+  enabled         Boolean         @default(true)
+  /// Non-secret settings (key id, SMTP host/port/user/from, template ids, WhatsApp provider/templates…)
+  config          Json            @default("{}")
+  /// field → ciphertext ("v1:…"); never returned, logged, audited or exported
+  secrets         Json            @default("{}")
+  /// Unguessable id in this business's Razorpay webhook URL (/webhooks/razorpay/<key>)
+  webhookKey      String?         @unique
+  lastTestedAt    DateTime?
+  lastTestOk      Boolean?
+  /// Short, secret-free outcome of the last connection test
+  lastTestMessage String?
+  updatedById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, kind])
 }
 
 /// A tax rate a business defines for its menu (e.g. "GST 5%" = CGST 2.5 + SGST 2.5, or with cess / VAT).

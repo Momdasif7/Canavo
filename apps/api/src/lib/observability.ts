@@ -24,6 +24,13 @@ const REDACT = [
   "*.accessToken",
   "*.refreshToken",
   "*.token",
+  "*.secret",
+  "*.secrets",
+  "*.keySecret",
+  "*.webhookSecret",
+  "*.authKey",
+  "*.watiToken",
+  "*.metaAccessToken",
 ];
 
 export const createLogger = (destination?: pino.DestinationStream) =>

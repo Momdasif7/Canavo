@@ -94,6 +94,9 @@ services:
       # DLT template with a ##message## variable: alerts and password links by SMS
       - key: MSG91_ALERT_TEMPLATE_ID
         sync: false
+      # Platform's own Razorpay; stores use it only with RAZORPAY_SHARED_ACCOUNT=true (stores add their own keys in the app)
+      - key: RAZORPAY_SHARED_ACCOUNT
+        value: "false"
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET

@@ -24,7 +24,7 @@ import {
   Storefront,
   type Icon,
 } from "@phosphor-icons/react";
-import { Briefcase, IdentificationBadge } from "@phosphor-icons/react";
+import { Briefcase, IdentificationBadge, Plug } from "@phosphor-icons/react";
 import { Gift, Vault, Buildings, ChartLineUp, ClockCounterClockwise, Gauge, HandCoins, IdentificationCard, Lifebuoy, Percent, ShieldStar, SlidersHorizontal, Truck } from "@phosphor-icons/react";
 import { ForkKnife, Clock, Repeat, QrCode, PlugsConnected, Tote } from "@phosphor-icons/react";
 import { ADMIN_SECTIONS } from "@/components/admin/nav";
@@ -195,7 +195,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/settings", label: "Outlet settings", icon: GearSix, anyOf: ["settings:view"] },
       { href: "/settings/taxes", label: "GST & Taxes", icon: Percent, anyOf: ["settings:billing"], allOf: ["settings:view"] },
-      { href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
+      // Per-store Razorpay / email / SMS / WhatsApp accounts (owner edits, managers see status only)
+      { href: "/settings/integrations", label: "Integrations", icon: Plug, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
+      { href: "/settings/whatsapp", label: "WhatsApp templates", icon: WhatsappLogo, anyOf: ["settings:outlet"], allOf: ["settings:view"] },
       // Phase 6.3/6.4 (CHANNELS): QR table ordering + the outlet's own online ordering page.
       { href: "/settings/online-ordering", label: "Online ordering", icon: QrCode, anyOf: ["channel:manage"] },
       // Phase 6.1 (CHANNELS): Zomato / Swiggy through an order hub

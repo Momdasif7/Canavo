@@ -17,6 +17,7 @@ export const BUSINESS_SCOPED_MODELS = new Set([
   "CustomRole",
   "CorporateAccount",
   "CorporateStatement",
+  "BusinessIntegration",
 ]);
 
 const FILTERED_OPS = new Set([

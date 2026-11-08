@@ -27,9 +27,18 @@ const schema = z.object({
   RECEIPT_LINK_SECRET: z.string().min(32),
   MSG91_AUTH_KEY: z.string().optional(),
   MSG91_TEMPLATE_ID: z.string().optional(),
+  /** MSG91 API base (tests point it at a fake server) */
+  MSG91_BASE_URL: z.string().url().default("https://control.msg91.com"),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * The env RAZORPAY_* keys are the PLATFORM's own Razorpay account. Stores use their own keys (Settings →
+   * Integrations). Only when this is "true" do stores without their own keys collect through the platform's
+   * account; otherwise they get a plain UPI QR for the outlet's UPI ID (money never lands in the platform's
+   * account by accident).
+   */
+  RAZORPAY_SHARED_ACCOUNT: z.preprocess((v) => v === "true" || v === "1" || v === true, z.boolean()).default(false),
   /** Razorpay API base (tests point it at a fake server) */
   RAZORPAY_BASE_URL: z.string().url().default("https://api.razorpay.com"),
   WATI_API_URL: z.string().optional(),
@@ -94,7 +103,7 @@ export function productionConfigProblems(e = env): string[] {
     if (/change-me|^ci-|^test-|^it-|^qa-/.test(e[k])) problems.push(`${k} is a placeholder/test value`);
   }
   if (new Set([e.JWT_ACCESS_SECRET, e.JWT_REFRESH_SECRET, e.RECEIPT_LINK_SECRET]).size < 3) problems.push("JWT_ACCESS_SECRET, JWT_REFRESH_SECRET and RECEIPT_LINK_SECRET must all differ");
-  if (!e.DATA_ENCRYPTION_KEY) problems.push("DATA_ENCRYPTION_KEY is required (encrypted Aadhaar and WhatsApp tokens)");
+  if (!e.DATA_ENCRYPTION_KEY) problems.push("DATA_ENCRYPTION_KEY is required (encrypted Aadhaar and store integration keys)");
   if (/localhost|127\.0\.0\.1/.test(e.PUBLIC_API_URL)) problems.push("PUBLIC_API_URL points at localhost (receipt links would be broken)");
   if (e.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) problems.push("CORS_ORIGINS must not be *");
   if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");

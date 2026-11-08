@@ -30,6 +30,8 @@ const PUBLIC = new Set([
   "get /uploads/files/:name",
   "get /public/receipts/:token",
   "post /webhooks/razorpay",
+  // Per-store Razorpay webhook: unguessable key + that store's signature
+  "post /webhooks/razorpay/:businessKey",
   "post /channels/hub/:connectionId/webhook",
   "get /public/t/:token",
   "post /public/t/:token/orders",

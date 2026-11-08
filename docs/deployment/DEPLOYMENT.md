@@ -52,14 +52,16 @@ The blueprint creates it. Otherwise: **New → Web Service** → this repo → *
    | `NODE_ENV` | `production` |
    | `DATABASE_URL` | from canavo-db (the blueprint links it) |
    | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `RECEIPT_LINK_SECRET` | the blueprint generates them; otherwise `openssl rand -hex 32` each |
-   | `DATA_ENCRYPTION_KEY` | `openssl rand -base64 32`. **Required.** The API refuses to start without it. **Store a copy in a password manager**: without it, encrypted Aadhaar numbers and WhatsApp tokens can't be read. |
+   | `DATA_ENCRYPTION_KEY` | `openssl rand -base64 32`. **Required.** The API refuses to start without it. **Store a copy in a password manager**: without it, encrypted Aadhaar numbers and every store's integration keys (Razorpay, SMTP, MSG91, WhatsApp) can't be read — owners would have to re-enter them. |
    | `CORS_ORIGINS` | your web domain(s), e.g. `https://app.example.in,https://*.vercel.app` (the wildcard allows Vercel preview links) |
    | `PUBLIC_API_URL` | this service's URL, e.g. `https://canavo-api.onrender.com` (or your API domain) |
    | `WEB_APP_URL` | the web app's URL, e.g. `https://app.example.in`. **Required.** Password setup and reset links point here. |
    | `SMTP_*` **or** `MSG91_AUTH_KEY` + `MSG91_ALERT_TEMPLATE_ID` | **At least one is required.** New owners get a "set your password" link and locked-out users a reset link. The platform never types or sees anyone's password. |
    | `AUTH_COOKIE_DOMAIN` | optional, e.g. `.example.in`, when the web app and API run on `app.` and `api.` of your domain. Web sessions then move to httpOnly cookies, which a malicious script can't steal ([ADR 0006](../build/adr/0006-web-session-cookies.md)). |
    | `CLOUDINARY_*` | recommended, so uploaded photos don't depend on one server's disk |
-   | `MSG91_*`, `RAZORPAY_*`, `SMTP_*`, `EXPO_ACCESS_TOKEN` | optional; each feature falls back safely when empty |
+   | `MSG91_*`, `SMTP_*`, `WATI_*` | the **platform's** own accounts: staff login OTP and password links always use them; stores without their own integration fall back to them |
+   | `RAZORPAY_*` | the platform's own Razorpay account. Used for stores **only** when `RAZORPAY_SHARED_ACCOUNT=true` (the platform deliberately collects for stores); otherwise stores without their own keys get a plain UPI QR — money never reaches the platform's account by accident. Its webhook is `POST /webhooks/razorpay`. |
+   | `EXPO_ACCESS_TOKEN` | optional |
    | `JOBS_MODE` | `worker` when canavo-worker runs the jobs (the blueprint sets it). `embedded` runs them inside the API instead, for a single small server without a worker. |
    | `LOG_FORMAT` | `json` (one JSON line per request with a request id; secrets redacted). `LOG_LEVEL` defaults to `info`. |
    | `METRICS_TOKEN` | 16+ characters. Prometheus scrapes `GET /metrics` with `Authorization: Bearer <token>`. In production, `/metrics` is closed without it. |
@@ -87,6 +89,29 @@ The blueprint creates it. Otherwise: **New → Web Service** → this repo → *
    - log in;
    - **turn on two-step login** (Account → Security). Opening a hotel's support view requires it;
    - onboard hotels from the platform console. Each new owner gets a link to set their own password.
+
+### 2a. Per-store integrations (no `.env` per store)
+
+Each store's owner connects their own accounts in **Settings → Integrations** after onboarding — nothing to change on
+the server:
+
+1. **Razorpay:** key ID + key secret (Dashboard → Account & Settings → API Keys); then in Razorpay → Webhooks add the
+   store's webhook URL shown on the page (`{PUBLIC_API_URL}/webhooks/razorpay/<store key>`), a secret (entered on both
+   sides) and the events `qr_code.credited`, `refund.processed`, `refund.failed`. *Test connection* checks the keys.
+2. **WhatsApp:** Meta Cloud API (phone number ID + permanent token) or WATI; template names / languages and a test
+   send per message type in **Settings → WhatsApp templates** (texts are approved in Meta WhatsApp Manager).
+3. **Email:** the store's SMTP server (reports and notifications are sent from its address). In production the
+   server must be a public host on port 25, 465, 587 or 2525 (internal addresses are refused, also after DNS lookup).
+4. **SMS:** MSG91 auth key, DLT sender ID, OTP / alert template IDs (customer OTP on the store's ordering page, staff alerts).
+
+Keys are encrypted with `DATA_ENCRYPTION_KEY`, write-only, audited by field name only, excluded from the owner data
+export and never visible to the Super Admin, platform support or support views. Platform backups contain them only
+as ciphertext.
+
+**Upgrading an existing installation:** migration `20261107120000_business_integrations` moves each store's WhatsApp
+setup out of the settings table into the new `BusinessIntegration` table (tokens are copied as ciphertext, not
+decrypted). If the platform's env Razorpay keys were collecting for stores until now, set `RAZORPAY_SHARED_ACCOUNT=true`
+to keep that working during the transition, and ask each store to add its own keys.
 
 ### 2b. Worker (Render: canavo-worker)
 

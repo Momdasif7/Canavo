@@ -1,16 +1,17 @@
 "use client";
 
-import { BellRinging, GearSix, Lifebuoy, Percent, PlugsConnected, QrCode, Storefront, WhatsappLogo } from "@phosphor-icons/react";
+import { BellRinging, GearSix, Lifebuoy, Percent, Plug, PlugsConnected, QrCode, Storefront, WhatsappLogo } from "@phosphor-icons/react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { TabNav, type TabLink } from "@/components/reports/TabNav";
 
-/** Sub-navigation of the Settings category: outlet profile, GST & taxes, WhatsApp, notifications, outlets. */
+/** Sub-navigation of the Settings category: outlet profile, GST & taxes, integrations, WhatsApp templates, notifications, outlets. */
 export function SettingsTabs() {
   const { can } = useSession();
   const tabs: TabLink[] = [];
   if (can("settings:view")) tabs.push({ href: "/settings", label: "Outlet & devices", icon: GearSix });
   if (can("settings:view") && can("settings:billing")) tabs.push({ href: "/settings/taxes", label: "GST & Taxes", icon: Percent });
-  if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/whatsapp", label: "WhatsApp", icon: WhatsappLogo });
+  if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/integrations", label: "Integrations", icon: Plug });
+  if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/whatsapp", label: "WhatsApp templates", icon: WhatsappLogo });
   if (can("channel:manage")) tabs.push({ href: "/settings/online-ordering", label: "Online ordering", icon: QrCode });
   if (can("channel:manage")) tabs.push({ href: "/settings/channels", label: "Channels", icon: PlugsConnected });
   if (can("settings:view")) tabs.push({ href: "/settings/notifications", label: "Notifications", icon: BellRinging });

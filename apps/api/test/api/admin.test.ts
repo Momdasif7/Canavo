@@ -36,9 +36,9 @@ describe("authorization matrix", () => {
     ["GET", "/admin/aadhaar-settings", ["staff:manage"]],
     ["PATCH", "/admin/aadhaar-settings", ["outlet:manage"]],
     ["POST", "/admin/aadhaar/reduce-to-last4", ["outlet:manage"]],
-    ["GET", "/admin/whatsapp", ["settings:outlet"]],
-    ["PUT", "/admin/whatsapp", ["settings:outlet"]],
-    ["POST", "/admin/whatsapp/test", ["settings:outlet"]],
+    ["GET", "/admin/whatsapp", ["outlet:manage"]],
+    ["PUT", "/admin/whatsapp", ["outlet:manage"]],
+    ["POST", "/admin/whatsapp/test", ["outlet:manage"]],
     ["GET", "/admin/backups", ["admin:backup"]],
     ["POST", "/admin/backups", ["admin:backup"]],
     ["GET", "/admin/table-counts", ["admin:backup"]],
@@ -232,13 +232,15 @@ describe("WhatsApp config", () => {
     const token = "EAAG-super-secret-token-1234567890ABCD";
     const r = await owner.call("PUT", "/admin/whatsapp", { provider: "META", meta: { phoneNumberId: "1234567890", accessToken: token } });
     expect(r.status).toBe(200);
-    const g = await manager.call("GET", "/admin/whatsapp");
+    // Integrations are owner-only (Settings → Integrations); managers get 403 here.
+    expect((await manager.call("GET", "/admin/whatsapp")).status).toBe(403);
+    const g = await owner.call("GET", "/admin/whatsapp");
     expect(g.status).toBe(200);
     expect(JSON.stringify(g.body)).not.toContain(token);
     expect(JSON.stringify(g.body)).not.toMatch(/accessTokenEnc|tokenEnc/);
     expect(g.body.meta.token).toBe("••••ABCD");
-    const row = await db.setting.findFirstOrThrow({ where: { scope: h.businessId, key: { contains: "whatsapp" } } });
-    expect(JSON.stringify(row.value)).not.toContain(token);
+    const row = await db.businessIntegration.findFirstOrThrow({ where: { businessId: h.businessId, kind: "WHATSAPP" } });
+    expect(JSON.stringify(row)).not.toContain(token);
     expect((await otherOwner.call("GET", "/admin/whatsapp")).body.meta).toBeNull();
   });
 

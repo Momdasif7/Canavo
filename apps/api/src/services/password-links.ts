@@ -62,11 +62,11 @@ export async function sendPasswordLink(user: LinkUser, purpose: PasswordLinkPurp
         `<p>${invite ? "Your CANAVO account is ready. Set your password to sign in:" : "Use this link to set a new CANAVO password:"}</p>` +
         `<p><a href="${url}">${invite ? "Set my password" : "Reset my password"}</a></p>` +
         `<p>The link works once and expires in ${validFor}. If you didn't ask for this, ignore this email; your password stays the same.</p>`,
-    });
+    }, { scope: "platform" });
     return { channel: "email", expiresAt };
   }
   if (smsConfigured()) {
-    await sendSms(user.phone, `CANAVO: ${invite ? "set" : "reset"} your password (valid ${validFor}, one use): ${url}`);
+    await sendSms(user.phone, `CANAVO: ${invite ? "set" : "reset"} your password (valid ${validFor}, one use): ${url}`, { scope: "platform" });
     return { channel: "sms", expiresAt };
   }
   if (isProd) {

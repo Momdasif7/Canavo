@@ -422,7 +422,8 @@ export async function tableCounts(): Promise<Record<string, number>> {
 
 /** Secrets never leave the server in a data export (backups are full-fidelity). */
 const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey"]);
-const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc"]);
+// BusinessIntegration.secrets (encrypted keys) and webhookKey (the store's webhook path) stay on the server.
+const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc", "secrets", "webhookKey"]);
 
 function redact(r: Row): Row {
   const out: Row = {};
