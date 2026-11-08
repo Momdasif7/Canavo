@@ -30,6 +30,7 @@ import { checkLowStockAfterOrder, deductStockForOrder } from "./inventory";
 import { resolveItemTax, taxConfigForOutlet, taxSnapshot } from "./tax";
 import { alertKitchenNewKots } from "./alerts";
 import { lastKotNumberToday } from "./kot-number";
+import { onSeatOrderPaid } from "./theatre-kot";
 
 /**
  * Failure-injection seam for integration tests only (never active outside NODE_ENV=test):
@@ -424,6 +425,8 @@ export async function settleIfPaid(orderId: string, tx: Prisma.TransactionClient
     await tx.order.update({ where: { id: orderId }, data: { status: "PAID", paidAt: new Date() } });
     await onOrderPaid(tx, orderId);
     await onOrderPaidService(tx, orderId);
+    // THEATRE: a prepaid seat order goes to the kitchen once paid (and accepted).
+    if (order.channel === "QR") await onSeatOrderPaid(tx, orderId);
     return true;
   }
   return order.status === "PAID";

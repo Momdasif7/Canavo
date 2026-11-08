@@ -291,9 +291,10 @@ tablesRouter.get("/floor", requirePermission("table:serve"), async (req, res) =>
   const now = new Date();
   const [outlet, areas, tables, sessions, reservations] = await Promise.all([
     prisma.outlet.findUniqueOrThrow({ where: { id: outletId } }),
-    prisma.diningArea.findMany({ where: { outletId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    // THEATRE: cinema screens and their seats live on /theatre, not on the restaurant floor plan.
+    prisma.diningArea.findMany({ where: { outletId, kind: "FLOOR" }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.diningTable.findMany({
-      where: { outletId, active: true },
+      where: { outletId, active: true, seatRow: null },
       include: { waiter: { select: { id: true, name: true } } },
       orderBy: { label: "asc" },
     }),
@@ -381,8 +382,10 @@ tablesRouter.get("/sessions", requirePermission("table:serve"), async (req, res)
 // Areas
 // =====================================================================
 
+/** Dining areas; cinema screens (THEATRE) only with ?includeScreens=1. */
 tablesRouter.get("/areas", requirePermission("table:serve"), async (req, res) => {
-  res.json(await prisma.diningArea.findMany({ where: { outletId: req.outletId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }));
+  const kind = req.query.includeScreens === "1" ? {} : { kind: "FLOOR" as const };
+  res.json(await prisma.diningArea.findMany({ where: { outletId: req.outletId, ...kind }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }));
 });
 
 tablesRouter.post("/areas", requirePermission("table:manage"), async (req, res) => {
@@ -393,8 +396,9 @@ tablesRouter.post("/areas", requirePermission("table:manage"), async (req, res) 
   res.status(201).json(area);
 });
 
+/** A restaurant area (screens are managed on /theatre and can't take normal tables). */
 async function findArea(id: string, outletId: string) {
-  const a = await prisma.diningArea.findFirst({ where: { id, outletId } });
+  const a = await prisma.diningArea.findFirst({ where: { id, outletId, kind: "FLOOR" } });
   if (!a) throw notFound("Area");
   return a;
 }
@@ -419,10 +423,11 @@ tablesRouter.delete("/areas/:id", requirePermission("table:manage"), async (req,
 // Tables
 // =====================================================================
 
+/** Tables; cinema seats (THEATRE) only with ?includeScreens=1. */
 tablesRouter.get("/", requirePermission("table:serve"), async (req, res) => {
   res.json(
     await prisma.diningTable.findMany({
-      where: { outletId: req.outletId, ...(req.query.all ? {} : { active: true }) },
+      where: { outletId: req.outletId, ...(req.query.all ? {} : { active: true }), ...(req.query.includeScreens === "1" ? {} : { seatRow: null }) },
       include: { area: { select: { id: true, name: true } }, waiter: { select: { id: true, name: true } } },
       orderBy: { label: "asc" },
     }),
@@ -446,7 +451,7 @@ tablesRouter.put("/layout", requirePermission("table:manage"), async (req, res) 
   const owned = await prisma.diningTable.findMany({ where: { outletId, id: { in: tables.map((t) => t.id) } }, select: { id: true } });
   if (owned.length !== new Set(tables.map((t) => t.id)).size) throw badRequest("Unknown table in layout");
   const areaIds = [...new Set(tables.map((t) => t.areaId).filter((a): a is string => Boolean(a)))];
-  if (areaIds.length && (await prisma.diningArea.count({ where: { outletId, id: { in: areaIds } } })) !== areaIds.length) {
+  if (areaIds.length && (await prisma.diningArea.count({ where: { outletId, id: { in: areaIds }, kind: "FLOOR" } })) !== areaIds.length) {
     throw badRequest("Unknown area in layout");
   }
   // Callback form: the batch form isn't supported with row-level security (it threw → 500 on every save).
@@ -455,7 +460,7 @@ tablesRouter.put("/layout", requirePermission("table:manage"), async (req, res) 
   });
   await audit(req, "table.layout.save", "DiningTable", undefined, { count: tables.length });
   emitTables(outletId, { tableIds: tables.map((t) => t.id), action: "layout" });
-  res.json(await prisma.diningTable.findMany({ where: { outletId, active: true }, orderBy: { label: "asc" } }));
+  res.json(await prisma.diningTable.findMany({ where: { outletId, active: true, seatRow: null }, orderBy: { label: "asc" } }));
 });
 
 async function findTable(id: string, outletId: string) {

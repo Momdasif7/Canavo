@@ -2100,6 +2100,9 @@ model ChannelRequest {
   showTimeId    String?
   /// THEATRE: pickup number per outlet per local day (1, 2, 3 …), counter pickup orders
   pickupToken   Int?
+  /// THEATRE runner board: food ready for a runner / the counter, and handed over at the seat / counter
+  readyAt       DateTime?
+  deliveredAt   DateTime?
   createdAt     DateTime  @default(now())
   outlet        Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
 

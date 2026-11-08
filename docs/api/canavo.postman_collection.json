@@ -2934,6 +2934,33 @@
               ]
             }
           }
+        },
+        {
+          "name": "GET /reports/theatre",
+          "request": {
+            "method": "GET",
+            "description": "Cinema seat orders ?from&to (local days) &format=json|xlsx|pdf → TheatreReport { totals, byScreen, byShow, byTiming }",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/theatre",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "theatre"
+              ]
+            }
+          }
         }
       ]
     },
@@ -10924,7 +10951,7 @@
           "name": "GET /public/t/{token}",
           "request": {
             "method": "GET",
-            "description": "QR table page: outlet, table and menu",
+            "description": "QR table page: outlet, table and menu (a cinema seat adds theatre { seat, show, options, settings })",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/public/t/:token",
@@ -10943,7 +10970,7 @@
           "name": "POST /public/t/{token}/orders",
           "request": {
             "method": "POST",
-            "description": "Order from the table (joins the running tab). Body: qrOrderSchema",
+            "description": "Order from the table (joins the running tab). Body: qrOrderSchema; a cinema seat takes seatOrderSchema (timing) and always returns a UPI QR to prepay",
             "header": [
               {
                 "key": "Content-Type",
@@ -10977,7 +11004,7 @@
           "name": "GET /public/t/{token}/orders",
           "request": {
             "method": "GET",
-            "description": "This table's orders and their status",
+            "description": "This table's orders and their status (seats: timing, pickupToken, runner stage, pending UPI)",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/public/t/:token/orders",
@@ -11118,6 +11145,47 @@
                 ":slug",
                 "orders",
                 ":token",
+                "upi"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /public/s/{screenToken}",
+          "request": {
+            "method": "GET",
+            "description": "Screen poster QR: outlet, screen, show and active seats by row (each with its seat QR token)",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/s/:screenToken",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "s",
+                ":screenToken"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /public/t/{token}/orders/{orderToken}/upi",
+          "request": {
+            "method": "POST",
+            "description": "Seat order: a fresh UPI QR when the first expired → { qrPayload, imageUrl, amount, mock }",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/t/:token/orders/:orderToken/upi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "t",
+                ":token",
+                "orders",
+                ":orderToken",
                 "upi"
               ]
             }
@@ -12590,6 +12658,535 @@
               ],
               "path": [
                 "settlements"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cinema",
+      "item": [
+        {
+          "name": "GET /theatre/screens",
+          "request": {
+            "method": "GET",
+            "description": "Screens with seats by row, seat QR tokens, current / next show → Screen[]",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/screens",
+          "request": {
+            "method": "POST",
+            "description": "Create a screen (code S1, S2 … fixed for its life; own screen QR). Body: screenSchema → Screen",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /theatre/screens/{id}",
+          "request": {
+            "method": "PATCH",
+            "description": "Rename / reorder a screen. Body: screenUpdateSchema → Screen",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens",
+                ":id"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /theatre/screens/{id}",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a screen and its seats. 409 while a seat has an open tab or a waiting order, or when the screen has seat orders in its history",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens",
+                ":id"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/screens/{id}/seats",
+          "request": {
+            "method": "POST",
+            "description": "Bulk-add seats rows × from…to minus skip (idempotent; inactive seats in the range come back; at most 3,000 per screen). Body: seatBulkSchema → { created, skipped, total }",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens/:id/seats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens",
+                ":id",
+                "seats"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    \"string\"\n  ],\n  \"from\": 1,\n  \"to\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/screens/{id}/qr/rotate",
+          "request": {
+            "method": "POST",
+            "description": "New screen QR token (old posters stop working) → Screen",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/screens/:id/qr/rotate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "screens",
+                ":id",
+                "qr",
+                "rotate"
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /theatre/seats/{id}",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a seat (deactivated when it has history). 409 while it has an open tab / waiting order",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/seats/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "seats",
+                ":id"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /theatre/showtimes",
+          "request": {
+            "method": "GET",
+            "description": "Shows overlapping a local day ?date=YYYY-MM-DD (default today) &screenId → ShowTime[]",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/showtimes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "showtimes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/showtimes",
+          "request": {
+            "method": "POST",
+            "description": "Add a show. 409 if it overlaps another show on the screen. Body: showTimeSchema → ShowTime",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/showtimes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "showtimes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"screenId\": \"string\",\n  \"title\": \"string\",\n  \"startsAt\": \"2026-11-03T10:00:00+05:30\",\n  \"endsAt\": \"2026-11-03T10:00:00+05:30\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /theatre/showtimes/{id}",
+          "request": {
+            "method": "PATCH",
+            "description": "Edit a show (same overlap / time rules). Body: showTimeUpdateSchema → ShowTime",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/showtimes/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "showtimes",
+                ":id"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /theatre/showtimes/{id}",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a show; 409 when it has seat orders (kept for the reports)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/showtimes/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "showtimes",
+                ":id"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /theatre/settings",
+          "request": {
+            "method": "GET",
+            "description": "Theatre settings (seat ordering, interval lead minutes, counter pickup, deliver during show) → TheatreSettings",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "settings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /theatre/settings",
+          "request": {
+            "method": "PATCH",
+            "description": "Change theatre settings. Body: theatreSettingsSchema (partial) → TheatreSettings",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "settings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /theatre/board",
+          "request": {
+            "method": "GET",
+            "description": "Runner board ?screenId: seat orders by screen and row + counter pickups by token → RunnerBoard",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/board",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "board"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/orders/{requestId}/ready",
+          "request": {
+            "method": "POST",
+            "description": "Food ready for a runner / the counter (its KOTs → Ready). 409 unpaid, held for the interval, delivered → BoardOrder",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/orders/:requestId/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "orders",
+                ":requestId",
+                "ready"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /theatre/orders/{requestId}/delivered",
+          "request": {
+            "method": "POST",
+            "description": "Handed over at the seat / counter (KOTs → Served) → BoardOrder",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/theatre/orders/:requestId/delivered",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "theatre",
+                "orders",
+                ":requestId",
+                "delivered"
               ]
             }
           }

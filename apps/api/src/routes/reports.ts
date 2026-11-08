@@ -1464,6 +1464,82 @@ for (const key of REPORT_KEYS) {
   });
 }
 
+/**
+ * THEATRE: cinema seat orders (paid, not cancelled) by screen, show and timing. Money = the bill's grand
+ * total less refunds, paise. Not one of REPORT_KEYS (no scheduled e-mail); ?format=xlsx|pdf exports.
+ */
+reportsRouter.get("/theatre", async (req, res) => {
+  if (!moduleEnabled("THEATRE")) throw forbidden("This feature is not enabled for your business");
+  const outlet = await currentOutlet(req);
+  const q = parse(rangeSchema, req.query);
+  const to = q.to ?? zonedParts(new Date(), outlet.timezone).date;
+  const ctx = makeCtx(outlet, q.from ?? addDays(to, -6), to);
+  const built = await theatreReport(ctx);
+  await respond(res, q.format, `theatre_${ctx.from}_${ctx.to}`, built);
+});
+
+async function theatreReport(ctx: ReportCtx): Promise<BuiltReport> {
+  const requests = await prisma.channelRequest.findMany({
+    where: { ...window(ctx), seatTiming: { not: null }, status: "ACCEPTED", orderId: { not: null } },
+    select: { orderId: true, seatTiming: true, showTimeId: true, tableId: true },
+  });
+  const orders = new Map(
+    (await inChunks(requests.map((r) => r.orderId!), (ids) => prisma.order.findMany({ where: { id: { in: ids }, status: "PAID" }, select: { id: true, grandTotal: true, refundedAmount: true } }))).map((o) => [o.id, o.grandTotal - o.refundedAmount]),
+  );
+  const paid = requests.filter((r) => orders.has(r.orderId!));
+  const seats = new Map(
+    (await inChunks([...new Set(paid.map((r) => r.tableId).filter((x): x is string => Boolean(x)))], (ids) => prisma.diningTable.findMany({ where: { id: { in: ids } }, select: { id: true, areaId: true } }))).map((t) => [t.id, t.areaId]),
+  );
+  const [screens, shows] = await Promise.all([
+    prisma.diningArea.findMany({ where: { outletId: ctx.outlet.id, kind: "SCREEN" }, select: { id: true, name: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.showTime.findMany({ where: { id: { in: [...new Set(paid.map((r) => r.showTimeId).filter((x): x is string => Boolean(x)))] } }, include: { area: { select: { name: true } } } }),
+  ]);
+  type Row = { orders: number; sales: number };
+  const add = (m: Map<string, Row>, k: string, v: number) => {
+    const r = m.get(k) ?? { orders: 0, sales: 0 };
+    r.orders++;
+    r.sales += v;
+    m.set(k, r);
+  };
+  const byScreen = new Map<string, Row>();
+  const byShow = new Map<string, Row>();
+  const byTiming = new Map<string, Row>();
+  let sales = 0;
+  for (const r of paid) {
+    const v = orders.get(r.orderId!)!;
+    sales += v;
+    add(byScreen, (r.tableId && seats.get(r.tableId)) || "", v);
+    if (r.showTimeId) add(byShow, r.showTimeId, v);
+    add(byTiming, r.seatTiming!, v);
+  }
+  const data = {
+    from: ctx.from,
+    to: ctx.to,
+    totals: { orders: paid.length, sales, avgOrder: avg(sales, paid.length) },
+    byScreen: screens.filter((s) => byScreen.has(s.id)).map((s) => ({ screenId: s.id, name: s.name, ...byScreen.get(s.id)! })),
+    byShow: shows
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+      .map((s) => ({ showTimeId: s.id, title: s.title, screenName: s.area.name, startsAt: s.startsAt.toISOString(), ...byShow.get(s.id)! })),
+    byTiming: (["NOW", "INTERVAL", "COUNTER"] as const).map((timing) => ({ timing, ...(byTiming.get(timing) ?? { orders: 0, sales: 0 }) })),
+  };
+  const money = (key: string, header: string) => ({ key, header, type: "money" as const, width: 14 });
+  const count = { key: "orders", header: "Orders", type: "int" as const, width: 10 };
+  return {
+    title: "Cinema seat orders",
+    data,
+    tables: [
+      { title: "Cinema seat orders by screen", subtitle: subtitle(ctx), columns: [{ key: "name", header: "Screen", width: 24 }, count, money("sales", "Sales")], rows: data.byScreen, totals: true },
+      {
+        title: "By show",
+        columns: [{ key: "title", header: "Show", width: 30 }, { key: "screenName", header: "Screen", width: 16 }, { key: "startsAt", header: "Starts", width: 22 }, count, money("sales", "Sales")],
+        rows: data.byShow,
+        totals: true,
+      },
+      { title: "By timing", columns: [{ key: "timing", header: "Timing", width: 14 }, count, money("sales", "Sales")], rows: data.byTiming, totals: true },
+    ],
+  };
+}
+
 /** GSTR-1 for a month. format=json returns {gstr1, totals, notes, warnings}; add download=1 for the bare GSTN payload file. */
 type CnLine = { orderItemId: string; quantity: number; taxableValue: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; total: number };
 type OrderLine = { id: string; hsnCode: string; gstRate: number; quantity: number; taxableValue: number; serviceCharge: number; cgst: number; sgst: number; igst: number; cess: number; otherTaxes: number; taxRates: unknown; total: number };

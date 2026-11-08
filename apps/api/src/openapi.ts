@@ -8,6 +8,7 @@ import { ops as crmOps } from "./openapi-crm";
 import { ops as platformOps } from "./openapi-platform";
 import { ops as channelOps } from "./openapi-channels";
 import { ops as extraOps } from "./openapi-extra";
+import { ops as theatreOps } from "./openapi-theatre";
 
 export type Op = [method: string, path: string, summary: string, tag: string, secured?: boolean];
 
@@ -68,7 +69,7 @@ const ops: Op[] = [
 ];
 
 const paths: Record<string, Record<string, unknown>> = {};
-for (const [method, path, summary, tag, secured = true] of [...ops, ...inventoryOps, ...serviceOps, ...crmOps, ...platformOps, ...channelOps, ...extraOps]) {
+for (const [method, path, summary, tag, secured = true] of [...ops, ...inventoryOps, ...serviceOps, ...crmOps, ...platformOps, ...channelOps, ...extraOps, ...theatreOps]) {
   paths[path] ??= {};
   paths[path][method] = {
     summary,

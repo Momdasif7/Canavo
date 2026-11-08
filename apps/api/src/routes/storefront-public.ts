@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { customerOtpRequestSchema, customerOtpVerifySchema, onlineOrderSchema, publicDeliveryQuoteSchema, qrOrderSchema, tableCallSchema } from "@canavo/shared";
+import { customerOtpRequestSchema, customerOtpVerifySchema, onlineOrderSchema, publicDeliveryQuoteSchema, qrOrderSchema, seatOrderSchema, tableCallSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { env } from "../env";
 import { badRequest, conflict, param, parse, publicApiUrl } from "../lib/http";
@@ -27,6 +27,7 @@ import {
   tableOrders,
 } from "../services/storefront";
 import { requestCustomerOtp, verifyCustomerOtp } from "../services/storefront-otp";
+import { placeSeatOrder, screenByToken, seatOrders, seatPage, seatUpi } from "../services/theatre";
 
 /**
  * Phase 6.3 / 6.4 public endpoints (no login): the QR page on a table (/t/<token>) and the
@@ -47,7 +48,7 @@ const limiter = (windowMinutes: number, limit: number, key: (req: Request) => st
   });
 
 // Reads (menu, status polling every few seconds): generous, per IP.
-storefrontPublicRouter.use(["/public/t", "/public/o"], limiter(5, 600, ip));
+storefrontPublicRouter.use(["/public/t", "/public/o", "/public/s"], limiter(5, 600, ip));
 // Placing orders: per table / page and IP, so one phone can't flood a kitchen (refused orders don't count).
 const qrOrderLimiter = limiter(10, 6, (req) => `qr:${req.params.token}:${ip(req)}`, false);
 const qrCallLimiter = limiter(5, 4, (req) => `call:${req.params.token}:${ip(req)}`);
@@ -61,8 +62,23 @@ const otpVerifyLimiter = limiter(15, 20, (req) => `otp:verify:${ip(req)}`);
 // ---------- QR table ordering ----------
 
 storefrontPublicRouter.get("/public/t/:token", async (req, res) => {
-  const { table, outlet, settings, accent } = await tableByToken(param(req, "token"));
+  const { table, outlet, settings, accent, seat } = await tableByToken(param(req, "token"));
   const [menu, bestsellers] = await runForOutlet(outlet.id, () => Promise.all([publicMenu(outlet.id, outlet.timezone), bestsellerIds(outlet.id)]));
+  if (seat) {
+    // THEATRE seat: the show window decides (not the dine-in hours); always UPI up front.
+    const page = await runForOutlet(outlet.id, () => seatPage(table, outlet));
+    return res.json({
+      outlet: outletBrand(outlet, accent),
+      table: { label: table.label },
+      ordering: page.ordering,
+      notice: page.notice,
+      needsConfirmation: settings.qrNeedsConfirmation,
+      bestsellers,
+      hours: null,
+      theatre: page.theatre,
+      ...menu,
+    });
+  }
   const open = acceptingNow(settings, outlet.timezone);
   res.json({
     outlet: outletBrand(outlet, accent),
@@ -77,13 +93,31 @@ storefrontPublicRouter.get("/public/t/:token", async (req, res) => {
 });
 
 storefrontPublicRouter.post("/public/t/:token/orders", qrOrderLimiter, async (req, res) => {
+  const token = param(req, "token");
+  if ((await tableByToken(token)).seat) {
+    // THEATRE seat: timing + mandatory UPI prepay → { id, token, status, timing, pickupToken, total, upi }
+    return res.status(201).json(await placeSeatOrder(token, parse(seatOrderSchema, req.body), req.ip));
+  }
   const input = parse(qrOrderSchema, req.body);
-  const r = await placeQrOrder(param(req, "token"), input, req.ip);
+  const r = await placeQrOrder(token, input, req.ip);
   res.status(201).json({ id: r.id, status: r.status });
 });
 
 storefrontPublicRouter.get("/public/t/:token/orders", async (req, res) => {
-  res.json(await tableOrders(param(req, "token")));
+  const token = param(req, "token");
+  const t = await tableByToken(token);
+  if (t.seat) return res.json(await seatOrders(t.table, t.outlet));
+  res.json(await tableOrders(token));
+});
+
+/** THEATRE: a fresh UPI QR for an unpaid seat order (the first one expired). */
+storefrontPublicRouter.post("/public/t/:token/orders/:orderToken/upi", qrOrderLimiter, async (req, res) => {
+  res.status(201).json(await seatUpi(param(req, "token"), param(req, "orderToken")));
+});
+
+/** THEATRE: the screen poster QR — pick a row and a seat, then go to /t/<seat token>. */
+storefrontPublicRouter.get("/public/s/:screenToken", async (req, res) => {
+  res.json(await screenByToken(param(req, "screenToken")));
 });
 
 storefrontPublicRouter.post("/public/t/:token/call", qrCallLimiter, async (req, res) => {
