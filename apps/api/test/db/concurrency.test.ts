@@ -116,7 +116,7 @@ describe("2. delivery partner at the dispatch limit", () => {
     db.setting.upsert({ where: { scope_key: { scope: h.outletId, key: "delivery.autoAssign" } }, create: { scope: h.outletId, key: "delivery.autoAssign", value: on }, update: { value: on } });
 
   beforeAll(async () => {
-    await db.staffAttendance.create({ data: { userId: h.users.delivery.id, outletId: h.outletId, workDate: new Date().toISOString().slice(0, 10), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
+    await db.staffAttendance.create({ data: { userId: h.users.delivery.id, outletId: h.outletId, workDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
   });
 
   it("manual assign ×2 + billing auto-assign + the waiting-orders sweep at once never exceed the limit (2)", async () => {
@@ -366,7 +366,7 @@ describe("6/7. socket events after commit; recovery after a dropped socket", () 
 // =====================================================================
 describe("8. scheduled report job re-run while the first run is still going", () => {
   // 22:30 IST: a daily schedule is due.
-  const due = new Date(`${new Date().toISOString().slice(0, 10)}T17:00:00.000Z`);
+  const due = new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date())}T17:00:00.000Z`);
   it("two overlapping runs (pg-boss retry of a hung runner) send one email", async () => {
     const s = await db.reportSchedule.create({ data: { outletId: h.outletId, email: "owner@conc.test", frequency: "DAILY", reports: ["sales"] } });
     mail.sent.length = 0;

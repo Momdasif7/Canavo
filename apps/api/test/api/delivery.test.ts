@@ -33,7 +33,7 @@ const newDelivery = async (d: Record<string, unknown> = {}) => {
   return { orderId: r.body.id as string, grandTotal: r.body.grandTotal as number, id: del.id };
 };
 const onDuty = async (userId: string) => {
-  await db.staffAttendance.create({ data: { userId, outletId: w.h.outletId, workDate: new Date().toISOString().slice(0, 10), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
+  await db.staffAttendance.create({ data: { userId, outletId: w.h.outletId, workDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
 };
 const resetPartner = async (userId: string) => {
   await db.delivery.updateMany({ where: { agentId: userId, status: { in: ["PENDING", "ACCEPTED", "PREPARING", "OUT_FOR_DELIVERY"] } }, data: { status: "CANCELLED" } });

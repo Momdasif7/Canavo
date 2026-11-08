@@ -68,7 +68,7 @@ describe("BUG-050 voided cash bill and the cash drawer", () => {
 });
 
 describe("BUG-051 settlement upload needs its own permission", () => {
-  const upload = { mode: "CARD", rows: [{ date: new Date().toISOString().slice(0, 10), amount: 12345, reference: "QA-REF" }] };
+  const upload = { mode: "CARD", rows: [{ date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()), amount: 12345, reference: "QA-REF" }] };
 
   it("owner, manager and accountant may upload; everyone may still read only with report:view", async () => {
     for (const k of ["owner", "manager", "accountant"] as const) expect((await w.as[k].call("POST", "/settlements", upload)).status, k).toBe(200);

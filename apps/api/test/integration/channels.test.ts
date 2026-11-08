@@ -256,7 +256,7 @@ describe("bills, payments and reports", () => {
   });
 
   it("sales report shows sales by channel with the commission estimate", async () => {
-    const t = new Date().toISOString().slice(0, 10);
+    const t = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const d = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     const t2 = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
     // Pay one Zomato order that stays (the first one was cancelled).

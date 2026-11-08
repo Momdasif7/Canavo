@@ -143,7 +143,7 @@ describe("reconciliation after a busy mixed day", () => {
 
     // ---------------- 8. delivery COD + handovers ----------------
     const partner = h.users.delivery.id;
-    await db.staffAttendance.create({ data: { userId: partner, outletId: o1, workDate: new Date().toISOString().slice(0, 10), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
+    await db.staffAttendance.create({ data: { userId: partner, outletId: o1, workDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()), clockInAt: new Date(), clockInDistance: 0, status: "PRESENT" } });
     const deliveries = [];
     for (let i = 0; i < 4; i++) {
       const r = await ok(cashier, "POST", "/orders", {

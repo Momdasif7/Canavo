@@ -22,7 +22,7 @@ const ok = async (p: Promise<R>) => {
   return r.body;
 };
 const phone = () => `9${String(Math.floor(Math.random() * 1e9)).padStart(9, "0")}`;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 
 beforeAll(async () => {
   srv = await startServer();
