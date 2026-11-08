@@ -106,6 +106,11 @@ export function productionConfigProblems(e = env): string[] {
   if (!e.DATA_ENCRYPTION_KEY) problems.push("DATA_ENCRYPTION_KEY is required (encrypted Aadhaar and store integration keys)");
   if (/localhost|127\.0\.0\.1/.test(e.PUBLIC_API_URL)) problems.push("PUBLIC_API_URL points at localhost (receipt links would be broken)");
   if (e.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) problems.push("CORS_ORIGINS must not be *");
+  // QA Phase 8 (sec1-8): trusting every hop lets any client set X-Forwarded-For, so per-IP rate limits,
+  // the platform IP whitelist and audit IPs could be faked. Trust named / private proxies or a hop count.
+  if ((e.TRUST_PROXY ?? "").split(",").some((t) => ["true", "*", "0.0.0.0/0", "::/0"].includes(t.trim().toLowerCase()))) {
+    problems.push("TRUST_PROXY must not trust every address (use e.g. \"loopback, linklocal, uniquelocal\" or the hop count)");
+  }
   if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");
   // D13: password setup/reset links must reach people by email or SMS.
   if (!e.SMTP_HOST && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID)) {

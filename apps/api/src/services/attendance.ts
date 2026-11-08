@@ -25,6 +25,8 @@ const LOW_ACCURACY_FLAG = 100;
 function isOwnUpload(url: string) {
   try {
     const u = new URL(url);
+    // http(s) only: "javascript://res.cloudinary.com/%0a…" has that host too (QA Phase 8, sec1-1).
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
     return /^\/uploads\/files\/[\w.-]+$/.test(u.pathname) || u.hostname === "res.cloudinary.com";
   } catch {
     return false;

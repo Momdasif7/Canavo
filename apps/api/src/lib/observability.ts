@@ -15,6 +15,7 @@ const REDACT = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.headers['x-api-key']",
+  "req.headers['x-csrf-token']",
   "res.headers['set-cookie']",
   "*.password",
   "*.pin",
@@ -31,6 +32,16 @@ const REDACT = [
   "*.authKey",
   "*.watiToken",
   "*.metaAccessToken",
+  // QA Phase 8 (sec1-7): personal data and the rest of the sign-in secrets
+  "*.phone",
+  "*.customerPhone",
+  "*.aadhaarNumber",
+  "*.mfaToken",
+  "*.recoveryCode",
+  "*.currentPassword",
+  "*.newPassword",
+  "*.apiKey",
+  "*.csrf",
 ];
 
 export const createLogger = (destination?: pino.DestinationStream) =>
@@ -57,12 +68,25 @@ export function requestId(req: Request, res: Response, next: NextFunction) {
 }
 
 /** JSON access log line per request (production, or LOG_FORMAT=json). */
+/**
+ * URL for access logs: no query string (phones, search terms), and the bearer tokens that sit in
+ * public paths (receipt links, online-order tracking) masked — a log reader must not be able to
+ * open a customer's bill (QA Phase 8, sec1-7).
+ */
+export function logUrl(url: string): string {
+  return url
+    .split("?")[0]!
+    .replace(/^(\/public\/receipts\/)[^/]+/, "$1[token]")
+    .replace(/^(\/public\/o\/[^/]+\/orders\/)[^/]+/, "$1[token]")
+    .replace(/^(\/public\/t\/[^/]+\/orders\/)[^/]+/, "$1[token]");
+}
+
 export const httpLogger = pinoHttp({
   logger,
   genReqId: (req) => (req as { id?: string }).id ?? randomUUID(),
   customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info"),
   serializers: {
-    req: (r: { id: string; method: string; url: string }) => ({ id: r.id, method: r.method, url: r.url.split("?")[0] }),
+    req: (r: { id: string; method: string; url: string }) => ({ id: r.id, method: r.method, url: logUrl(r.url) }),
     res: (r: { statusCode: number }) => ({ statusCode: r.statusCode }),
   },
   autoLogging: { ignore: (req) => req.url === "/health" || req.url === "/ready" || req.url === "/metrics" },
