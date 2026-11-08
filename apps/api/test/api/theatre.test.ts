@@ -467,25 +467,16 @@ describe("placing seat orders", () => {
     expect(await db.channelRequest.count({ where: { outletId: w.h.outlet2Id, pickupToken: { not: null } } })).toBe(0);
   });
 
-  it("outlets that confirm QR orders: paid first, KOT only after accept (and the other way round)", async () => {
+  it("prepaid seat orders skip the dine-in 'confirm QR orders' step: paid → straight to the kitchen", async () => {
     await owner.call("PUT", "/storefront/settings", { qrNeedsConfirmation: true });
     try {
       const r = await order("main", "C5", "NOW");
-      expect(r.body.status).toBe("PENDING");
+      expect(r.body.status).toBe("ACCEPTED");
       const req = await db.channelRequest.findUniqueOrThrow({ where: { id: r.body.id } });
+      expect(await db.kotTicket.count({ where: { orderId: req.orderId! } })).toBe(0); // unpaid: nothing in the kitchen
       await pay(req.orderId!);
-      expect(await db.kotTicket.count({ where: { orderId: req.orderId! } })).toBe(0);
-      expect((await waiter.call("POST", `/theatre/orders/${r.body.id}/ready`)).status).toBe(409);
-      expect((await waiter.call("POST", `/storefront/requests/${r.body.id}/accept`)).status).toBe(200);
       expect((await db.kotTicket.findMany({ where: { orderId: req.orderId! } })).map((k) => k.header)).toEqual(["SCREEN S1 · C5 · NOW"]);
-      // Accepted first, paid later.
-      const r2 = await order("main", "C6", "NOW");
-      expect((await waiter.call("POST", `/storefront/requests/${r2.body.id}/accept`)).status).toBe(200);
-      const req2 = await db.channelRequest.findUniqueOrThrow({ where: { id: r2.body.id } });
-      expect(await db.kotTicket.count({ where: { orderId: req2.orderId! } })).toBe(0);
-      await pay(req2.orderId!);
-      expect(await db.kotTicket.count({ where: { orderId: req2.orderId! } })).toBe(1);
-      // Rejected: the unpaid bill is cancelled.
+      // Staff can still turn an order down before it's paid: the unpaid bill is cancelled.
       const r3 = await order("main", "C7", "NOW");
       expect((await waiter.call("POST", `/storefront/requests/${r3.body.id}/reject`, { reason: "Kitchen closed" })).status).toBe(200);
       const req3 = await db.channelRequest.findUniqueOrThrow({ where: { id: r3.body.id } });

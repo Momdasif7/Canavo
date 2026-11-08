@@ -426,7 +426,9 @@ export async function placeSeatOrder(token: string, input: SeatOrderInput, ip?: 
     const lines = checkCart(await publicMenu(outlet.id, outlet.timezone), input.items);
     if (input.notes) lines[0] = { ...lines[0], notes: [lines[0].notes, `Note: ${input.notes}`].filter(Boolean).join(" · ").slice(0, 200) };
     const publicToken = newPublicToken();
-    const pending = sf.qrNeedsConfirmation;
+    // Seat orders are prepaid and reach the kitchen only once paid, so they never wait for the dine-in
+    // "confirm QR orders" step (the runner board has no accept step; staff cancel / refund from Bills).
+    const pending = false;
 
     // The request first: its pickup token is numbered under the lock and printed on the bill / KOT.
     const request = await prisma.$transaction(async (tx) => {

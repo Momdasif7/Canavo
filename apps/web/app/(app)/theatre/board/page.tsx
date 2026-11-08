@@ -25,7 +25,14 @@ const STAGE_TONE: Record<BoardOrder["stage"], string> = {
   READY: "border-secondary",
   DELIVERED: "border-line opacity-60",
 };
-const STAGE_LABEL: Record<BoardOrder["stage"], string> = { WAITING: "Held for interval", PREPARING: "In the kitchen", READY: "Ready — take it", DELIVERED: "Delivered" };
+const STAGE_LABEL: Record<BoardOrder["stage"], string> = { WAITING: "Waiting", PREPARING: "In the kitchen", READY: "Ready — take it", DELIVERED: "Delivered" };
+
+/** WAITING covers three cases: not paid yet, paid but held for the interval, or paid and about to reach the kitchen. */
+function stageLabel(o: BoardOrder, now: number) {
+  if (!o.paid) return "Waiting for payment";
+  if (o.stage === "WAITING") return o.releaseAt && new Date(o.releaseAt).getTime() > now ? "Held for interval" : "Sending to kitchen";
+  return STAGE_LABEL[o.stage];
+}
 
 /** Cinema → Runner board: seat orders by screen and row, interval holds, the counter pickup tokens. */
 export default function RunnerBoardPage() {
@@ -259,7 +266,7 @@ function OrderCard({
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <Badge tone={o.timing === "INTERVAL" ? "warning" : o.timing === "COUNTER" ? "info" : "primary"}>{TIMING_SHORT[o.timing]}</Badge>
-            <span className={clsx("text-xs font-bold", o.stage === "READY" ? "text-secondary dark:text-green-300" : "text-muted")}>{o.paid ? STAGE_LABEL[o.stage] : "Waiting for payment"}</span>
+            <span className={clsx("text-xs font-bold", o.stage === "READY" ? "text-secondary dark:text-green-300" : "text-muted")}>{stageLabel(o, now)}</span>
           </p>
         </div>
         <span className="tabular text-xs text-muted" title={`Ordered ${ageMin} min ago`}>
@@ -313,7 +320,7 @@ function OrderCard({
             Delivered
           </Button>
         )}
-        {o.paid && o.stage === "WAITING" && <span className="text-xs text-muted">Kitchen gets it before the interval</span>}
+        {o.paid && o.stage === "WAITING" && o.releaseAt && new Date(o.releaseAt).getTime() > now && <span className="text-xs text-muted">Kitchen gets it before the interval</span>}
       </div>
     </article>
   );
