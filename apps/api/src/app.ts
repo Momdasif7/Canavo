@@ -13,6 +13,7 @@ import { openapi } from "./openapi";
 import { publicRouter } from "./routes/public";
 import { storefrontPublicRouter } from "./routes/storefront-public";
 import { storefrontRouter } from "./routes/storefront";
+import { theatreRouter } from "./routes/theatre";
 import { authRouter } from "./routes/auth";
 import { outletsRouter } from "./routes/outlets";
 import { staffRouter } from "./routes/staff";
@@ -113,6 +114,7 @@ export function createApp() {
   app.use("/gift-cards", giftCardsRouter);
   app.use("/settlements", settlementsRouter);
   app.use("/storefront", storefrontRouter);
+  app.use("/theatre", theatreRouter);
   // Phase 6: the packing board is for counter / kitchen staff too — before channelsRouter (channel:manage).
   app.use("/channels/board", channelBoardRouter);
   app.use("/channels", channelsRouter);

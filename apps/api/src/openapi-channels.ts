@@ -31,9 +31,9 @@ export const ops: Op[] = [
   ["post", "/storefront/requests/{id}/accept", "Accept: send to the kitchen / confirm the online order", "Storefront"],
   ["post", "/storefront/requests/{id}/reject", "Reject (online: cancels the bill). Body: channelRejectSchema", "Storefront"],
   // Customers (no login)
-  ["get", "/public/t/{token}", "QR table page: outlet, table and menu", "Public ordering", false],
-  ["post", "/public/t/{token}/orders", "Order from the table (joins the running tab). Body: qrOrderSchema", "Public ordering", false],
-  ["get", "/public/t/{token}/orders", "This table's orders and their status", "Public ordering", false],
+  ["get", "/public/t/{token}", "QR table page: outlet, table and menu (a cinema seat adds theatre { seat, show, options, settings })", "Public ordering", false],
+  ["post", "/public/t/{token}/orders", "Order from the table (joins the running tab). Body: qrOrderSchema; a cinema seat takes seatOrderSchema (timing) and always returns a UPI QR to prepay", "Public ordering", false],
+  ["get", "/public/t/{token}/orders", "This table's orders and their status (seats: timing, pickupToken, runner stage, pending UPI)", "Public ordering", false],
   ["post", "/public/t/{token}/call", "Call a waiter / ask for the bill. Body: tableCallSchema", "Public ordering", false],
   ["get", "/public/o/{slug}", "Online ordering page: outlet, menu, takeaway / delivery options", "Public ordering", false],
   ["post", "/public/o/{slug}/orders", "Place an online order (takeaway / delivery, pay at counter, COD or UPI). Body: onlineOrderSchema → { token }", "Public ordering", false],
