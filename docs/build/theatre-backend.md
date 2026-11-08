@@ -99,7 +99,7 @@ There are two migrations:
 
 ## Tests
 
-`apps/api/test/api/theatre.test.ts` has 22 tests, all passing. They cover:
+`apps/api/test/api/theatre.test.ts` has 22 tests, all passing. `test/api/sweep-auth.test.ts` now allows the two new public routes. Last full runs: integration 207/207, test:api 782 (all green after the sweep-auth allowlist fix), test:db 10 files green, unit 56 + 160. They cover:
 
 - the role matrix for all 17 staff routes;
 - 403 when the module is off, and 404 on public routes when it is off;

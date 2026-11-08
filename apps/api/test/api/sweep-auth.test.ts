@@ -37,6 +37,9 @@ const PUBLIC = new Set([
   "post /public/t/:token/orders",
   "get /public/t/:token/orders",
   "post /public/t/:token/call",
+  // THEATRE: seat order UPI refresh, screen poster QR
+  "post /public/t/:token/orders/:orderToken/upi",
+  "get /public/s/:screenToken",
   "get /public/o/:slug",
   "post /public/o/:slug/otp/request",
   "post /public/o/:slug/otp/verify",
