@@ -1358,20 +1358,20 @@ enum BusinessStatus {
 
 /// A client business (hotel / restaurant / shop). All its data is isolated from other businesses.
 model Business {
-  id             String          @id @default(cuid())
+  id             String                @id @default(cuid())
   name           String
   legalName      String?
   ownerName      String?
   phone          String?
   email          String?
-  status         BusinessStatus  @default(ACTIVE)
+  status         BusinessStatus        @default(ACTIVE)
   /// Enabled feature modules (see MODULES in @canavo/shared)
   modules        String[]
   /// Per-hotel feature flags { FLAG: true } (see FEATURES in @canavo/shared); absent = off
-  features       Json            @default("{}")
+  features       Json                  @default("{}")
   notes          String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
   outlets        Outlet[]
   users          User[]
   menuCategories MenuCategory[]
@@ -1385,9 +1385,9 @@ model Business {
   supportGrants  SupportGrant[]
   customRoles    CustomRole[]
   /// Staff Aadhaar storage (Phase 2.5): LAST4 = only the last 4 digits (default); FULL = full number, encrypted
-  aadhaarMode    AadhaarMode     @default(LAST4)
+  aadhaarMode    AadhaarMode           @default(LAST4)
   /// Brand look for everyone in the business { accent, corners } — see brandSchema in @canavo/shared
-  brand          Json            @default("{}")
+  brand          Json                  @default("{}")
   integrations   BusinessIntegration[]
 }
 
