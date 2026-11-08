@@ -9,7 +9,7 @@ import { Sheet } from "../../src/components/Sheet";
 import { AppText, Button, Chip, EmptyState, ErrorState, Input, Loading, Notice, Row } from "../../src/components/ui";
 import { endpoints, errorMessage } from "../../src/lib/api";
 import { inrShort } from "../../src/lib/format";
-import { useSocketEvent } from "../../src/lib/socket";
+import { useSocketEvent, useSocketReconnect } from "../../src/lib/socket";
 import type { Floor, FloorTable, TableStatus } from "../../src/lib/types";
 import { useOffline } from "../../src/offline/OfflineContext";
 import { isIndianMobile } from "../../src/pos/CartContext";
@@ -84,6 +84,8 @@ function Tables() {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => void load(), 300);
   });
+  // Events sent while the socket was down are lost: reload on every (re)connect.
+  useSocketReconnect(() => void load());
 
   const tables = useMemo(() => {
     if (!floor) return [];

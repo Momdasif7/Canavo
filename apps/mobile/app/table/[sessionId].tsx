@@ -10,7 +10,7 @@ import { AppText, Button, Card, Chip, ErrorState, Input, Loading, Notice, Row, S
 import { endpoints, errorMessage } from "../../src/lib/api";
 import { kvGet } from "../../src/lib/db";
 import { formatTime, humanize, inr } from "../../src/lib/format";
-import { useSocketEvent } from "../../src/lib/socket";
+import { useSocketEvent, useSocketReconnect } from "../../src/lib/socket";
 import type { FloorTable, Kot, KotStatus, SessionDetail, SessionItem, SessionOrder } from "../../src/lib/types";
 import { isIndianMobile } from "../../src/pos/CartContext";
 import { showGst } from "../../src/pos/localBill";
@@ -64,6 +64,7 @@ function TableSession() {
   useSocketEvent("table:updated", (p) => {
     if (!s || p.sessionId === s.id || p.tableIds.some((id) => id === s.tableId || s.mergedTableIds.includes(id))) void load();
   });
+  useSocketReconnect(() => void load());
 
   const unbilled = useMemo(() => s?.items.filter((i) => !i.billedOrderId) ?? [], [s]);
   const rounds = useMemo(() => {

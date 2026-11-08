@@ -12,7 +12,7 @@ import { Screen } from "../components/Screen";
 import { AppText, Button, Card, Loading, Notice, Row, Segmented } from "../components/ui";
 import { endpoints, errorMessage } from "../lib/api";
 import { formatDuration, formatMinutes, formatTime, inr, inrShort } from "../lib/format";
-import { useSocketEvent } from "../lib/socket";
+import { useSocketEvent, useSocketReconnect } from "../lib/socket";
 import type { DeliverySummary } from "../lib/types";
 import { useNotifications } from "../notifications/NotificationsContext";
 import { brand, font, radius, space, TAP, useTheme } from "../theme";
@@ -76,6 +76,7 @@ export function DeliveryHome() {
   }, [load, outlet?.id]);
   useSocketEvent("delivery:updated", () => void load());
   useSocketEvent("notification", () => void load());
+  useSocketReconnect(() => void load());
 
   // Re-read the duty state after clocking in/out.
   useEffect(() => {

@@ -1,0 +1,14 @@
+appId: in.canavo.app
+name: Bluetooth printer - pair, test print (needs a real ESC/POS printer)
+---
+- launchApp
+- tapOn: "More"
+- scrollUntilVisible:
+    element: "Printer"
+- tapOn: "Printer"
+- tapOn: "Find printers"
+- tapOn:
+    text: ".*(RPP|POS|Printer).*"
+- tapOn: "Test print"
+# Manual: switch the printer off, tap Test print (error), switch on, tap Test print again -> prints
+# without restarting the app (reconnect, QA Phase 12 mob-1).

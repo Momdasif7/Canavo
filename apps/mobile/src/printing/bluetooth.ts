@@ -57,6 +57,16 @@ function parseDevices(raw: unknown): PrinterDevice[] {
     .map((d) => ({ name: d.name || d.address, address: d.address }));
 }
 
+/**
+ * Receipt text for the printer: lines joined, "₹" spelled "Rs" (most thermal code pages lack it) and
+ * control characters dropped — item names and guest notes (QR orders) must not be able to send
+ * ESC/POS commands such as "open the cash drawer" (ESC p) or a paper cut (QA Phase 8, sec1-9).
+ */
+export function escposText(lines: string[]): string {
+  // eslint-disable-next-line no-control-regex
+  return lines.map((l) => l.replace(/₹/g, "Rs").replace(/[\u0000-\u001f\u007f-\u009f]/g, "")).join("\n") + "\n\n\n";
+}
+
 export function createBluetoothPrinter(): ThermalPrinter | null {
   const mod = loadModule();
   if (!mod || Platform.OS !== "android") return null;
@@ -81,11 +91,20 @@ export function createBluetoothPrinter(): ThermalPrinter | null {
     },
     async printLines(lines: string[], _paper: PaperWidth) {
       // Lines are already laid out for the paper width (32 / 48 columns).
-      // Control characters are dropped: item names and guest notes (QR orders) must not be able to send
-      // ESC/POS commands such as "open the cash drawer" (ESC p) or a paper cut (QA Phase 8, sec1-9).
-      // eslint-disable-next-line no-control-regex
-      const text = lines.map((l) => l.replace(/₹/g, "Rs").replace(/[\u0000-\u001f\u007f-\u009f]/g, "")).join("\n") + "\n\n\n";
-      await BluetoothEscposPrinter.printText(text, { encoding: "UTF-8", codepage: 0 });
+      const text = escposText(lines);
+      try {
+        await BluetoothEscposPrinter.printText(text, { encoding: "UTF-8", codepage: 0 });
+      } catch (e) {
+        // The printer was switched off / went out of range since we connected: the cached
+        // connection is stale. Reconnect once and retry; if that fails too, forget the
+        // connection so the next print starts fresh instead of failing forever.
+        const address = connectedTo;
+        connectedTo = null;
+        if (!address) throw e;
+        await BluetoothManager.connect(address);
+        connectedTo = address;
+        await BluetoothEscposPrinter.printText(text, { encoding: "UTF-8", codepage: 0 });
+      }
       try {
         await BluetoothEscposPrinter.cutPaper();
       } catch {

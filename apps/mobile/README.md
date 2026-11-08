@@ -82,3 +82,6 @@ Native modules added: `expo-camera`, `expo-notifications`, `expo-device`, `@reac
 
 - `npm run typecheck`
 - `npm run export:android` (production bundle; checks that Metro can resolve everything)
+- `npm run export:ios`
+- `npm test` (jest-expo + Testing Library, `test/`; needs Node 22.5+ for the `node:sqlite` stand-in for expo-sqlite)
+- Device flows for later: `maestro test e2e/` (see `e2e/README.md`)

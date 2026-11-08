@@ -1,0 +1,27 @@
+appId: in.canavo.app
+name: POS - cart, cash payment with change, receipt
+---
+- launchApp:
+    clearState: true
+- tapOn: "Use email & password instead"
+- tapOn: "Email"
+- inputText: "cashier@canavo.local"
+- tapOn: "Password"
+- inputText: "Canavo@123"
+- tapOn: "Sign in"
+- tapOn: "Masala Dosa"
+- tapOn: "Masala Dosa"
+- tapOn:
+    text: "View cart.*"
+- assertVisible: "2"
+- tapOn:
+    text: "Charge.*"
+- assertVisible: "Cash received"
+- tapOn: "Cash received (₹)"
+- inputText: "500"
+- assertVisible: "Return change"
+- tapOn:
+    text: "Cash received"
+    index: 1
+- assertVisible:
+    text: ".*INV.*"

@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import { useAuth } from "../auth/AuthContext";
 import { endpoints, errorMessage } from "../lib/api";
-import { useSocketEvent } from "../lib/socket";
+import { useSocketEvent, useSocketReconnect } from "../lib/socket";
 import type { AppNotification, NotificationEvent } from "../lib/types";
 import { NotificationBanner } from "./NotificationBanner";
 import { HOME_ROUTE, isUrgentKind, routeForNotification } from "./links";
@@ -202,7 +202,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // (The inbox itself loads via the filter effect above.)
     if (registeredFor.current !== me.id) {
       registeredFor.current = me.id;
-      void registerForPush().then(setPush);
+      void registerForPush().then((r) => {
+        setPush(r);
+        // Transient failure (e.g. the token upload hit a network error): try again on the next profile refresh.
+        if (!r.ok && r.reason === "error") registeredFor.current = null;
+      });
     }
   }, [signedIn, stale, me]);
 
@@ -212,6 +216,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   // Live: refresh the inbox and show the banner (haptics; sound for urgent kinds).
+  // Notifications / read state changed while the socket was down: catch up on reconnect.
+  useSocketReconnect(() => {
+    if (signedIn && !stale) void refresh();
+  });
+
   useSocketEvent("notification", (n) => {
     void refresh();
     const urgent = isUrgentKind(n.kind);

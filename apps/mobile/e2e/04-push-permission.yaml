@@ -1,0 +1,29 @@
+appId: in.canavo.app
+name: Push - permission prompt after sign-in (allow), then deny path
+---
+- launchApp:
+    clearState: true
+    permissions:
+      notifications: unset
+- tapOn: "Use email & password instead"
+- tapOn: "Email"
+- inputText: "kitchen@canavo.local"
+- tapOn: "Password"
+- inputText: "Canavo@123"
+- tapOn: "Sign in"
+- tapOn:
+    text: "Allow"
+    optional: true
+# Manual check: Settings > Apps > CANAVO > Notifications lists "Urgent: orders & deliveries" and "General".
+# Fire a KOT from the web POS: it must ring on the Urgent channel with the app in background and locked.
+- launchApp:
+    clearState: true
+    permissions:
+      notifications: deny
+- tapOn: "Use email & password instead"
+- tapOn: "Email"
+- inputText: "kitchen@canavo.local"
+- tapOn: "Password"
+- inputText: "Canavo@123"
+- tapOn: "Sign in"
+- assertVisible: "KOT"         # app keeps working; in-app banners still show
