@@ -66,7 +66,7 @@ export default function DeliveryPage() {
               { value: "board", label: "Board" },
               { value: "agents", label: `Agents (${agents.length})` },
               { value: "cash", label: cashTotal ? `Cash with partners · ${formatINR(cashTotal)}` : "Cash with partners" },
-              { value: "zones", label: "Zones" },
+              { value: "zones", label: "Zones & settings" },
             ]}
           />
         }

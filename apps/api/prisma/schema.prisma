@@ -35,39 +35,49 @@ enum SalaryType {
 }
 
 model Outlet {
-  id                      String   @id @default(cuid())
+  id                      String              @id @default(cuid())
   businessId              String
   name                    String
-  address                 String   @default("")
+  address                 String              @default("")
   stateCode               String
   gstin                   String?
   /// Registered legal name printed on tax invoices
   legalName               String?
   /// false = not GST registered: plain bills with no tax lines
-  gstEnabled              Boolean  @default(true)
+  gstEnabled              Boolean             @default(true)
   fssai                   String?
   phone                   String?
   logoUrl                 String?
   latitude                Float?
   longitude               Float?
-  geofenceMeters          Int      @default(150)
-  timezone                String   @default("Asia/Kolkata")
-  invoicePrefix           String   @default("INV")
-  pricesIncludeTax        Boolean  @default(true)
-  compositionScheme       Boolean  @default(false)
-  serviceChargeEnabled    Boolean  @default(false)
-  serviceChargePercent    Float    @default(0)
-  roundOff                Boolean  @default(true)
+  geofenceMeters          Int                 @default(150)
+  timezone                String              @default("Asia/Kolkata")
+  invoicePrefix           String              @default("INV")
+  pricesIncludeTax        Boolean             @default(true)
+  compositionScheme       Boolean             @default(false)
+  serviceChargeEnabled    Boolean             @default(false)
+  serviceChargePercent    Float               @default(0)
+  roundOff                Boolean             @default(true)
   upiVpa                  String?
-  deliveryEnabled         Boolean  @default(false)
+  deliveryEnabled         Boolean             @default(false)
   /// Flat packaging charge per takeaway/delivery order, paise
-  packagingCharge         Int      @default(0)
+  packagingCharge         Int                 @default(0)
   /// Most orders a delivery partner can hold at once (auto-assign respects it)
-  maxDeliveriesPerPartner Int      @default(2)
+  maxDeliveriesPerPartner Int                 @default(2)
   /// POS item cards show menu photos (switch off for faster, text-only cards)
-  posShowImages           Boolean  @default(true)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  posShowImages           Boolean             @default(true)
+  /// How delivery addresses are taken: MAP = map pin + zones / distance fees, ADDRESS = typed address only (flat fee)
+  deliveryAddressMode     DeliveryAddressMode @default(MAP)
+  /// ADDRESS mode: flat delivery fee per order, paise
+  deliveryFlatFee         Int                 @default(0)
+  /// ADDRESS mode: minimum item total for delivery, paise (0 = none)
+  deliveryMinOrder        Int                 @default(0)
+  /// ADDRESS mode: where we deliver — 6-digit PIN codes and / or area names (empty = anywhere)
+  deliveryAreas           String[]            @default([])
+  /// ADDRESS mode: promised delivery time, minutes
+  deliveryEtaMinutes      Int                 @default(30)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
 
   staff                   UserOutlet[]
   orders                  Order[]
@@ -852,6 +862,12 @@ enum DeliveryStatus {
   CANCELLED
 }
 
+/// How an outlet takes delivery addresses (Outlet.deliveryAddressMode)
+enum DeliveryAddressMode {
+  MAP
+  ADDRESS
+}
+
 model DeliveryZone {
   id         String  @id @default(cuid())
   outletId   String
@@ -879,6 +895,8 @@ model Delivery {
   customerPhone     String
   address           String
   landmark          String?
+  /// 6-digit PIN code typed by the customer / cashier (address-only delivery)
+  pincode           String?
   latitude          Float?
   longitude         Float?
   distanceKm        Float?

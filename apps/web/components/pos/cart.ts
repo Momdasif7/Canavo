@@ -51,6 +51,8 @@ export type DeliverySource = "PHONE" | "IN_APP" | "WALK_IN" | "AGGREGATOR";
 export interface DeliveryMeta {
   address: string;
   landmark: string;
+  /** 6-digit PIN code (required when the outlet takes addresses without a map) */
+  pincode?: string;
   /** Send map coordinates (enables distance-based zone & fee) */
   useCoords: boolean;
   lat: string;
@@ -67,6 +69,7 @@ export interface DeliveryMeta {
 export const EMPTY_DELIVERY: DeliveryMeta = {
   address: "",
   landmark: "",
+  pincode: "",
   useCoords: false,
   lat: "",
   lng: "",
@@ -129,6 +132,7 @@ export function metaError(meta: CartMeta): string | null {
     if (!meta.customerName.trim() || !meta.customerPhone.trim()) return "Delivery needs the customer's name and phone";
     if (meta.delivery.address.trim().length < 5) return "Enter the delivery address";
     if (meta.delivery.useCoords && !deliveryCoords(meta.delivery)) return "Enter valid latitude and longitude";
+    if (meta.delivery.pincode?.trim() && !/^[1-9]\d{5}$/.test(meta.delivery.pincode.trim())) return "Enter a valid 6-digit PIN code";
   }
   if (meta.orderType === "PRE_ORDER") {
     if (!meta.scheduledFor) return "Choose when the pre-order is for";
@@ -419,6 +423,7 @@ export function toOrderInput(lines: CartLine[], meta: CartMeta, clientOrderId?: 
         ? {
             address: d.address.trim(),
             landmark: d.landmark.trim() || undefined,
+            pincode: d.pincode?.trim() || undefined,
             latitude: coords?.lat,
             longitude: coords?.lng,
             zoneId: !coords && d.zoneId ? d.zoneId : undefined,

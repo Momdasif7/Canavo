@@ -202,6 +202,8 @@ export function DeliveryFields({
   outlet: LatLng | null;
 }) {
   const manualZone = !delivery.useCoords || quote?.needsCoordinates;
+  /** Outlet takes addresses without a map: PIN code instead of the pin / zone */
+  const addressOnly = quote?.addressMode === "ADDRESS";
   const onDuty = (agents ?? []).filter((a) => a.clockedIn);
   const available = (agents ?? []).filter((a) => a.available);
   const chosen = agents?.find((a) => a.id === delivery.agentId);
@@ -220,9 +222,26 @@ export function DeliveryFields({
         onChange={(e) => onChange({ address: e.target.value })}
         className={clsx(fieldCls, "py-2")}
       />
-      <input aria-label="Landmark" placeholder="Landmark (optional)" maxLength={200} value={delivery.landmark} onChange={(e) => onChange({ landmark: e.target.value })} className={fieldCls} />
-      <DeliveryLocationPicker delivery={delivery} onChange={onChange} outlet={outlet} zones={quote?.zones ?? []} activeZoneId={quote?.zone?.id ?? (manualZone ? delivery.zoneId : null)} />
-      {manualZone && quote && quote.zones.length > 0 && (
+      {addressOnly ? (
+        <div className="grid grid-cols-[1fr_7.5rem] gap-2">
+          <input aria-label="Landmark" placeholder="Landmark (optional)" maxLength={200} value={delivery.landmark} onChange={(e) => onChange({ landmark: e.target.value })} className={fieldCls} />
+          <input
+            aria-label="PIN code"
+            placeholder="PIN code"
+            inputMode="numeric"
+            maxLength={6}
+            value={delivery.pincode ?? ""}
+            onChange={(e) => onChange({ pincode: e.target.value.replace(/\D/g, ""), useCoords: false, zoneId: "" })}
+            className={fieldCls}
+          />
+        </div>
+      ) : (
+        <input aria-label="Landmark" placeholder="Landmark (optional)" maxLength={200} value={delivery.landmark} onChange={(e) => onChange({ landmark: e.target.value })} className={fieldCls} />
+      )}
+      {!addressOnly && (
+        <DeliveryLocationPicker delivery={delivery} onChange={onChange} outlet={outlet} zones={quote?.zones ?? []} activeZoneId={quote?.zone?.id ?? (manualZone ? delivery.zoneId : null)} />
+      )}
+      {!addressOnly && manualZone && quote && quote.zones.length > 0 && (
         <select aria-label="Delivery zone" value={delivery.zoneId} onChange={(e) => onChange({ zoneId: e.target.value })} className={fieldCls}>
           <option value="">Choose zone…</option>
           {quote.zones.map((z) => (
@@ -232,7 +251,7 @@ export function DeliveryFields({
           ))}
         </select>
       )}
-      <QuoteChip quote={quote} loading={quoteLoading} error={quoteError} zoneId={delivery.zoneId} />
+      <QuoteChip quote={quote} loading={quoteLoading} error={quoteError} zoneId={delivery.zoneId} pincode={delivery.pincode ?? ""} />
       <div className="grid grid-cols-2 gap-2">
         <select aria-label="Delivery partner" value={delivery.agentId} onChange={(e) => onChange({ agentId: e.target.value })} className={fieldCls}>
           <option value="">Auto-assign (next available)</option>
@@ -307,7 +326,7 @@ export function DeliveryFields({
   );
 }
 
-function QuoteChip({ quote, loading, error, zoneId }: { quote: DeliveryQuote | null; loading: boolean; error: string | null; zoneId: string }) {
+function QuoteChip({ quote, loading, error, zoneId, pincode }: { quote: DeliveryQuote | null; loading: boolean; error: string | null; zoneId: string; pincode: string }) {
   if (loading)
     return (
       <p className="flex items-center gap-2 text-xs text-muted">
@@ -317,6 +336,26 @@ function QuoteChip({ quote, loading, error, zoneId }: { quote: DeliveryQuote | n
   if (error) return <p className="text-xs font-medium text-red-600">{error}</p>;
   if (!quote) return null;
   if (!quote.deliveryEnabled) return <p className="text-xs font-medium text-red-600">Delivery is switched off for this outlet.</p>;
+  if (quote.addressMode === "ADDRESS") {
+    if (pincode.length === 6 && !quote.deliverable)
+      return (
+        <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-200" role="alert">
+          {quote.message ?? "Outside our delivery areas"}
+        </p>
+      );
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 dark:bg-sky-500/15 dark:text-sky-200" data-testid="delivery-quote">
+        <span className="flex items-center gap-1">
+          <MapPin size={14} weight="fill" /> {pincode.length === 6 ? `PIN ${pincode} · we deliver` : "Address only — enter the PIN code"}
+        </span>
+        <span>Fee {formatINR(quote.fee ?? 0)}</span>
+        <span className="flex items-center gap-1">
+          <Clock size={14} /> ~{quote.etaMinutes ?? 30} min
+        </span>
+        {(quote.minOrder ?? 0) > 0 && <span>Min order {formatINR(quote.minOrder ?? 0)}</span>}
+      </div>
+    );
+  }
   const zone = quote.zone ?? quote.zones.find((z) => z.id === zoneId) ?? null;
   if (quote.distanceKm !== undefined && !quote.deliverable)
     return (

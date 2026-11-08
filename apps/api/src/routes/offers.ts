@@ -25,7 +25,8 @@ offersRouter.use(authenticate, requireOutlet, requireModule("OFFERS"));
 const toDate = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 
 // ---------- Human-readable offer summaries (POS display) ----------
-async function describer() {
+/** Plain-language summary of each offer (staff screens and the public online ordering page). */
+export async function describer() {
   const [items, cats] = await Promise.all([
     prisma.menuItem.findMany({ select: { id: true, name: true } }),
     prisma.menuCategory.findMany({ select: { id: true, name: true } }),

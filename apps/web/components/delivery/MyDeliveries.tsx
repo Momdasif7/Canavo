@@ -17,7 +17,7 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Toggle } from "@/components/ui/Input";
 import { ErrorState, LoadingState } from "@/components/ui/States";
-import { EtaCountdown, IssueList, STATUS_LABEL, directionsLink, splitNotes } from "./common";
+import { EtaCountdown, IssueList, STATUS_LABEL, deliveryMapsLink, directionsLink, splitNotes } from "./common";
 import { DeliveryPinMap } from "./map/DeliveryMap";
 import { ReportIssueDialog } from "./partner/ReportIssueDialog";
 import { OffDutyBanner, useDuty } from "./partner/duty";
@@ -291,6 +291,7 @@ function DeliveryCard({
             <span className="min-w-0">
               <span className="block">{d.address}</span>
               {d.landmark && <span className="block text-sm text-muted">Near {d.landmark}</span>}
+              {d.pincode && <span className="block text-sm font-semibold text-muted">PIN {d.pincode}</span>}
               {d.distanceKm != null && <span className="block text-sm font-semibold text-muted">{d.distanceKm} km from outlet</span>}
             </span>
           </p>
@@ -298,6 +299,11 @@ function DeliveryCard({
             <NavigationArrow size={22} weight="fill" /> Navigate
           </a>
         </div>
+        {!pin && (
+          <a href={deliveryMapsLink(d)} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300" data-testid="open-in-maps">
+            <MapTrifold size={18} /> Open in Google Maps
+          </a>
+        )}
         {pin && (
           <div>
             <button type="button" onClick={() => setShowMap((v) => !v)} aria-expanded={showMap} className="flex items-center gap-1.5 text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300">

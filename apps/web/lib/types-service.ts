@@ -98,6 +98,12 @@ export interface DeliveryZone {
 export interface DeliveryQuote {
   deliveryEnabled: boolean;
   packagingCharge: number;
+  /** MAP: pin / zones; ADDRESS: typed address + PIN code, flat fee (Delivery → Settings) */
+  addressMode?: "MAP" | "ADDRESS";
+  /** ADDRESS mode: why the PIN code / area is refused */
+  message?: string | null;
+  /** ADDRESS mode: allowed PIN codes / area names (empty = anywhere) */
+  areas?: string[];
   needsCoordinates?: boolean;
   distanceKm?: number;
   deliverable?: boolean;
@@ -180,6 +186,8 @@ export interface Delivery {
   customerPhone: string;
   address: string;
   landmark: string | null;
+  /** PIN code (address-only delivery) */
+  pincode?: string | null;
   latitude: number | null;
   longitude: number | null;
   distanceKm: number | null;

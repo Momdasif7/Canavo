@@ -133,7 +133,13 @@ export function OnlineOrderingSettings() {
               disabled={!view.deliveryAvailable}
               onChange={(v) => set({ delivery: v })}
               label="Delivery"
-              description={view.deliveryAvailable ? "Uses your delivery zones and fees." : "Turn on delivery for this outlet first (needs the Delivery module)."}
+              description={
+                !view.deliveryAvailable
+                  ? "Turn on delivery for this outlet first (needs the Delivery module)."
+                  : view.deliveryMode === "ADDRESS"
+                    ? "Address only (no map): customers type the address and PIN code; flat fee and allowed areas from Delivery → Zones & settings."
+                    : "Map pin: uses your delivery zones and fees. Switch to address-only in Delivery → Zones & settings."
+              }
             />
           </div>
           <div>

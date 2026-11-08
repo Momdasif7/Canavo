@@ -596,6 +596,10 @@ export interface DeliveryQuote {
   deliveryEnabled: boolean;
   packagingCharge: Paise;
   needsCoordinates?: boolean;
+  /** MAP: pin / zones; ADDRESS: typed address + PIN code, flat fee (outlet setting) */
+  addressMode?: "MAP" | "ADDRESS";
+  /** ADDRESS mode: why the PIN code is refused */
+  message?: string | null;
   zones: DeliveryZone[];
   distanceKm?: number;
   deliverable?: boolean;
@@ -664,6 +668,8 @@ export interface Delivery {
   customerPhone: string;
   address: string;
   landmark: string | null;
+  /** PIN code (address-only delivery) */
+  pincode?: string | null;
   latitude: number | null;
   longitude: number | null;
   distanceKm: number | null;

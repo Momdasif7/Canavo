@@ -2,9 +2,13 @@ import crypto from "node:crypto";
 import type { Request } from "express";
 import type { ChannelRequest, Outlet, Prisma } from "@prisma/client";
 import {
+  deliveryAreaAllowed,
+  deliveryAreaRefusal,
   distanceMeters,
+  PINCODE_RE,
   effectiveGstRate,
   formatINR,
+  normalizeBrand,
   normalizeModules,
   storefrontSettingsSchema,
   type OnlineOrderInput,
@@ -56,9 +60,11 @@ export function acceptingNow(s: StorefrontSettings, timezone: string, at = new D
   return inWindow(zonedParts(at, timezone).minutes, s.acceptFrom, s.acceptTo);
 }
 
-async function channelsOn(businessId: string) {
-  const b = await platformPrisma.business.findUnique({ where: { id: businessId }, select: { status: true, modules: true } });
-  return Boolean(b && b.status === "ACTIVE" && normalizeModules(b.modules).includes("CHANNELS"));
+/** The business's brand accent when CHANNELS is on (false = the business can't take public orders). */
+async function channelsOn(businessId: string): Promise<false | { accent: string }> {
+  const b = await platformPrisma.business.findUnique({ where: { id: businessId }, select: { status: true, modules: true, brand: true } });
+  if (!(b && b.status === "ACTIVE" && normalizeModules(b.modules).includes("CHANNELS"))) return false;
+  return { accent: normalizeBrand(b.brand).accent };
 }
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
@@ -69,24 +75,28 @@ export async function tableByToken(token: string) {
   const table = await platformPrisma.diningTable.findUnique({ where: { qrToken: token } });
   if (!table) throw notFound("Table");
   const outlet = await platformPrisma.outlet.findUniqueOrThrow({ where: { id: table.outletId } });
-  if (!(await channelsOn(outlet.businessId))) throw notFound("Table");
+  const brand = await channelsOn(outlet.businessId);
+  if (!brand) throw notFound("Table");
   const settings = readSettings(outlet);
   if (!settings.qrOrdering && !settings.menuView) throw notFound("Table");
-  return { table, outlet, settings };
+  return { table, outlet, settings, accent: brand.accent };
 }
 
 /** Outlet from its public slug; refuses when CHANNELS is off or the page is switched off entirely. */
 export async function outletBySlug(slug: string) {
   if (!/^[a-z0-9-]{3,40}$/.test(slug)) throw notFound("Outlet");
   const outlet = await platformPrisma.outlet.findUnique({ where: { publicSlug: slug } });
-  if (!outlet || !(await channelsOn(outlet.businessId))) throw notFound("Outlet");
+  const brand = outlet ? await channelsOn(outlet.businessId) : false;
+  if (!outlet || !brand) throw notFound("Outlet");
   const settings = readSettings(outlet);
   if (!settings.onlineOrdering && !settings.menuView) throw notFound("Outlet");
-  return { outlet, settings };
+  return { outlet, settings, accent: brand.accent };
 }
 
-export const outletBrand = (o: Outlet) => ({
+export const outletBrand = (o: Outlet, accent?: string) => ({
   name: o.name,
+  /** Business brand colour (customer pages use it as their accent) */
+  accent: accent ?? null,
   address: o.address,
   phone: o.phone,
   logoUrl: o.logoUrl,
@@ -158,6 +168,21 @@ export async function publicMenu(outletId: string, timezone: string) {
   const used = new Set(items.map((i) => i.categoryId));
   for (const c of categories) if (used.has(c.id) && c.parentId) used.add(c.parentId);
   return { categories: categories.filter((c) => used.has(c.id)), items };
+}
+
+/**
+ * "Bestseller" badges on the customer menu: the outlet's most-sold items over the last 30 days
+ * (paid orders; at least 5 sold). Call inside the tenant context.
+ */
+export async function bestsellerIds(outletId: string, limit = 6): Promise<string[]> {
+  const rows = await prisma.orderItem.groupBy({
+    by: ["menuItemId"],
+    where: { order: { outletId, status: "PAID", createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } },
+    _sum: { quantity: true },
+    orderBy: { _sum: { quantity: "desc" } },
+    take: limit,
+  });
+  return rows.filter((r) => (r._sum.quantity ?? 0) >= 5).map((r) => r.menuItemId);
 }
 
 export interface CartLine {
@@ -555,7 +580,19 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
       throw new HttpError(403, "Verify your mobile number with the OTP first", { code: "PHONE_NOT_VERIFIED" });
     }
     let deliveryInput = input.delivery;
-    if (delivery && deliveryInput && deliveryInput.latitude !== undefined && deliveryInput.longitude !== undefined) {
+    const addressOnly = outlet.deliveryAddressMode === "ADDRESS";
+    if (delivery && deliveryInput && addressOnly) {
+      // No map: typed address + PIN code; the chosen area joins the address the rider reads.
+      const { area, ...rest } = deliveryInput;
+      if (!rest.pincode) throw badRequest("Enter the 6-digit PIN code of your delivery address");
+      if (!deliveryAreaAllowed(outlet.deliveryAreas, { pincode: rest.pincode, area, address: rest.address })) throw badRequest(deliveryAreaRefusal(outlet.deliveryAreas, rest.pincode));
+      const address = area && !rest.address.toLowerCase().includes(area.toLowerCase()) ? `${rest.address}, ${area}`.slice(0, 500) : rest.address;
+      deliveryInput = { ...rest, address, zoneId: undefined, latitude: undefined, longitude: undefined };
+    } else if (delivery && deliveryInput) {
+      const { area: _area, ...rest } = deliveryInput;
+      deliveryInput = rest;
+    }
+    if (delivery && deliveryInput && !addressOnly && deliveryInput.latitude !== undefined && deliveryInput.longitude !== undefined) {
       // A map pin: the server picks the zone from the distance (the client's zone choice is ignored).
       const quote = await deliveryQuote(outlet, deliveryInput.latitude, deliveryInput.longitude);
       if (quote.outletLocation) {
@@ -575,6 +612,7 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
 
     const lines = checkCart(await publicMenu(outlet.id, outlet.timezone), input.items);
     if (cartTotal(lines) < settings.minOrder) throw badRequest(`Minimum order is ${formatINR(settings.minOrder)}`);
+    if (delivery && addressOnly && cartTotal(lines) < outlet.deliveryMinOrder) throw badRequest(`Minimum order for delivery is ${formatINR(outlet.deliveryMinOrder)}`);
 
     let timeNote = "ASAP";
     if (input.pickupAt) {
@@ -641,6 +679,24 @@ export async function deliveryQuote(outlet: Outlet, lat: number, lng: number) {
     distanceKm,
     zone: zone ? { id: zone.id, name: zone.name, fee: zone.fee, minOrder: zone.minOrder, etaMinutes: zone.etaMinutes } : null,
     message: zone ? null : zones.length ? `Sorry, we don't deliver there — that's ${distanceKm} km away and we deliver within ${max} km` : "Sorry, we don't deliver to this address",
+  };
+}
+
+/** Address-only delivery quote: flat fee, minimum order, ETA and the allowed-area check for a PIN code / area. */
+export function addressQuote(outlet: Outlet, to: { pincode?: string; area?: string; address?: string }) {
+  const pinBad = to.pincode !== undefined && to.pincode !== "" && !PINCODE_RE.test(to.pincode);
+  const checked = Boolean(to.pincode || to.area);
+  const allowed = !pinBad && (!checked || deliveryAreaAllowed(outlet.deliveryAreas, to));
+  return {
+    mode: "ADDRESS" as const,
+    outletLocation: false,
+    deliverable: allowed,
+    distanceKm: null,
+    zone: null,
+    fee: outlet.deliveryFlatFee,
+    minOrder: outlet.deliveryMinOrder,
+    etaMinutes: outlet.deliveryEtaMinutes,
+    message: pinBad ? "Enter a 6-digit PIN code" : allowed ? null : deliveryAreaRefusal(outlet.deliveryAreas, to.pincode),
   };
 }
 

@@ -460,7 +460,7 @@ export const endpoints = {
   activeOffers: () => api.get<{ at: string; offers: ActiveOffer[] }>("/offers/active"),
 
   // Delivery
-  deliveryQuote: (q: { lat?: number; lng?: number }) => api.get<DeliveryQuote>("/delivery/quote", { query: q }),
+  deliveryQuote: (q: { lat?: number; lng?: number; pincode?: string }) => api.get<DeliveryQuote>("/delivery/quote", { query: q }),
   deliveryAgents: () => api.get<DeliveryAgent[]>("/delivery/agents"),
   deliveryZones: () => api.get<DeliveryZone[]>("/delivery/zones"),
   deliveries: (q: { active?: "1"; status?: DeliveryStatus } = {}) => api.get<Delivery[]>("/delivery", { query: q }),

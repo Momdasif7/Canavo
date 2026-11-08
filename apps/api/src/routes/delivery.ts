@@ -18,7 +18,11 @@ import {
   partnerLocationSchema,
   deliveryZoneSchema,
   deliveryZoneUpdateSchema,
+  deliveryAreaAllowed,
+  deliveryAreaRefusal,
+  deliverySettingsUpdateSchema,
   distanceMeters,
+  PINCODE_RE,
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
@@ -113,6 +117,43 @@ async function customerLink(d: Awaited<ReturnType<typeof findDelivery>>, opts: {
   return { ...msg, autoSent };
 }
 
+// ---------- Delivery settings (address mode) ----------
+type OutletDeliveryFields = { deliveryAddressMode: "MAP" | "ADDRESS"; deliveryFlatFee: number; deliveryMinOrder: number; deliveryAreas: string[]; deliveryEtaMinutes: number; latitude: number | null; longitude: number | null };
+
+/** How the outlet takes delivery addresses (Settings → Delivery). */
+export const deliverySettingsView = (o: OutletDeliveryFields) => ({
+  addressMode: o.deliveryAddressMode,
+  flatFee: o.deliveryFlatFee,
+  minOrder: o.deliveryMinOrder,
+  areas: o.deliveryAreas,
+  etaMinutes: o.deliveryEtaMinutes,
+  /** Map mode needs the outlet's position for distance fees */
+  outletLocation: o.latitude != null && o.longitude != null,
+});
+
+deliveryRouter.get("/settings", requirePermission("delivery:manage"), async (req, res) => {
+  res.json(deliverySettingsView(await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } })));
+});
+
+/** Owner / manager: map pin (zones & distance fees) or address only (flat fee, allowed areas). */
+deliveryRouter.put("/settings", requirePermission("delivery:manage", "settings:outlet"), async (req, res) => {
+  const p = parse(deliverySettingsUpdateSchema, req.body);
+  const outlet = await prisma.outlet.update({
+    where: { id: req.outletId },
+    data: {
+      ...(p.addressMode !== undefined && { deliveryAddressMode: p.addressMode }),
+      ...(p.flatFee !== undefined && { deliveryFlatFee: p.flatFee }),
+      ...(p.minOrder !== undefined && { deliveryMinOrder: p.minOrder }),
+      ...(p.areas !== undefined && { deliveryAreas: p.areas }),
+      ...(p.etaMinutes !== undefined && { deliveryEtaMinutes: p.etaMinutes }),
+    },
+  });
+  const view = deliverySettingsView(outlet);
+  await audit(req, "delivery.settings", "Outlet", outlet.id, view);
+  emitToOutlet(outlet.id, "outlet:updated", { id: outlet.id, fields: ["deliveryAddressMode", "deliveryFlatFee", "deliveryMinOrder", "deliveryAreas", "deliveryEtaMinutes"] });
+  res.json(view);
+});
+
 // ---------- Zones ----------
 deliveryRouter.get("/zones", requirePermission("delivery:manage"), async (req, res) => {
   res.json(await prisma.deliveryZone.findMany({ where: { outletId: req.outletId }, orderBy: { radiusKm: "asc" } }));
@@ -150,8 +191,29 @@ deliveryRouter.delete("/zones/:id", requirePermission("delivery:manage", "settin
 deliveryRouter.get("/quote", requirePermission("delivery:manage"), async (req, res) => {
   const q = parse(deliveryQuoteQuerySchema, req.query);
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId } });
+  const settings = deliverySettingsView(outlet);
+  if (settings.addressMode === "ADDRESS") {
+    // Address only: flat fee; the PIN code / area (when given) is checked against the allowed areas.
+    const pinOk = q.pincode === undefined || PINCODE_RE.test(q.pincode);
+    const allowed = pinOk && (q.pincode !== undefined || q.area !== undefined ? deliveryAreaAllowed(settings.areas, { pincode: q.pincode, area: q.area, address: q.address }) : true);
+    return res.json({
+      deliveryEnabled: outlet.deliveryEnabled,
+      packagingCharge: outlet.packagingCharge,
+      addressMode: "ADDRESS",
+      needsCoordinates: false,
+      deliverable: outlet.deliveryEnabled && allowed,
+      message: !pinOk ? "Enter a 6-digit PIN code" : allowed ? null : deliveryAreaRefusal(settings.areas, q.pincode),
+      fee: settings.flatFee,
+      minOrder: settings.minOrder || null,
+      etaMinutes: settings.etaMinutes,
+      etaAt: new Date(Date.now() + settings.etaMinutes * 60_000),
+      areas: settings.areas,
+      zone: null,
+      zones: [],
+    });
+  }
   const zones = await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true }, orderBy: { radiusKm: "asc" } });
-  const base = { deliveryEnabled: outlet.deliveryEnabled, packagingCharge: outlet.packagingCharge };
+  const base = { deliveryEnabled: outlet.deliveryEnabled, packagingCharge: outlet.packagingCharge, addressMode: "MAP" as const };
   if (q.lat === undefined || q.lng === undefined) {
     return res.json({ ...base, needsCoordinates: true, address: q.address ?? null, zones });
   }

@@ -349,6 +349,8 @@ export const orderCreateSchema = z.object({
     .object({
       address: z.string().min(5).max(500),
       landmark: z.string().max(200).optional(),
+      /** 6-digit PIN code (required when the outlet takes addresses without a map) */
+      pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "Enter a 6-digit PIN code").optional(),
       latitude: z.number().min(-90).max(90).optional(),
       longitude: z.number().min(-180).max(180).optional(),
       zoneId: z.string().optional(),

@@ -735,6 +735,10 @@
                 "type": "string",
                 "maxLength": 200
               },
+              "pincode": {
+                "type": "string",
+                "pattern": "^[1-9]\\d{5}$"
+              },
               "latitude": {
                 "type": "number",
                 "minimum": -90,
@@ -2173,6 +2177,42 @@
           }
         }
       },
+      "deliverySettingsUpdateSchema": {
+        "type": "object",
+        "properties": {
+          "addressMode": {
+            "type": "string",
+            "enum": [
+              "MAP",
+              "ADDRESS"
+            ]
+          },
+          "flatFee": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "minOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "areas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 60
+            },
+            "maxItems": 200
+          },
+          "etaMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 300
+          }
+        }
+      },
       "deliveryZoneSchema": {
         "type": "object",
         "properties": {
@@ -3559,6 +3599,14 @@
                 "type": "string",
                 "maxLength": 200
               },
+              "pincode": {
+                "type": "string",
+                "pattern": "^[1-9]\\d{5}$"
+              },
+              "area": {
+                "type": "string",
+                "maxLength": 60
+              },
               "zoneId": {
                 "type": "string",
                 "maxLength": 40
@@ -3628,12 +3676,20 @@
             "type": "number",
             "minimum": -180,
             "maximum": 180
+          },
+          "pincode": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "area": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 500
           }
-        },
-        "required": [
-          "lat",
-          "lng"
-        ]
+        }
       },
       "userPreferencesUpdateSchema": {
         "type": "object",
@@ -10293,6 +10349,78 @@
         }
       }
     },
+    "/delivery/settings": {
+      "get": {
+        "summary": "How the outlet takes delivery addresses: map pin (zones) or address only (flat fee, allowed areas)",
+        "tags": [
+          "Delivery"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "put": {
+        "summary": "Owner / manager: change the delivery address mode, flat fee, minimum order, allowed areas. Body: deliverySettingsUpdateSchema",
+        "tags": [
+          "Delivery"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/deliverySettingsUpdateSchema"
+              }
+            }
+          }
+        }
+      }
+    },
     "/delivery/zones": {
       "get": {
         "summary": "List delivery zones",
@@ -10461,7 +10589,7 @@
     },
     "/delivery/quote": {
       "get": {
-        "summary": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address)",
+        "summary": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address); address-only outlets: flat fee and the ?pincode / ?area check",
         "tags": [
           "Delivery"
         ],
@@ -15539,7 +15667,7 @@
     },
     "/public/o/{slug}/delivery-quote": {
       "get": {
-        "summary": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema",
+        "summary": "Delivery fee and ETA: zone for a map pin (?lat&lng), or the flat fee and allowed-area check (?pincode&area) for address-only outlets; refuses addresses outside. Query: publicDeliveryQuoteSchema",
         "tags": [
           "Public"
         ],
@@ -15566,7 +15694,7 @@
           {
             "name": "lat",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "number",
               "minimum": -90,
@@ -15576,11 +15704,38 @@
           {
             "name": "lng",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "number",
               "minimum": -180,
               "maximum": 180
+            }
+          },
+          {
+            "name": "pincode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 10
+            }
+          },
+          {
+            "name": "area",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "address",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
             }
           }
         ]
