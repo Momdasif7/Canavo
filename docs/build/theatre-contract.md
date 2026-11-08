@@ -112,7 +112,7 @@ These follow the existing table-QR rate limits.
     - COUNTER is chosen while counter pickup is off;
     - NOW is chosen while delivery during the show is off.
   - **Kitchen release:**
-    - **NOW and COUNTER:** the KOT goes out once payment is confirmed (and, if the outlet requires QR confirmation, accepted).
+    - **NOW and COUNTER:** the KOT goes out once payment is confirmed. Seat orders are prepaid, so they skip the dine-in "confirm QR orders" step (unpaid ones expire after 30 minutes).
     - **INTERVAL:** the KOT is created with `releaseAt = intervalAt − intervalLeadMin`.
   - **KOT text:** the header reads `SCREEN <code> · <row><n> · NOW|INTERVAL|COUNTER #<token>`.
 - **`GET /public/t/:token/orders`:** for a seat, the orders of the current show on that seat: `{ id, token, createdAt, status, stage, timing, pickupToken, releaseAt, paid, rejectReason, total, items: { name, quantity }[], upi: { amount, qrPayload } | null }`. `stage` is the `BoardOrder` stage, or `CANCELLED` for a rejected / expired order. `upi` is the QR still to pay.

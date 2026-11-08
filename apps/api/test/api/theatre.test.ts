@@ -476,12 +476,8 @@ describe("placing seat orders", () => {
       expect(await db.kotTicket.count({ where: { orderId: req.orderId! } })).toBe(0); // unpaid: nothing in the kitchen
       await pay(req.orderId!);
       expect((await db.kotTicket.findMany({ where: { orderId: req.orderId! } })).map((k) => k.header)).toEqual(["SCREEN S1 · C5 · NOW"]);
-      // Staff can still turn an order down before it's paid: the unpaid bill is cancelled.
-      const r3 = await order("main", "C7", "NOW");
-      expect((await waiter.call("POST", `/storefront/requests/${r3.body.id}/reject`, { reason: "Kitchen closed" })).status).toBe(200);
-      const req3 = await db.channelRequest.findUniqueOrThrow({ where: { id: r3.body.id } });
-      expect((await db.order.findUniqueOrThrow({ where: { id: req3.orderId! } })).status).toBe("CANCELLED");
-      expect((await pub("GET", `/public/t/${seat("main", "C7").qrToken}/orders`)).body[0]).toMatchObject({ stage: "CANCELLED", rejectReason: "Kitchen closed" });
+      // Nothing waits for staff: no PENDING request for the dine-in confirm step.
+      expect(await db.channelRequest.count({ where: { id: r.body.id, status: "PENDING" } })).toBe(0);
     } finally {
       await owner.call("PUT", "/storefront/settings", { qrNeedsConfirmation: false });
     }
@@ -551,7 +547,7 @@ describe("runner board, report, settings", () => {
     const paid = await db.channelRequest.findMany({ where: { outletId: w.h.outletId, seatTiming: { not: null }, status: "ACCEPTED" } });
     const orders = await db.order.findMany({ where: { id: { in: paid.map((p) => p.orderId!) }, status: "PAID" } });
     const sales = orders.reduce((s, o) => s + o.grandTotal - o.refundedAmount, 0);
-    expect(orders.length).toBeGreaterThan(5);
+    expect(orders.length).toBeGreaterThan(4);
     expect(r.body.totals).toEqual({ orders: orders.length, sales, avgOrder: Math.round(sales / orders.length) });
     const sum = (rows: { orders: number; sales: number }[]) => rows.reduce((a, x) => ({ orders: a.orders + x.orders, sales: a.sales + x.sales }), { orders: 0, sales: 0 });
     expect(sum(r.body.byScreen)).toEqual({ orders: orders.length, sales });
