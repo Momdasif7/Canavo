@@ -67,7 +67,7 @@ export async function markNoShows(now = new Date()) {
         emitToOutlet(r.outletId, "table:updated", { tableIds: [t.id], action: "status" });
       }
     }
-    emitToOutlet(r.outletId, "reservation:updated", { ...r, status: "NO_SHOW" });
+    emitToOutlet(r.outletId, "reservation:updated", { id: r.id, status: "NO_SHOW", tableId: r.tableId });
     void notify(await outletManagers(r.outletId), "Reservation no-show", `${r.customerName} (${r.partySize} guests) didn't arrive — table freed`, "reservation.noshow", { outletId: r.outletId });
   }
   return stale.length;

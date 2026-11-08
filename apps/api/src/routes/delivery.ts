@@ -41,6 +41,12 @@ import { cashBalance, cashCollected, cashHandedOver, pendingCollections, realloc
 import { assignWaitingDeliveries, lockAndCheckPartner, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
 import { alertPartnerCash } from "../services/alerts";
 
+/**
+ * Live-update payload: ids and status only. Every screen just reloads what it may see, so the
+ * customer's name, phone and address never go to the whole outlet room (QA Phase 10 privacy).
+ */
+const deliveryEvent = (d: { id: string; orderId: string; agentId: string | null; status: string }) => ({ id: d.id, orderId: d.orderId, agentId: d.agentId, status: d.status });
+
 export const deliveryRouter = Router();
 deliveryRouter.use(authenticate, requireOutlet, requireModule("DELIVERY"));
 
@@ -762,7 +768,7 @@ deliveryRouter.patch("/:id/assign", requirePermission("delivery:manage"), async 
   await audit(req, d.agentId ? "delivery.reassign" : "delivery.assign", "Delivery", d.id, { from: d.agentId, to: agentId });
   if (agentId) await notify([agentId], "New delivery assigned", `${d.order.invoiceNumber} · ${d.customerName} · ${d.address}`, "delivery");
   if (d.agentId && d.agentId !== agentId) await notify([d.agentId], "Delivery reassigned", `${d.order.invoiceNumber} was moved to another agent`, "delivery");
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   res.json(withExtras(updated));
 });
 
@@ -802,7 +808,7 @@ deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
   });
   await audit(req, "delivery.status", "Delivery", d.id, { from: d.status, to: status, note: note ?? null });
   if (status === "CANCELLED" && updated.agentId) lastLocation.delete(updated.agentId);
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   if (status === "CANCELLED") {
     const ids = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
     await notify(ids, "Delivery cancelled", `${d.order.invoiceNumber} · ${d.customerName}`, "delivery");
@@ -869,7 +875,7 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   if (d.agentId) lastLocation.delete(d.agentId);
   const updated = await findDelivery(d.id, outletId);
   if (due > 0) emitToOutlet(outletId, "order:paid", { id: d.order.id, invoiceNumber: d.order.invoiceNumber });
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   const managers = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
   await notify(managers, "Delivery delivered", `${d.order.invoiceNumber} · ${d.customerName}${due ? ` · ₹${(due / 100).toFixed(2)} cash collected` : ""}`, "delivery");
   if (due > 0) void cashBalance(outletId, collectorId).then((bal) => alertPartnerCash(outletId, collectorId, bal));
@@ -922,7 +928,7 @@ deliveryRouter.post("/:id/collect", managerOrPartner, async (req, res) => {
   });
   const updated = await findDelivery(d.id, outletId);
   if (paid) emitToOutlet(outletId, "order:paid", { id: d.order.id, invoiceNumber: d.order.invoiceNumber });
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   res.json({ ...withExtras(updated), paid });
 });
 
@@ -967,7 +973,7 @@ deliveryRouter.post("/:id/upi-qr/:paymentId/confirm", managerOrPartner, async (r
   });
   const updated = await findDelivery(d.id, outletId);
   if (paid) emitToOutlet(outletId, "order:paid", { id: d.order.id, invoiceNumber: d.order.invoiceNumber });
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   res.json({ ...withExtras(updated), paid });
 });
 
@@ -995,7 +1001,7 @@ deliveryRouter.post("/:id/issue", managerOrPartner, async (req, res) => {
   await audit(req, "delivery.issue", "Delivery", d.id, { reason, note: note ?? null });
   const managers = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
   await notify(managers, `Delivery problem: ${d.order.invoiceNumber}`, `${req.user!.name}: ${text} (${d.customerName})`, "delivery");
-  emitToOutlet(outletId, "delivery:updated", updated);
+  emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   res.json(withExtras(updated));
 });
 

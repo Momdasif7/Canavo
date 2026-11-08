@@ -17,6 +17,9 @@ import { authenticate, requireOutlet, requirePermission, requireModule } from ".
 import { emitToOutlet } from "../realtime";
 import { addItemsToSession, emitTables, findOpenSession, loadMenu, openSession, priceLine } from "./tables";
 
+/** Live-update payload: ids and status only — screens reload; guest name / phone never go to the whole outlet (QA Phase 10). */
+export const reservationEvent = (r: { id: string; status: string; tableId: string | null }) => ({ id: r.id, status: r.status, tableId: r.tableId });
+
 export const reservationsRouter = Router();
 reservationsRouter.use(authenticate, requireOutlet, requireModule("RESERVATIONS"));
 
@@ -156,7 +159,7 @@ reservationsRouter.post("/", requirePermission("reservation:manage"), async (req
     });
   });
   await audit(req, "reservation.create", "Reservation", r.id, { reservedFor: data.reservedFor, partySize: data.partySize, advancePaid: data.advancePaid });
-  emitToOutlet(outletId, "reservation:updated", r);
+  emitToOutlet(outletId, "reservation:updated", reservationEvent(r));
   res.status(201).json(r);
 });
 
@@ -187,7 +190,7 @@ reservationsRouter.patch("/:id", requirePermission("reservation:manage"), async 
   });
   await audit(req, "reservation.update", "Reservation", r.id, data as unknown as Prisma.InputJsonValue);
   if (existing.tableId !== r.tableId || existing.reservedFor.getTime() !== r.reservedFor.getTime()) await releaseReservedTable(outletId, existing.tableId);
-  emitToOutlet(outletId, "reservation:updated", r);
+  emitToOutlet(outletId, "reservation:updated", reservationEvent(r));
   res.json(r);
 });
 
@@ -202,7 +205,7 @@ async function endReservation(req: Request, status: "CANCELLED" | "NO_SHOW", rea
   });
   await audit(req, status === "CANCELLED" ? "reservation.cancel" : "reservation.no_show", "Reservation", r.id, { reason: reason ?? null, advancePaid: r.advancePaid });
   await releaseReservedTable(outletId, r.tableId);
-  emitToOutlet(outletId, "reservation:updated", r);
+  emitToOutlet(outletId, "reservation:updated", reservationEvent(r));
   return r;
 }
 
@@ -244,6 +247,6 @@ reservationsRouter.post("/:id/seat", requirePermission("reservation:manage", "ta
     : [];
   await audit(req, "reservation.seat", "Reservation", r.id, { sessionId: session.id, tableId, preOrderItems: preOrder.length });
   const updated = await findReservation(r.id, outletId);
-  emitToOutlet(outletId, "reservation:updated", updated);
+  emitToOutlet(outletId, "reservation:updated", reservationEvent(updated));
   res.status(201).json({ reservation: updated, session: { ...session, advancePaid: r.advancePaid }, kots, advancePaid: r.advancePaid });
 });
