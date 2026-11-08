@@ -116,7 +116,6 @@ export default function CustomersPage() {
           <EmptyState
             title={filtered ? "No customers match" : "No customers yet"}
             description={filtered ? "Try a different search or filter." : "Customers are added automatically when a phone number is attached to a bill."}
-            action={!filtered && <Button onClick={() => setAdding(true)}>Add customer</Button>}
           />
         ) : (
           <div className={list.loading ? "opacity-60 transition-opacity" : undefined}>

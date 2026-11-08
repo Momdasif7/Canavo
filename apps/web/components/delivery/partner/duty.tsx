@@ -290,17 +290,17 @@ export function DutyBar() {
   );
 }
 
-/** Gentle nudge on My deliveries while off duty — never blocks the work. */
+/**
+ * Gentle nudge on My deliveries while off duty — never blocks the work. No button of its own: the duty bar
+ * above (on every portal page) already has "Clock in", and two identical buttons on one screen confuse.
+ */
 export function OffDutyBanner() {
   const duty = useDuty();
   if (!duty.available || duty.loading || duty.status?.clockedIn !== false) return null;
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" data-testid="off-duty-banner">
       <Clock size={24} className="shrink-0" weight="duotone" />
-      <p className="min-w-0 flex-1 text-sm font-semibold">Clock in to start your shift — the outlet assigns orders to partners on duty.</p>
-      <Button size="sm" variant="secondary" className="shrink-0" loading={duty.busy === "in"} onClick={duty.clockIn}>
-        Clock in
-      </Button>
+      <p className="min-w-0 flex-1 text-sm font-semibold">Clock in (top of the screen) to start your shift — the outlet assigns orders to partners on duty.</p>
     </div>
   );
 }

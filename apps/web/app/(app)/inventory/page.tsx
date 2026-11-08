@@ -160,14 +160,7 @@ export default function StockPage() {
         ) : items.length === 0 ? (
           <EmptyState
             title={debounced || category || lowOnly ? "No items match these filters" : "No stock items yet"}
-            description={debounced || category || lowOnly ? undefined : "Add ingredients and supplies to start tracking stock."}
-            action={
-              manage && !(debounced || category || lowOnly) ? (
-                <Button icon={<Plus size={18} />} onClick={() => setFormTarget({ mode: "create" })}>
-                  Add item
-                </Button>
-              ) : undefined
-            }
+            description={debounced || category || lowOnly ? undefined : manage ? "Use Add item above to start tracking ingredients and supplies." : "No ingredients or supplies are tracked yet."}
           />
         ) : (
           <Table>
