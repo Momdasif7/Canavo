@@ -196,27 +196,28 @@ function Shell({
   const m = META[view.slug];
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
+  const actions = (
+    <>
+      {view.updatedAt && (
+        <Button variant="ghost" size="sm" icon={<Trash size={18} />} onClick={() => setConfirm(true)} aria-label={`Remove ${m.title}`}>
+          Remove
+        </Button>
+      )}
+      <Button size="sm" icon={<FloppyDisk size={18} />} onClick={onSave} loading={saving}>
+        Save
+      </Button>
+    </>
+  );
   return (
     <Card>
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            {m.icon} {m.title}
+            <span className="shrink-0">{m.icon}</span> {m.title}
           </span>
         }
         subtitle={m.what}
-        action={
-          <div className="flex shrink-0 gap-2">
-            {view.updatedAt && (
-              <Button variant="ghost" size="sm" icon={<Trash size={18} />} onClick={() => setConfirm(true)} aria-label={`Remove ${m.title}`}>
-                Remove
-              </Button>
-            )}
-            <Button size="sm" icon={<FloppyDisk size={18} />} onClick={onSave} loading={saving}>
-              Save
-            </Button>
-          </div>
-        }
+        action={<div className="hidden shrink-0 gap-2 sm:flex">{actions}</div>}
       />
       <div className="space-y-5 p-5">
         <StatusLine s={view} />
@@ -229,6 +230,7 @@ function Shell({
           <summary className="cursor-pointer font-semibold">Where do I find these?</summary>
           <div className="mt-2 space-y-1.5 text-muted">{help}</div>
         </details>
+        <div className="flex justify-end gap-2 sm:hidden">{actions}</div>
         {view.updatedAt && test}
       </div>
       <ConfirmDialog
