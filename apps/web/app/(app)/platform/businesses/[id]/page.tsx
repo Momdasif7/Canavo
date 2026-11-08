@@ -57,7 +57,7 @@ export default function BusinessDetailPage() {
 
   return (
     <PageContainer>
-      <Link href="/platform/businesses" className="mb-3 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-fg">
+      <Link data-nav="back" href="/platform/businesses" className="mb-3 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-fg">
         <ArrowLeft size={16} /> Businesses
       </Link>
       <PageHeader

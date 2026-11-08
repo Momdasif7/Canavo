@@ -25,7 +25,7 @@ export default function AuditDetailPage() {
         title={a?.status === "IN_PROGRESS" ? "Count sheet" : "Stock audit"}
         subtitle={a?.status === "IN_PROGRESS" ? "Enter counted quantities — Enter / ↓ moves to the next item, ↑ to the previous" : undefined}
         actions={
-          <Link href="/inventory/audits" className="inline-flex min-h-tap items-center gap-2 rounded-xl px-3 font-semibold text-fg hover:bg-surface-2">
+          <Link data-nav="back" href="/inventory/audits" className="inline-flex min-h-tap items-center gap-2 rounded-xl px-3 font-semibold text-fg hover:bg-surface-2">
             <ArrowLeft size={18} /> All audits
           </Link>
         }

@@ -15,6 +15,9 @@
  *   BASE_URL=http://localhost:3230 OUT_DIR=/tmp/dup-sweep \
  *   node apps/web/scripts/qa/duplicate-buttons.cjs
  *
+ * Back links (`data-nav="back"`, e.g. PageHeader's `back`) and the desktop sidebar are never cross-region
+ * duplicates; put `data-dup-ok` on a control that was reviewed and is an intentional repeat.
+ *
  * Optional env: ROLES=owner,cashier (default: every demo role), PASSWORD (default Canavo@123),
  * VIEWPORTS=desktop,phone, ROUTES=/pos,/bills (only these), SHOTS=0 (no screenshots), CONCURRENCY=2,
  * CHROME_CHANNEL=chrome (set to "" to use the bundled chromium).
@@ -113,7 +116,8 @@ function scanInPage() {
   // An open modal makes everything behind it irrelevant.
   const modal = [...document.querySelectorAll("[role=dialog], dialog[open], [role=alertdialog]")].filter(isVisible).pop();
   const root = modal || document;
-  const els = [...root.querySelectorAll(SEL)].filter(isVisible);
+  // `data-dup-ok` on a control (or an ancestor) marks a reviewed, intentional repeat.
+  const els = [...root.querySelectorAll(SEL)].filter((el) => isVisible(el) && !el.closest("[data-dup-ok]"));
   const items = els.map((el, i) => {
     const href = el.tagName === "A" ? el.getAttribute("href") : null;
     const r = el.getBoundingClientRect();
@@ -186,7 +190,7 @@ function scanInPage() {
   {
     const m = new Map();
     for (const it of items) {
-      if (!it.href || it.href === "#" || it.region.startsWith("aside") || it.region.startsWith("dialog")) continue;
+      if (!it.href || it.href === "#" || it.el.closest("aside") || it.region.startsWith("dialog") || it.el.closest("[data-nav=back]")) continue;
       const k = it.href.replace(/\/$/, "");
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(it);

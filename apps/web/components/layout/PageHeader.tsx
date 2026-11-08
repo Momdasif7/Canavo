@@ -19,7 +19,7 @@ export function PageHeader({
   return (
     <>
       {back && (
-        <Link href={back.href} className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg print:hidden">
+        <Link data-nav="back" href={back.href} className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg print:hidden">
           <ArrowLeft size={18} /> {back.label}
         </Link>
       )}
