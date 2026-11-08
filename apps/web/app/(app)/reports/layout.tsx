@@ -6,6 +6,7 @@ import {
   Buildings,
   ChartLineUp,
   Clock,
+  FilmSlate,
   ForkKnife,
   Moped,
   Package,
@@ -36,13 +37,14 @@ const TABS: TabLink[] = [
   { href: "/reports/exceptions", label: "Exceptions", icon: WarningOctagon },
   { href: "/reports/settlements", label: "Settlements", icon: Bank },
   { href: "/reports/canteen", label: "Canteen", icon: Briefcase },
+  { href: "/reports/theatre", label: "Cinema", icon: FilmSlate },
   { href: "/reports/outlets", label: "All outlets", icon: Buildings },
 ];
 
 export default function ReportsLayout({ children }: { children: React.ReactNode }) {
   const { can, me } = useSession();
-  // The canteen report only for hotels with the Canteen module.
-  const tabs = TABS.filter((t) => t.href !== "/reports/canteen" || me?.modules?.includes("CANTEEN"));
+  // The canteen / cinema reports only for hotels with that module.
+  const tabs = TABS.filter((t) => (t.href !== "/reports/canteen" || me?.modules?.includes("CANTEEN")) && (t.href !== "/reports/theatre" || me?.modules?.includes("THEATRE")));
   if (!can("report:view")) return <ErrorState message="Your role doesn't have access to reports." />;
   return (
     <ReportRangeProvider>

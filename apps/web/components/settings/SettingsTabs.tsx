@@ -12,7 +12,7 @@ export function SettingsTabs() {
   if (can("settings:view") && can("settings:billing")) tabs.push({ href: "/settings/taxes", label: "GST & Taxes", icon: Percent });
   if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/integrations", label: "Integrations", icon: Plug });
   if (can("settings:view") && can("settings:outlet")) tabs.push({ href: "/settings/whatsapp", label: "WhatsApp templates", icon: WhatsappLogo });
-  if (can("channel:manage")) tabs.push({ href: "/settings/online-ordering", label: "Online ordering", icon: QrCode });
+  if (can("channel:manage")) tabs.push({ href: "/settings/online-ordering", label: "QR & online ordering", icon: QrCode });
   if (can("channel:manage")) tabs.push({ href: "/settings/channels", label: "Channels", icon: PlugsConnected });
   if (can("settings:view")) tabs.push({ href: "/settings/notifications", label: "Notifications", icon: BellRinging });
   if (can("outlet:manage")) tabs.push({ href: "/settings/support", label: "Support access", icon: Lifebuoy });
