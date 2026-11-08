@@ -15,7 +15,9 @@
     "lint": "turbo run lint",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "npm run prisma:migrate -w @canavo/api",
-    "db:seed": "npm run seed -w @canavo/api"
+    "db:seed": "npm run seed -w @canavo/api",
+    "security:secrets": "sh scripts/security/secrets.sh",
+    "security:sast": "sh scripts/security/sast.sh"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

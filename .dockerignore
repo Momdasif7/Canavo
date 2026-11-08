@@ -1,0 +1,20 @@
+# Keep secrets, local data and build output out of the Docker build context (and the image).
+**/.env
+**/.env.*
+**/node_modules
+**/.next*
+**/dist
+**/.turbo
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+apps/api/storage
+apps/mobile
+apps/web
+.git
+.github
+.claude
+.share-logs
+docs
+playwright-report
+test-results

@@ -1,0 +1,16 @@
+# semgrep exclusions (replaces semgrep's defaults, so those are repeated here)
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.next-*/
+.expo/
+.turbo/
+*.min.js
+*.tsbuildinfo
+apps/api/storage/
+# Test code is not shipped; its fixture JWT secrets / bcrypt hashes were triaged as false positives (docs/qa/phase-8/sec2.md)
+apps/api/test/
+*.test.ts
+*.test.tsx

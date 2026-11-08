@@ -36,6 +36,12 @@ describe("AES-256-GCM field encryption", () => {
     expect(() => parseKey("too-short")).toThrow();
   });
 
+  it("rejects a truncated auth tag (sec2-3)", () => {
+    const [v, iv, tag, ct] = encryptWith(key, "secret").split(":");
+    const short = Buffer.from(tag!, "base64").subarray(0, 4).toString("base64");
+    expect(() => decryptWith(key, [v, iv, short, ct].join(":"))).toThrow();
+  });
+
   it("encrypt/decrypt with the env-derived key", () => {
     process.env.DATA_ENCRYPTION_KEY = randomBytes(32).toString("hex");
     expect(decrypt(encrypt("499112345677"))).toBe("499112345677");
