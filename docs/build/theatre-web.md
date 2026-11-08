@@ -156,7 +156,7 @@ The full run was done twice. The first round ran on th1's earlier WIP; the secon
 - `tsc --noEmit` passes for `apps/web` and `apps/api`.
 - `npm run lint` passes; only the warnings that were already there.
 - `npm test`: shared 56 and api 160 unit tests pass.
-- Integration, test:api and test:db were run on `canavo_it_th2` after the merge. Results are in the summary reply.
+- Integration: 31 files, 207 tests pass. test:db: all 10 files pass. test:api: 781 of 782 passed in the full run; the one failure was `staff.test.ts` "public fields only". That test makes a random phone number, and this one contained `4321`, which the test's regex flags as a PIN. It fails by chance and has nothing to do with this branch: the file passes on a rerun (62/62).
 - This branch adds no new tests: the web app has no test runner, and the browser run above is the check.
 
 ## Not verified / notes
