@@ -19,6 +19,7 @@ import { FEATURE_KEYS, featureEnabled, normalizeFeatures, newPasswordSchema, pas
 import { platformPrisma, prisma } from "../db";
 import { isProd } from "../env";
 import { badRequest, notFound, parse, unauthorized, HttpError } from "../lib/http";
+import { disconnectSockets } from "../realtime";
 import { issueSession, listSessions, revokeOtherSessions, revokeSession, rotateRefresh, sha256, type SessionMeta } from "../lib/tokens";
 import { consumePasswordLink, sendPasswordLink } from "../services/password-links";
 import {
@@ -193,6 +194,7 @@ authRouter.post("/logout", async (req, res) => {
       where: { familyId: row.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    disconnectSockets({ sid: row.familyId });
   }
   res.status(204).end();
 });

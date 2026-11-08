@@ -43,7 +43,7 @@ async function loadPrefs(kind: string): Promise<ChannelPrefs> {
 }
 
 /** Screen to open for each kind of notification (web routes; the mobile app maps them to its screens). */
-const DEFAULT_LINKS: [prefix: string, link: string][] = [
+export const DEFAULT_LINKS: [prefix: string, link: string][] = [
   ["delivery", "/delivery"],
   ["order.ready", "/pos"],
   ["order.cancelled", "/bills"],
@@ -59,8 +59,9 @@ const DEFAULT_LINKS: [prefix: string, link: string][] = [
   ["crm", "/customers"],
   ["customer", "/customers"],
   ["platform", "/settings"],
+  ["channel", "/pos"],
 ];
-export const defaultLink = (kind: string) => DEFAULT_LINKS.find(([p]) => kind === p || kind.startsWith(`${p}.`) || kind.startsWith(p))?.[1] ?? null;
+export const defaultLink = (kind: string) => DEFAULT_LINKS.find(([p]) => kind === p || kind.startsWith(`${p}.`))?.[1] ?? null;
 
 export interface NotifyOptions {
   /** Screen to open when tapped; defaults by kind */
@@ -150,7 +151,8 @@ export const chunk = <T,>(arr: T[], size: number): T[][] =>
  * failures are logged and ignored; tokens reported as DeviceNotRegistered are deleted.
  */
 /** Kinds that should ring through Android's "urgent" channel even when the app is closed. */
-const URGENT_KINDS = ["kot.new", "order.ready", "delivery", "table.attention", "payment.received"];
+// Keep in step with the mobile app (apps/mobile/src/notifications/links.ts): new QR / online orders ring too (rt-4).
+const URGENT_KINDS = ["kot.new", "order.ready", "delivery", "table.attention", "payment.received", "channel.order"];
 export const isUrgentKind = (kind: string) => URGENT_KINDS.some((k) => kind === k || kind.startsWith(`${k}.`));
 
 export async function sendPushToUsers(

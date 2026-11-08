@@ -10,6 +10,7 @@ import { disableTwoFactor } from "../services/two-factor";
 import { sendPasswordLink } from "../services/password-links";
 import { authenticate, requireAnyPermission, requireOutlet, requirePermission } from "../middleware/auth";
 import { startOfLocalDay, addDays } from "../lib/time";
+import { revalidateSockets } from "../realtime";
 
 export const staffRouter = Router();
 staffRouter.use(authenticate, requireOutlet);
@@ -227,6 +228,8 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   const passwordReset = Boolean(data.password);
   const forcedLogout = Boolean(roleChanged || deactivated || passwordReset);
   if (forcedLogout) await forceLogout(id);
+  // Moved to other outlets: live sockets leave the outlet rooms they lost (rt-3).
+  else if (outletIds) await revalidateSockets(id);
   await audit(req, "staff.update", "User", id, { fields: Object.keys(data), forcedLogout });
   res.json(user);
 });

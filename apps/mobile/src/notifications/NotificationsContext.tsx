@@ -224,6 +224,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (p?.all) {
       setUnread(0);
       setItems((cur) => (filterRef.current === "unread" ? [] : cur?.map((x) => ({ ...x, read: true })) ?? cur));
+    } else if (p?.cleared) {
+      setItems((cur) => cur?.filter((x) => !x.read) ?? cur);
+    } else if (p?.id && p.read === false) {
+      // Marked unread on another device (rt-5): reload instead of marking it read here.
+      void refresh();
     } else if (p?.id) {
       const id = p.id;
       setItems((cur) => {

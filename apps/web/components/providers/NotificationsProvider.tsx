@@ -317,10 +317,15 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     scheduleSync(true);
   });
 
-  useSocketEvent<{ id?: string; all?: boolean }>("notification:read", (p) => {
+  // Read state changed in another tab / device. `read: false` = marked unread there, `cleared` = read ones deleted (rt-5).
+  useSocketEvent<{ id?: string; all?: boolean; read?: boolean; cleared?: boolean }>("notification:read", (p) => {
     if (p?.all) {
       emit({ type: "read", all: true });
       setUnread(0);
+    } else if (p?.cleared) {
+      emit({ type: "cleared" });
+    } else if (p?.id && p.read === false) {
+      scheduleSync(true);
     } else if (p?.id) {
       emit({ type: "read", id: p.id });
       scheduleSync(false);
