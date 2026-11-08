@@ -37,7 +37,12 @@ const FILTERED_OPS = new Set([
 ]);
 
 // PRISMA_QUERY_LOG=1: emit every statement as a "query" event (N+1 hunting, perf/n1-scan.ts). Off by default.
-const base = new PrismaClient(process.env.PRISMA_QUERY_LOG === "1" ? { log: [{ emit: "event", level: "query" }] } : undefined);
+// Interactive transactions queue behind per-outlet locks (KOT numbers, bills) in a lunch rush: Prisma's
+// 5 s default made 30 bills at once fail (QA Phase 13, R5). Allow 10 s to start and 15 s to finish.
+const base = new PrismaClient({
+  transactionOptions: { maxWait: 10_000, timeout: 15_000 },
+  ...(process.env.PRISMA_QUERY_LOG === "1" && { log: [{ emit: "event" as const, level: "query" as const }] }),
+});
 
 // ---------------------------------------------------------------------------
 // Layer 1 — application tenant filter (unchanged): inside a business context
