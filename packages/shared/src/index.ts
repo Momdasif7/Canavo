@@ -20,3 +20,4 @@ export * from "./schemas-theatre";
 export * from "./packing-slip";
 export * from "./appearance";
 export * from "./delivery-address";
+export * from "./india";

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
+  customerAnonymiseSchema,
   customerBlockSchema,
   customerCreateSchema,
   customerListQuerySchema,
@@ -158,6 +159,16 @@ customersRouter.post("/preview-promotions", requirePermission("order:create"), a
   res.json(await previewPromotions(req, parse(promotionPreviewSchema, req.body)));
 });
 
+// ---------- DPDP consent (QA Phase 14) ----------
+type ConsentInput = { marketingOptIn?: boolean; whatsappOptIn?: boolean };
+/** Record when (and that staff, on the customer's request) the consent flags changed. */
+function consentStamp(data: ConsentInput, current?: ConsentInput) {
+  const changed = (["marketingOptIn", "whatsappOptIn"] as const).some((k) => data[k] !== undefined && data[k] !== (current?.[k] ?? false));
+  return changed ? { consentAt: new Date(), consentSource: "STAFF" } : {};
+}
+const consentAudit = (data: ConsentInput) =>
+  data.marketingOptIn !== undefined || data.whatsappOptIn !== undefined ? { consent: { marketing: data.marketingOptIn, whatsapp: data.whatsappOptIn } } : {};
+
 // ---------- Create ----------
 customersRouter.post("/", requirePermission("customer:view"), async (req, res) => {
   const data = parse(customerCreateSchema, req.body);
@@ -166,8 +177,8 @@ customersRouter.post("/", requirePermission("customer:view"), async (req, res) =
   }
   const existing = await prisma.customer.findFirst({ where: { phone: data.phone } });
   if (existing) throw new HttpError(409, `Customer with phone ${data.phone} already exists`, { id: existing.id });
-  const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, businessId: requireBusinessId() } });
-  await audit(req, "customer.create", "Customer", customer.id);
+  const customer = await prisma.customer.create({ data: { ...data, ...consentStamp(data), email: data.email || null, businessId: requireBusinessId() } });
+  await audit(req, "customer.create", "Customer", customer.id, consentAudit(data));
   res.status(201).json(customer);
 });
 
@@ -294,14 +305,15 @@ customersRouter.get("/:id/khata", requirePermission("customer:view"), async (req
 customersRouter.patch("/:id", requirePermission("customer:manage"), async (req, res) => {
   const c = await getCustomer(param(req, "id"));
   const data = parse(customerUpdateSchema, req.body);
+  if (c.anonymizedAt) throw conflict("This customer's personal data was erased; add them again as a new customer if they return");
   if (data.phone && data.phone !== c.phone && (await prisma.customer.findFirst({ where: { phone: data.phone } }))) {
     throw conflict(`Another customer already uses ${data.phone}`);
   }
   const updated = await prisma.customer.update({
     where: { id: c.id },
-    data: { ...data, ...(data.email !== undefined && { email: data.email || null }) },
+    data: { ...data, ...consentStamp(data, c), ...(data.email !== undefined && { email: data.email || null }) },
   });
-  await audit(req, "customer.update", "Customer", c.id, { changes: Object.keys(data) });
+  await audit(req, "customer.update", "Customer", c.id, { changes: Object.keys(data), ...consentAudit(data) });
   res.json(updated);
 });
 
@@ -388,4 +400,90 @@ customersRouter.post("/:id/khata/remind", requirePermission("customer:view"), as
   });
   await audit(req, "khata.remind", "Customer", c.id, { balance: c.khataBalance, method: result.method });
   res.json({ ...result, balance: c.khataBalance, text });
+});
+
+// =====================================================================
+// DPDP Act 2023 data-principal requests (QA Phase 14) — owner actions
+// =====================================================================
+
+const ERASED = "Erased";
+const ERASED_PHONE = "XXXXXXXXXX";
+
+/** Owner: everything held about one customer, to hand to them (right to information, DPDP s.11). */
+customersRouter.get("/:id/data-export", requirePermission("data:export"), async (req, res) => {
+  const c = await getCustomer(param(req, "id"));
+  const byPhone = { customerPhone: c.phone };
+  const [orders, loyalty, khata, wallet, reservations, sessions, giftCards] = await Promise.all([
+    prisma.order.findMany({
+      where: { customerId: c.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        invoiceNumber: true, createdAt: true, status: true, orderType: true, grandTotal: true, customerName: true, customerPhone: true,
+        items: { select: { name: true, quantity: true, total: true } },
+        delivery: { select: { address: true, landmark: true, pincode: true, customerName: true, customerPhone: true } },
+      },
+    }),
+    prisma.loyaltyTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "asc" } }),
+    prisma.khataTransaction.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "asc" } }),
+    prisma.walletTxn.findMany({ where: { customerId: c.id }, orderBy: { createdAt: "asc" } }),
+    prisma.reservation.findMany({ where: byPhone, select: { customerName: true, customerPhone: true, partySize: true, reservedFor: true, status: true, notes: true } }),
+    prisma.tableSession.findMany({ where: byPhone, select: { customerName: true, customerPhone: true, openedAt: true } }),
+    prisma.giftCard.findMany({ where: byPhone, select: { code: true, customerName: true, balance: true, createdAt: true } }),
+  ]);
+  await audit(req, "customer.data_export", "Customer", c.id);
+  res.setHeader("content-disposition", `attachment; filename="customer-${c.id}.json"`);
+  res.json({
+    exportedAt: new Date().toISOString(),
+    purposeOfProcessing: "Billing (GST invoices), loyalty points, credit (khata) and — only with consent — offers and messages.",
+    customer: c,
+    consent: { marketingOptIn: c.marketingOptIn, whatsappOptIn: c.whatsappOptIn, recordedAt: c.consentAt, source: c.consentSource },
+    orders, loyalty, khata, wallet, reservations, tableSessions: sessions, giftCards,
+  });
+});
+
+/**
+ * Owner: erase a customer's personal data (DPDP s.12). The customer row is anonymised (not deleted: it
+ * anchors loyalty / khata ledgers) and every bill keeps its number, date, items and tax — GST records
+ * must be kept for 6 years (CGST Act s.36, Rule 56) — with the name, phone and address masked.
+ * Refused while money is owed either way (khata due, wallet balance) or a bill is still open.
+ */
+customersRouter.post("/:id/anonymise", requirePermission("data:export"), async (req, res) => {
+  parse(customerAnonymiseSchema, req.body);
+  const c = await getCustomer(param(req, "id"));
+  if (c.anonymizedAt) return res.json({ id: c.id, anonymizedAt: c.anonymizedAt, alreadyDone: true });
+  if (c.khataBalance !== 0) throw conflict(`Settle the khata balance (${formatINR(c.khataBalance)}) before erasing this customer`);
+  if (c.walletBalance !== 0) throw conflict(`Refund the wallet balance (${formatINR(c.walletBalance)}) before erasing this customer`);
+  if (await prisma.order.findFirst({ where: { customerId: c.id, status: "OPEN" }, select: { id: true } })) {
+    throw conflict("This customer has an open bill; settle or cancel it first");
+  }
+  const phone = c.phone;
+  const now = new Date();
+  const counts = await prisma.$transaction(async (tx) => {
+    const orderIds = (await tx.order.findMany({ where: { OR: [{ customerId: c.id }, { customerPhone: phone }] }, select: { id: true } })).map((o) => o.id);
+    const orders = await tx.order.updateMany({ where: { id: { in: orderIds } }, data: { customerName: null, customerPhone: null } });
+    const deliveries = await tx.delivery.updateMany({
+      where: { OR: [{ orderId: { in: orderIds } }, { customerPhone: phone }] },
+      data: { customerName: ERASED, customerPhone: ERASED_PHONE, address: ERASED, landmark: null, pincode: null, latitude: null, longitude: null, notes: null },
+    });
+    const reservations = await tx.reservation.updateMany({ where: { customerPhone: phone }, data: { customerName: ERASED, customerPhone: ERASED_PHONE, notes: null } });
+    await tx.tableSession.updateMany({ where: { customerPhone: phone }, data: { customerName: null, customerPhone: null } });
+    await tx.giftCard.updateMany({ where: { customerPhone: phone }, data: { customerName: null, customerPhone: null } });
+    await tx.channelRequest.updateMany({ where: { customerPhone: phone }, data: { customerName: null, customerPhone: null, notes: null } });
+    await tx.customerOtp.deleteMany({ where: { phone } });
+    await tx.coupon.updateMany({ where: { customerId: c.id }, data: { description: "Personal coupon (customer erased)" } });
+    await tx.customer.update({
+      where: { id: c.id },
+      data: {
+        // Unique per business and never a valid mobile, so the POS can't match it again.
+        phone: `ANON-${c.id}`,
+        name: null, email: null, birthday: null, anniversary: null, notes: null,
+        employeeCode: null, department: null, cardUid: null, memberActive: false,
+        marketingOptIn: false, whatsappOptIn: false, consentAt: now, consentSource: "ERASED",
+        anonymizedAt: now,
+      },
+    });
+    return { orders: orders.count, deliveries: deliveries.count, reservations: reservations.count };
+  });
+  await audit(req, "customer.anonymise", "Customer", c.id, counts);
+  res.json({ id: c.id, anonymizedAt: now, ...counts });
 });

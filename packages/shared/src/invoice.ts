@@ -20,13 +20,20 @@ export function financialYearLabel(fyStart: number): string {
 /**
  * GST invoice numbers must be unique per FY and at most 16 characters
  * (Rule 46, CGST Rules). Format: PREFIX-YYYY-NNNNN, e.g. INV-2025-00234.
+ * QA Phase 14: past 99,999 bills a 5-character prefix would make 17 characters
+ * and stop billing, so the FY is then written with 2 digits (PREFX-25-100000) —
+ * still unique per FY and within the limit.
  */
 export function formatInvoiceNumber(prefix: string, fyStart: number, seq: number): string {
-  const num = `${prefix}-${fyStart}-${String(seq).padStart(5, "0")}`;
-  if (num.length > 16) {
+  const n = String(seq).padStart(5, "0");
+  const num = `${prefix}-${fyStart}-${n}`;
+  if (num.length <= 16) return num;
+  if (n.length === 5) throw new Error(`Invoice number "${num}" exceeds the 16-character GST limit; shorten the prefix`);
+  const short = `${prefix}-${String(fyStart % 100).padStart(2, "0")}-${n}`;
+  if (short.length > 16) {
     throw new Error(`Invoice number "${num}" exceeds the 16-character GST limit; shorten the prefix`);
   }
-  return num;
+  return short;
 }
 
 /**
@@ -36,10 +43,10 @@ export function formatInvoiceNumber(prefix: string, fyStart: number, seq: number
  */
 export const offlineSeriesPrefix = (invoicePrefix: string, deviceCode: string) => `${invoicePrefix.slice(0, 3)}${deviceCode}`;
 
-/** "INVA1-2026-00007" → { prefix: "INVA1", fyStart: 2026, seq: 7 } */
+/** "INVA1-2026-00007" → { prefix: "INVA1", fyStart: 2026, seq: 7 } (also the 2-digit-FY form "INVA1-26-100000") */
 export function parseInvoiceNumber(n: string): { prefix: string; fyStart: number; seq: number } | null {
-  const m = /^(.+)-(\d{4})-(\d{5})$/.exec(n);
-  return m ? { prefix: m[1]!, fyStart: Number(m[2]), seq: Number(m[3]) } : null;
+  const m = /^(.+)-(\d{4})-(\d{5})$/.exec(n) ?? /^(.+)-(\d{2})-(\d{6,})$/.exec(n);
+  return m ? { prefix: m[1]!, fyStart: m[2]!.length === 2 ? 2000 + Number(m[2]) : Number(m[2]), seq: Number(m[3]) } : null;
 }
 
 /** A device's offline series as kept on the device: its prefix and the last number used per FY. */

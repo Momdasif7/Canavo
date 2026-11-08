@@ -22,6 +22,7 @@ import {
   deliveryAreaRefusal,
   deliverySettingsUpdateSchema,
   distanceMeters,
+  formatINR,
   PINCODE_RE,
 } from "@canavo/shared";
 import { prisma } from "../db";
@@ -537,13 +538,13 @@ deliveryRouter.post("/cash/handovers", requirePermission("delivery:manage"), asy
   });
   await reallocateHandovers(outletId, data.agentId);
   await audit(req, "delivery.cash.handover", "DeliveryCashHandover", h.id, { agentId: data.agentId, amount: data.amount, balanceBefore: before });
-  await notify([data.agentId], "Cash handover recorded", `₹${(data.amount / 100).toFixed(2)} received by ${req.user!.name}`, "delivery");
+  await notify([data.agentId], "Cash handover recorded", `${formatINR(data.amount)} received by ${req.user!.name}`, "delivery");
   emitToOutlet(outletId, "delivery:updated", { cashHandover: data.agentId });
   const balance = await cashBalance(outletId, data.agentId);
   res.status(201).json({
     handover: h,
     balance,
-    ...(balance < 0 && { warnings: [`More than the cash ${partner.name} held — they are now ₹${(-balance / 100).toFixed(2)} in credit`] }),
+    ...(balance < 0 && { warnings: [`More than the cash ${partner.name} held — they are now ${formatINR(-balance)} in credit`] }),
   });
 });
 
@@ -588,7 +589,7 @@ deliveryRouter.post("/cash/settle", requirePermission("delivery:manage"), async 
   });
   await reallocateHandovers(outletId, agentId);
   await audit(req, "delivery.cash.settle", "DeliveryCashHandover", h.id, { agentId, amount });
-  await notify([agentId], "Cash handover confirmed", `₹${(amount / 100).toFixed(2)} received by ${req.user!.name}`, "delivery");
+  await notify([agentId], "Cash handover confirmed", `${formatINR(amount)} received by ${req.user!.name}`, "delivery");
   emitToOutlet(outletId, "delivery:updated", { cashHandover: agentId });
   res.json({ settled: 1, amount, handover: h });
 });
@@ -789,7 +790,7 @@ deliveryRouter.patch("/:id/status", managerOrPartner, async (req, res) => {
     // Partners confirm cash with POST /:id/complete; a manager marking it delivered records the
     // cash against the assigned partner, so it is never lost from their cash to hand over.
     if (due > 0 && !manager) {
-      throw new HttpError(409, `Collect ₹${(due / 100).toFixed(2)} from the customer before marking delivered`, { code: "COLLECT_PAYMENT", amountDue: due });
+      throw new HttpError(409, `Collect ${formatINR(due)} from the customer before marking delivered`, { code: "COLLECT_PAYMENT", amountDue: due });
     }
     return res.json(await completeDelivery(req, d));
   }
@@ -847,7 +848,7 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   if (d.order.status === "CANCELLED") throw conflict("Order was cancelled");
   const due = d.order.status === "OPEN" ? Math.max(0, d.order.grandTotal - amountPaid(d.order)) : 0;
   if (expected !== undefined && expected !== due) {
-    throw conflict(`The amount due changed to ₹${(due / 100).toFixed(2)} — refresh and try again`);
+    throw conflict(`The amount due changed to ${formatINR(due)} — refresh and try again`);
   }
   const collectorId = d.agentId ?? req.user!.id;
   const now = new Date();
@@ -877,7 +878,7 @@ async function completeDelivery(req: Request, d: Awaited<ReturnType<typeof findD
   if (due > 0) emitToOutlet(outletId, "order:paid", { id: d.order.id, invoiceNumber: d.order.invoiceNumber });
   emitToOutlet(outletId, "delivery:updated", deliveryEvent(updated));
   const managers = (await outletManagers(outletId)).filter((id) => id !== req.user!.id);
-  await notify(managers, "Delivery delivered", `${d.order.invoiceNumber} · ${d.customerName}${due ? ` · ₹${(due / 100).toFixed(2)} cash collected` : ""}`, "delivery");
+  await notify(managers, "Delivery delivered", `${d.order.invoiceNumber} · ${d.customerName}${due ? ` · ${formatINR(due)} cash collected` : ""}`, "delivery");
   if (due > 0) void cashBalance(outletId, collectorId).then((bal) => alertPartnerCash(outletId, collectorId, bal));
   // The partner is free again: hand them any delivery that is waiting.
   assignWaitingDeliveries(outletId).catch((e) => console.error("[delivery] auto-assign failed", e));
@@ -903,14 +904,14 @@ deliveryRouter.post("/:id/collect", managerOrPartner, async (req, res) => {
   if (d.order.status !== "OPEN") throw conflict(d.order.status === "PAID" ? "This order is already paid" : "Order was cancelled");
   const balance = d.order.grandTotal - amountPaid(d.order);
   const total = payments.reduce((s, p) => s + p.amount, 0);
-  if (total > balance) throw badRequest(`Amount ₹${(total / 100).toFixed(2)} is more than the ₹${(balance / 100).toFixed(2)} due`);
+  if (total > balance) throw badRequest(`Amount ${formatINR(total)} is more than the ${formatINR(balance)} due`);
   const collectorId = d.agentId ?? req.user!.id;
   const paid = await prisma.$transaction(async (tx) => {
     // Re-check on the locked bill: the counter may be collecting the same bill right now.
     const fresh = await lockOrder(tx, d.order.id, outletId);
     if (fresh.status !== "OPEN") throw conflict(fresh.status === "PAID" ? "This order is already paid" : "Order was cancelled");
     const freshBalance = fresh.grandTotal - amountPaid(fresh);
-    if (total > freshBalance) throw badRequest(`Amount ₹${(total / 100).toFixed(2)} is more than the ₹${(freshBalance / 100).toFixed(2)} due`);
+    if (total > freshBalance) throw badRequest(`Amount ${formatINR(total)} is more than the ${formatINR(freshBalance)} due`);
     await tx.payment.updateMany({ where: { orderId: d.order.id, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
     await tx.payment.createMany({
       data: payments.map((p) => ({

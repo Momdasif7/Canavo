@@ -68,7 +68,8 @@ async function sendCelebrations(now: Date, ymd: string, brand: string) {
   const mmdd = ymd.slice(5);
   const cfg = await getLoyaltyConfig();
   const customers = await prisma.customer.findMany({
-    where: { blocked: false, OR: [{ birthday: mmdd }, { anniversary: mmdd }] },
+    // DPDP Act 2023 (QA Phase 14): promotional WhatsApp wishes only to customers who opted in to both.
+    where: { blocked: false, marketingOptIn: true, whatsappOptIn: true, OR: [{ birthday: mmdd }, { anniversary: mmdd }] },
   });
   const results: { customerId: string; phone: string; occasion: string; code: string | null; method: string; waLink: string }[] = [];
   for (const c of customers) {

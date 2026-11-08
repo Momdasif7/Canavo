@@ -12,6 +12,8 @@ export const ops: Op[] = [
   ["get", "/customers/{id}", "Customer profile: stats, recent orders, ledgers, favourite items, weekday×hour visit heatmap", "Customers"],
   ["patch", "/customers/{id}", "Update customer. Body: customerUpdateSchema", "Customers"],
   ["post", "/customers/{id}/block", "Block / unblock. Body: customerBlockSchema", "Customers"],
+  ["get", "/customers/{id}/data-export", "Owner (data:export): everything held about the customer as JSON (DPDP right to information)", "Customers"],
+  ["post", "/customers/{id}/anonymise", "Owner (data:export): erase the customer's personal data; bills kept with masked details. Body: {confirm:\"ANONYMISE\"}. 409 while khata / wallet balance or an open bill", "Customers"],
   ["get", "/customers/{id}/loyalty", "Loyalty ledger ?page&limit", "Loyalty"],
   ["post", "/customers/{id}/loyalty/adjust", "Manual points adjustment (audited). Body: loyaltyAdjustSchema", "Loyalty"],
   ["get", "/customers/{id}/khata", "Khata ledger ?page&limit", "Khata"],

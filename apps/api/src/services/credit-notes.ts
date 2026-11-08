@@ -37,8 +37,12 @@ interface CreditedLine {
 
 const TAX_FIELDS = ["taxableValue", "cgst", "sgst", "igst", "cess", "otherTaxes"] as const;
 
-/** "CNINV-2026-00007": CN + up to 4 characters of the outlet's invoice prefix (16-character GST limit). */
-export const creditNoteNumber = (invoicePrefix: string, fyStart: number, seq: number) => formatInvoiceNumber(`CN${invoicePrefix.slice(0, 4)}`, fyStart, seq);
+/**
+ * "CNINV-2026-00007": CN + up to 3 characters of the outlet's invoice prefix (16-character GST limit).
+ * QA Phase 14: 4 characters made "CNCANT-2026-00001" = 17 characters, so every refund at an outlet with
+ * a 4–5 character prefix failed.
+ */
+export const creditNoteNumber = (invoicePrefix: string, fyStart: number, seq: number) => formatInvoiceNumber(`CN${invoicePrefix.slice(0, 3)}`, fyStart, seq);
 
 /**
  * `opts.systemRefund`: an automatic refund the outlet can't decline (an online order it rejected

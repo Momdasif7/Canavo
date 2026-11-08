@@ -25,6 +25,12 @@ export interface Customer {
   khataLimit: number;
   blocked: boolean;
   notes: string | null;
+  /** DPDP consent: promotional messages / WhatsApp (absent on older API responses) */
+  marketingOptIn?: boolean;
+  whatsappOptIn?: boolean;
+  consentAt?: string | null;
+  /** Personal data erased on request (invoices kept, masked) */
+  anonymizedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

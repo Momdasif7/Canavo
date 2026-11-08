@@ -223,7 +223,7 @@ describe("recipes", () => {
 
 describe("vendors + purchases", () => {
   it("vendor CRUD; GSTIN validated; unicode; unknown → 404", async () => {
-    const v = await owner().call("POST", "/inventory/vendors", { name: "சென்னை Traders", gstin: "33ABCDE1234F1Z5", email: "", phone: "9876543210" });
+    const v = await owner().call("POST", "/inventory/vendors", { name: "சென்னை Traders", gstin: "33ABCDE1234F1Z7", email: "", phone: "9876543210" });
     expect(v.status).toBe(201);
     expect(v.body).toMatchObject({ name: "சென்னை Traders", email: null });
     await rejects(owner(), "POST", "/inventory/vendors", [{}, { name: "V" }, { name: "Vend", gstin: "BADGSTIN" }, { name: "Vend", email: "nope" }, { name: LONG }]);

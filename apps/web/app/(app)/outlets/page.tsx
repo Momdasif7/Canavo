@@ -262,7 +262,7 @@ function OutletCreateDialog({ open, onClose, onCreated }: { open: boolean; onClo
           />
           {form.gstEnabled && (
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <Input label="GSTIN" maxLength={15} value={form.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ""))} placeholder="29ABCDE1234F1Z5" />
+              <Input label="GSTIN" maxLength={15} value={form.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ""))} placeholder="29ABCDE1234F1ZW" />
               <Input label="Legal name" maxLength={200} value={form.legalName} onChange={(e) => set("legalName", e.target.value)} hint="Printed on tax invoices" />
             </div>
           )}

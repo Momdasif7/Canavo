@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { GST_STATES, gstinProblem } from "@canavo/shared";
 import { FloppyDisk, Receipt, ReceiptX } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import type { Outlet } from "@/lib/types";
@@ -13,7 +14,6 @@ import { Input, Toggle } from "@/components/ui/Input";
 import { Alert, ErrorState, LoadingState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
-const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
 interface GstForm {
   gstEnabled: boolean;
@@ -38,9 +38,13 @@ const toForm = (o: Outlet): GstForm => ({
 type OutletWriteResult = Outlet & { warnings?: string[] };
 
 function validate(f: GstForm): string | null {
-  if (!/^\d{2}$/.test(f.stateCode)) return "State code must be two digits, e.g. 29 for Karnataka";
+  if (!GST_STATES[f.stateCode]) return "State code must be a two-digit GST state code, e.g. 29 for Karnataka";
   if (!/^[A-Z0-9]{1,5}$/.test(f.invoicePrefix)) return "Invoice prefix must be 1–5 letters or digits";
-  if (f.gstin && !GSTIN_RE.test(f.gstin)) return "GSTIN looks invalid — 15 characters, e.g. 29ABCDE1234F1Z5";
+  if (f.gstin) {
+    const problem = gstinProblem(f.gstin);
+    if (problem) return problem;
+    if (f.gstin.slice(0, 2) !== f.stateCode) return `This GSTIN is registered in state ${f.gstin.slice(0, 2)}, not ${f.stateCode}`;
+  }
   return null;
 }
 
@@ -189,7 +193,7 @@ export function GstSettingsCard() {
             maxLength={15}
             value={form.gstin}
             onChange={(e) => set("gstin", e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ""))}
-            placeholder="29ABCDE1234F1Z5"
+            placeholder="29ABCDE1234F1ZW"
             disabled={!editable || !form.gstEnabled}
             hint={form.gstEnabled ? "15 characters" : "Not used while GST is off"}
           />

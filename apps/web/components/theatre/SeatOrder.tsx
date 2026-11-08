@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, Armchair, CheckCircle, Clock, CookingPot, FilmSlate, Hourglass, Storefront, XCircle } from "@phosphor-icons/react";
-import { formatINR, SEAT_TIMING_LABELS, type SeatTiming } from "@canavo/shared";
+import { formatINR, isValidIndianMobile, SEAT_TIMING_LABELS, type SeatTiming } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { publicCall } from "@/lib/storefront";
 import { clock, guestStage, minutesUntil, type GuestStage, type SeatInfo, type SeatOrder, type SeatOrderPlaced, type SeatTablePage, type SeatUpi } from "@/lib/theatre";
@@ -142,7 +142,7 @@ export function SeatOrderView({ token, page, onReload }: { token: string; page: 
     if (timing && timingReason(timing, info)) setTiming(null);
   }, [timing, info]);
 
-  const phoneBad = phone.trim() !== "" && !/^[6-9]\d{9}$/.test(phone.trim());
+  const phoneBad = phone.trim() !== "" && !isValidIndianMobile(phone);
   const tax =
     page.outlet.gstEnabled && !page.outlet.pricesIncludeTax
       ? Math.round(cart.lines.reduce((s, l) => s + (l.unitPrice * l.quantity * (page.items.find((i) => i.id === l.menuItemId)?.gstRate ?? 0)) / 100, 0))

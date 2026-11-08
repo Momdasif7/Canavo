@@ -421,13 +421,17 @@ export async function tableCounts(): Promise<Record<string, number>> {
 // ---------- Data export (redacted) ----------
 
 /** Secrets never leave the server in a data export (backups are full-fidelity). */
-const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey"]);
-// BusinessIntegration.secrets (encrypted keys) and webhookKey (the store's webhook path) stay on the server.
-const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc", "secrets", "webhookKey"]);
+// DeviceToken = push-notification tokens (credentials for sending to a phone), CustomerOtp = login codes.
+const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey", "DeviceToken", "CustomerOtp"]);
+// BusinessIntegration.secrets (encrypted keys) and webhookKey (the store's webhook path) stay on the server;
+// so do ChannelConnection's encrypted hub API key / webhook secret (QA Phase 14).
+const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc", "secrets", "webhookKey", "apiKeyEnc", "webhookSecretEnc"]);
+/** Belt and braces: any other column named like a secret is dropped too. */
+const looksSecret = (k: string) => REDACTED_FIELDS.has(k) || /(Hash|Enc|Secret)$/.test(k);
 
 function redact(r: Row): Row {
   const out: Row = {};
-  for (const [k, v] of Object.entries(r)) if (!REDACTED_FIELDS.has(k)) out[k] = v;
+  for (const [k, v] of Object.entries(r)) if (!looksSecret(k)) out[k] = v;
   return out;
 }
 
@@ -503,7 +507,7 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
   zip.on("warning", (e) => console.warn("[export]", e));
   zip.pipe(res);
   for (const m of order) {
-    const cols = m.fields.filter((f) => f.kind !== "object" && !REDACTED_FIELDS.has(f.name)).map((f) => f.name);
+    const cols = m.fields.filter((f) => f.kind !== "object" && !looksSecret(f.name)).map((f) => f.name);
     const parts: string[] = [cols.join(",")];
     await eachPage(
       tx,

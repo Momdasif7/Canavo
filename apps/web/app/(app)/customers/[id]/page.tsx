@@ -6,6 +6,8 @@ import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   Cake,
+  DownloadSimple,
+  Eraser,
   Coins,
   Heart,
   HandCoins,
@@ -15,7 +17,8 @@ import {
   WhatsappLogo,
 } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
-import { api } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
+import { saveBlob } from "@/lib/download";
 import type { Customer, CustomerProfile } from "@/lib/types-crm";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useSession } from "@/components/providers/SessionProvider";
@@ -53,6 +56,7 @@ export default function CustomerProfilePage() {
   const [blocking, setBlocking] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [settling, setSettling] = useState(false);
+  const [erasing, setErasing] = useState(false);
   const { remind, sending } = useKhataReminder();
 
   if (profile.loading && !profile.data) return <LoadingState label="Loading customer…" />;
@@ -67,6 +71,15 @@ export default function CustomerProfilePage() {
   const { customer: c, stats } = profile.data;
   const manage = can("customer:manage");
   const collect = can("payment:collect");
+  const owner = can("data:export");
+  const downloadData = async () => {
+    try {
+      const { blob, filename } = await api.blob(`/customers/${c.id}/data-export`, {}, `customer-${c.id}.json`);
+      saveBlob(blob, filename);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
   const ref = { id: c.id, name: c.name, phone: c.phone, khataBalance: c.khataBalance, points: c.points };
   const patchCustomer = (next: Customer) =>
     profile.setData((p) => (p ? { ...p, customer: next, stats: { ...p.stats, points: next.points, khataBalance: next.khataBalance, khataLimit: next.khataLimit } } : p));
@@ -84,6 +97,7 @@ export default function CustomerProfilePage() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-extrabold tracking-tight">{c.name || "Unnamed customer"}</h1>
             <TierBadge tier={c.tier} />
+            {c.anonymizedAt && <Badge tone="neutral">Personal data erased</Badge>}
             {c.blocked && (
               <Badge tone="danger">
                 <LockSimple size={12} weight="bold" /> Blocked
@@ -91,7 +105,7 @@ export default function CustomerProfilePage() {
             )}
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-            <span className="tabular">+91 {c.phone}</span>
+            {!c.anonymizedAt && <span className="tabular">+91 {c.phone}</span>}
             {c.email && <span>{c.email}</span>}
             {c.birthday && (
               <span className="inline-flex items-center gap-1">
@@ -118,7 +132,17 @@ export default function CustomerProfilePage() {
               Send reminder
             </Button>
           )}
-          {manage && (
+          {owner && (
+            <Button variant="outline" icon={<DownloadSimple size={20} />} onClick={() => void downloadData()}>
+              Download data
+            </Button>
+          )}
+          {owner && !c.anonymizedAt && (
+            <Button variant="ghost" className="text-red-600 dark:text-red-400" icon={<Eraser size={20} />} onClick={() => setErasing(true)}>
+              Erase data
+            </Button>
+          )}
+          {manage && !c.anonymizedAt && (
             <>
               <Button variant="outline" icon={<Coins size={20} />} onClick={() => setAdjusting(true)}>
                 Adjust points
@@ -235,6 +259,19 @@ export default function CustomerProfilePage() {
           const updated = await api.post<Customer>(`/customers/${c.id}/block`, { blocked: !c.blocked, reason: reason || undefined });
           patchCustomer(updated);
           toast(updated.blocked ? "Customer blocked" : "Customer unblocked", "success");
+        }}
+      />
+      <ConfirmDialog
+        open={erasing}
+        onClose={() => setErasing(false)}
+        title={`Erase ${c.name || c.phone}'s personal data?`}
+        description="On the customer's request (DPDP Act): name, phone, email, dates and addresses are removed for good. Bills stay for GST records (6 years) with the customer details masked. This can't be undone."
+        confirmLabel="Erase personal data"
+        tone="danger"
+        onConfirm={async () => {
+          await api.post(`/customers/${c.id}/anonymise`, { confirm: "ANONYMISE" });
+          toast("Personal data erased", "success");
+          void profile.reload();
         }}
       />
     </PageContainer>

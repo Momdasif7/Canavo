@@ -8417,6 +8417,62 @@
               }
             }
           }
+        },
+        {
+          "name": "GET /customers/{id}/data-export",
+          "request": {
+            "method": "GET",
+            "description": "Owner (data:export): everything held about the customer as JSON (DPDP right to information)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customers/:id/data-export",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers",
+                ":id",
+                "data-export"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /customers/{id}/anonymise",
+          "request": {
+            "method": "POST",
+            "description": "Owner (data:export): erase the customer's personal data; bills kept with masked details. Body: {confirm:\"ANONYMISE\"}. 409 while khata / wallet balance or an open bill",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customers/:id/anonymise",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers",
+                ":id",
+                "anonymise"
+              ]
+            }
+          }
         }
       ]
     },

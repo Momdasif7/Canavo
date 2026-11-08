@@ -428,7 +428,7 @@ ordersRouter.post("/:id/cod", requirePermission("payment:collect"), async (req, 
   const updated = await getOrder(order.id, req.outletId!);
   const agentId = updated.delivery?.agentId;
   if (cod && agentId) {
-    await notify([agentId], "Cash on Delivery", `${updated.invoiceNumber}: collect ₹${(due / 100).toFixed(2)} in cash`, "delivery");
+    await notify([agentId], "Cash on Delivery", `${updated.invoiceNumber}: collect ${formatINR(due)} in cash`, "delivery");
   }
   emitToOutlet(req.outletId!, "delivery:updated", { id: updated.delivery?.id, orderId: updated.id, cod });
   res.json({ ...updated, amountPaid: amountPaid(updated), balance: Math.max(0, updated.grandTotal - amountPaid(updated)) });

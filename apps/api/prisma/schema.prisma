@@ -1000,6 +1000,15 @@ model Customer {
   memberActive       Boolean              @default(true)
   /// Prepaid wallet balance, paise (liability: no GST until spent)
   walletBalance      Int                  @default(0)
+  /// DPDP Act 2023 consent (QA Phase 14): promotional messages (offers, birthday / anniversary wishes). Off until the customer agrees.
+  marketingOptIn     Boolean              @default(false)
+  /// Consent to be messaged on WhatsApp (promotional WhatsApp needs both flags)
+  whatsappOptIn      Boolean              @default(false)
+  /// When the consent flags were last changed, and how ("STAFF" on the customer's request at the counter, "STOREFRONT")
+  consentAt          DateTime?
+  consentSource      String?
+  /// Erasure request done (DPDP s.12): personal data removed, invoices kept with masked details (GST record retention)
+  anonymizedAt       DateTime?
   orders             Order[]
   loyaltyTxns        LoyaltyTransaction[]
   khataTxns          KhataTransaction[]

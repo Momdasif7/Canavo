@@ -334,7 +334,7 @@ describe("idempotency", () => {
 
 describe("/outlets", () => {
   it("GET: staff without settings:view get the basic fields only (no GSTIN, UPI, FSSAI)", async () => {
-    await db.outlet.update({ where: { id: h.outletId }, data: { gstin: "33ABCDE1234F1Z5", upiVpa: "hotel@upi", fssai: "12345678901234" } });
+    await db.outlet.update({ where: { id: h.outletId }, data: { gstin: "33ABCDE1234F1Z7", upiVpa: "hotel@upi", fssai: "12345678901234" } });
     for (const role of HOTEL_ROLES) {
       const r = await c.clients[role].call("GET", "/outlets");
       expect(r.status, role).toBe(200);

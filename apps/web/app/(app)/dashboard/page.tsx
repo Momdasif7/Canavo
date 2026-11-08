@@ -22,6 +22,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 const pctChange = (cur: number, prev: number) => (prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10);
 const compactINR = (paise: number) => {
   const r = paise / 100;
+  if (r >= 10000000) return `₹${(r / 10000000).toFixed(1)}Cr`;
   if (r >= 100000) return `₹${(r / 100000).toFixed(1)}L`;
   if (r >= 1000) return `₹${(r / 1000).toFixed(1)}k`;
   return `₹${Math.round(r)}`;

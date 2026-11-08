@@ -9,7 +9,7 @@ import { useSession } from "@/components/providers/SessionProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, Select, Textarea } from "@/components/ui/Input";
+import { Field, Input, Select, Textarea, Toggle } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/States";
 import { decimalOnly, digitsOnly, issuesToErrors } from "./shared";
 
@@ -21,6 +21,8 @@ interface FormState {
   anniversary: string;
   khataLimit: string;
   notes: string;
+  marketingOptIn: boolean;
+  whatsappOptIn: boolean;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -90,6 +92,8 @@ export function CustomerForm({
       anniversary: customer?.anniversary ?? "",
       khataLimit: customer?.khataLimit ? rupeesInput(customer.khataLimit) : "",
       notes: customer?.notes ?? "",
+      marketingOptIn: customer?.marketingOptIn ?? false,
+      whatsappOptIn: customer?.whatsappOptIn ?? false,
     });
   }, [open, customer]);
 
@@ -105,6 +109,9 @@ export function CustomerForm({
       anniversary: form.anniversary || null,
       notes: form.notes.trim() || null,
     };
+    // Consent is sent only when it changes, so the API records when the customer agreed (DPDP).
+    if (form.marketingOptIn !== (customer?.marketingOptIn ?? false)) payload.marketingOptIn = form.marketingOptIn;
+    if (form.whatsappOptIn !== (customer?.whatsappOptIn ?? false)) payload.whatsappOptIn = form.whatsappOptIn;
     if (isManager) {
       const limit = form.khataLimit.trim() ? parseRupees(form.khataLimit) : 0;
       if (limit === null) return setErrors({ khataLimit: "Enter a valid amount" });
@@ -188,6 +195,16 @@ export function CustomerForm({
           <MonthDayInput label="Anniversary" value={form.anniversary} onChange={(v) => set("anniversary", v)} error={errors.anniversary} />
         </div>
         <Textarea label="Notes" maxLength={500} value={form.notes} error={errors.notes} onChange={(e) => set("notes", e.target.value)} />
+        <div className="space-y-3 rounded-xl border border-line p-3">
+          <p className="text-xs text-muted">Turn on only if the customer has agreed. Bills and khata reminders don&apos;t need this.</p>
+          <Toggle
+            checked={form.marketingOptIn}
+            onChange={(v) => set("marketingOptIn", v)}
+            label="Offers and greetings"
+            description="Birthday / anniversary wishes and promotional offers"
+          />
+          <Toggle checked={form.whatsappOptIn} onChange={(v) => set("whatsappOptIn", v)} label="WhatsApp messages" description="Agreed to be contacted on WhatsApp" />
+        </div>
         <button type="submit" hidden />
       </form>
     </Dialog>

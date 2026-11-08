@@ -8,6 +8,7 @@ import {
   formatINR,
   gstPercent,
   OrderCreateInput,
+  placeOfSupplyLabel,
   ReceiptData,
   type ReceiptTaxBreakup,
   type TaxDetail,
@@ -475,6 +476,10 @@ export async function buildReceipt(order: OrderWithRelations): Promise<ReceiptDa
     grandTotal: order.grandTotal,
     taxBreakup: (order.taxBreakup ?? []) as unknown as ReceiptTaxBreakup[],
     interState: order.interState,
+    // Restaurant service is supplied where the outlet is (IGSTA s.12(3)); an IGST bill went to another
+    // state, which the POS does not record, so it is shown as such rather than as the outlet's state.
+    placeOfSupply:
+      order.documentType === "BILL" ? null : order.interState ? `Outside ${placeOfSupplyLabel(outlet.stateCode)} (inter-state)` : placeOfSupplyLabel(outlet.stateCode),
     gstEnabled: outlet.gstEnabled,
     legalName: outlet.legalName,
     payments: order.payments.filter((p) => p.status === "SUCCESS").map((p) => ({ mode: p.mode, amount: p.amount })),

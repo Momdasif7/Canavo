@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MODULES } from "./modules";
 import { FEATURE_KEYS, type FeatureKey } from "./features";
 import { indianPhone } from "./schemas";
+import { gstStateCode } from "./india";
 import { newPasswordSchema } from "./password";
 
 const moduleList = z.array(z.enum(MODULES)).min(1, "Enable at least one module");
@@ -25,7 +26,7 @@ export const businessCreateSchema = z.object({
     .object({
       name: z.string().trim().min(2).max(120),
       address: z.string().max(500).default(""),
-      stateCode: z.string().regex(/^\d{2}$/, "Two-digit GST state code, e.g. 29 for Karnataka"),
+      stateCode: gstStateCode,
       gstEnabled: z.boolean().default(true),
     })
     .optional(),

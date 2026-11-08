@@ -44,6 +44,7 @@ export function renderReceiptPdf(r: ReceiptData): Promise<Buffer> {
     );
     doc.text(`Cashier: ${r.cashierName}`, { align: "right" });
     if (r.customerName) doc.text(`Customer: ${r.customerName}`, left);
+    if (r.placeOfSupply && !plainBill) doc.text(`Place of supply: ${r.placeOfSupply}`, left);
     doc.moveDown(0.5);
 
     // HSN codes are a GST requirement — plain bills (GST off) don't show them and give the item name the room.
@@ -107,6 +108,13 @@ export function renderReceiptPdf(r: ReceiptData): Promise<Buffer> {
     if (r.documentType === "BILL_OF_SUPPLY") {
       doc.fontSize(7.5).fillColor("#666")
         .text("Composition taxable person, not eligible to collect tax on supplies.", left, doc.y, { width, align: "center" });
+    }
+    if (!plainBill) {
+      // Rule 46(q) / 49: signature of the supplier or authorised representative.
+      doc.fontSize(7.5).fillColor("#333")
+        .text(`For ${legalName || r.outlet.name}`, left, doc.y, { width, align: "right" })
+        .text("Authorised signatory (computer-generated document)", left, doc.y, { width, align: "right" });
+      doc.moveDown(0.6);
     }
     doc.fontSize(9).fillColor("#333").text(r.footer ?? "Thank you! Visit again.", left, doc.y, { width, align: "center" });
     doc.fontSize(7).fillColor(saffron).text("Powered by CANAVO", { width, align: "center" });

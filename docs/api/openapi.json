@@ -61,8 +61,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           }
         },
         "required": [
@@ -73,8 +72,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "code": {
             "type": "string",
@@ -116,19 +114,17 @@
             "default": ""
           },
           "stateCode": {
-            "type": "string",
-            "pattern": "^\\d{2}$"
+            "type": "string"
           },
           "gstin": {
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
-              },
-              {
                 "enum": [
                   ""
                 ]
+              },
+              {
+                "type": "string"
               }
             ]
           },
@@ -290,8 +286,7 @@
             "maxLength": 100
           },
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "email": {
             "type": "string",
@@ -587,8 +582,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "interState": {
             "type": "boolean",
@@ -1086,16 +1080,15 @@
           "gstin": {
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
-                "nullable": true
-              },
-              {
                 "enum": [
                   ""
                 ]
+              },
+              {
+                "type": "string"
               }
-            ]
+            ],
+            "nullable": true
           },
           "address": {
             "type": "string",
@@ -1147,16 +1140,15 @@
           "gstin": {
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
-                "nullable": true
-              },
-              {
                 "enum": [
                   ""
                 ]
+              },
+              {
+                "type": "string"
               }
-            ]
+            ],
+            "nullable": true
           },
           "address": {
             "type": "string",
@@ -1766,8 +1758,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           }
         }
       },
@@ -1790,7 +1781,6 @@
           },
           "customerPhone": {
             "type": "string",
-            "pattern": "^[6-9]\\d{9}$",
             "nullable": true
           }
         }
@@ -1979,8 +1969,7 @@
             "exclusiveMinimum": 0
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "customerName": {
             "type": "string",
@@ -2009,8 +1998,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "partySize": {
             "type": "integer",
@@ -2093,8 +2081,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "partySize": {
             "type": "integer",
@@ -2495,8 +2482,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "notes": {
             "type": "string",
@@ -2602,8 +2588,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -2640,6 +2625,12 @@
             "type": "string",
             "maxLength": 500,
             "nullable": true
+          },
+          "marketingOptIn": {
+            "type": "boolean"
+          },
+          "whatsappOptIn": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2769,8 +2760,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -2807,6 +2797,12 @@
             "type": "string",
             "maxLength": 500,
             "nullable": true
+          },
+          "marketingOptIn": {
+            "type": "boolean"
+          },
+          "whatsappOptIn": {
+            "type": "boolean"
           }
         }
       },
@@ -3092,8 +3088,7 @@
             "minimum": 0
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           }
         },
         "required": [
@@ -3482,8 +3477,7 @@
             "maxLength": 60
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           }
         },
         "required": [
@@ -3566,8 +3560,7 @@
             "maxLength": 60
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "phoneToken": {
             "type": "string",
@@ -3637,8 +3630,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           }
         },
         "required": [
@@ -3649,8 +3641,7 @@
         "type": "object",
         "properties": {
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "code": {
             "type": "string",
@@ -4344,8 +4335,7 @@
                 "maxLength": 100
               },
               "phone": {
-                "type": "string",
-                "pattern": "^[6-9]\\d{9}$"
+                "type": "string"
               },
               "email": {
                 "type": "string",
@@ -4371,8 +4361,7 @@
                 "default": ""
               },
               "stateCode": {
-                "type": "string",
-                "pattern": "^\\d{2}$"
+                "type": "string"
               },
               "gstEnabled": {
                 "type": "boolean",
@@ -4465,8 +4454,7 @@
             "maxLength": 100
           },
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "email": {
             "type": "string",
@@ -4493,8 +4481,7 @@
             "maxLength": 100
           },
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "email": {
             "type": "string",
@@ -4622,8 +4609,7 @@
             "maxLength": 100
           },
           "customerPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "expiresAt": {
             "type": "string",
@@ -4690,16 +4676,14 @@
             "maxLength": 100
           },
           "contactPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "contactEmail": {
             "type": "string",
             "format": "email"
           },
           "gstin": {
-            "type": "string",
-            "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+            "type": "string"
           },
           "billingCycle": {
             "type": "string",
@@ -4742,16 +4726,14 @@
             "maxLength": 100
           },
           "contactPhone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "contactEmail": {
             "type": "string",
             "format": "email"
           },
           "gstin": {
-            "type": "string",
-            "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+            "type": "string"
           },
           "billingCycle": {
             "type": "string",
@@ -4893,8 +4875,7 @@
             "maxLength": 100
           },
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "corporateAccountId": {
             "type": "string",
@@ -4933,8 +4914,7 @@
             "maxLength": 100
           },
           "phone": {
-            "type": "string",
-            "pattern": "^[6-9]\\d{9}$"
+            "type": "string"
           },
           "corporateAccountId": {
             "type": "string",
@@ -12332,6 +12312,92 @@
                 "$ref": "#/components/schemas/customerBlockSchema"
               }
             }
+          }
+        }
+      }
+    },
+    "/customers/{id}/data-export": {
+      "get": {
+        "summary": "Owner (data:export): everything held about the customer as JSON (DPDP right to information)",
+        "tags": [
+          "Customers"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/customers/{id}/anonymise": {
+      "post": {
+        "summary": "Owner (data:export): erase the customer's personal data; bills kept with masked details. Body: {confirm:\"ANONYMISE\"}. 409 while khata / wallet balance or an open bill",
+        "tags": [
+          "Customers"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }

@@ -366,7 +366,7 @@ describe("phone OTP", () => {
   const order = (phone: string, phoneToken?: string) => pub("POST", `/public/o/${otherSlug}/orders`, { ...online(), customerPhone: phone, items: [{ menuItemId: other.items.chai, quantity: 1 }], phoneToken });
 
   it("request: bad phones → 400; response never has the code hash; cooldown → 429", async () => {
-    for (const p of ["", "123", "5876543210", "98765432101", "+919876543210"]) expect((await otpReq(p)).status, p).toBe(400);
+    for (const p of ["", "123", "5876543210", "98765432101", "+449876543210"]) expect((await otpReq(p)).status, p).toBe(400);
     const phone = mobile();
     const r = await otpReq(phone);
     expect(r.status).toBe(200);
