@@ -147,6 +147,23 @@ export function CartPanel(p: Props) {
               onChange={(e) => p.onMeta({ customerName: e.target.value })}
               className="min-h-[44px] rounded-xl border border-line bg-surface px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
+            <input
+              aria-label="Buyer GSTIN"
+              placeholder="Buyer GSTIN (B2B, optional)"
+              maxLength={15}
+              value={meta.buyerGstin ?? ""}
+              onChange={(e) => p.onMeta({ buyerGstin: e.target.value.toUpperCase() })}
+              className="min-h-[44px] w-full rounded-xl border border-line bg-surface px-3 font-mono text-sm uppercase focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <input
+              aria-label="Buyer legal name"
+              placeholder="Buyer legal name"
+              maxLength={200}
+              disabled={!meta.buyerGstin?.trim()}
+              value={meta.buyerName ?? ""}
+              onChange={(e) => p.onMeta({ buyerName: e.target.value })}
+              className="min-h-[44px] rounded-xl border border-line bg-surface px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+            />
             {p.phoneError && <p className="col-span-2 text-xs font-medium text-red-600">{p.phoneError}</p>}
           </div>
         )}

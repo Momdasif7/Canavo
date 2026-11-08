@@ -111,5 +111,6 @@ export function ModuleChips({ modules, max }: { modules: ModuleKey[]; max?: numb
 }
 
 export function BusinessStatusBadge({ status }: { status: BusinessStatus }) {
+  if (status === "ARCHIVED") return <Badge tone="neutral">Archived</Badge>;
   return status === "ACTIVE" ? <Badge tone="success">Active</Badge> : <Badge tone="danger">Suspended</Badge>;
 }

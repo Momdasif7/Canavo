@@ -29,6 +29,10 @@ interface BusinessBase {
   phone: string | null;
   email: string | null;
   status: BusinessStatus;
+  /** QA 16b: archive details (ARCHIVED only) */
+  archivedAt?: string | null;
+  archiveReason?: string | null;
+  deleteAfter?: string | null;
   modules: ModuleKey[];
   notes: string | null;
   createdAt: string;

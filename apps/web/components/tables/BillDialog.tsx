@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { Plus } from "@phosphor-icons/react";
 import { equalSplitPreview } from "./split";
-import { formatINR, indianPhone, type BillSplitMode, type SessionBillInput } from "@canavo/shared";
+import { formatINR, gstinProblem, indianPhone, type BillSplitMode, type SessionBillInput } from "@canavo/shared";
 import { api, errorMessage } from "@/lib/api";
 import { useApproval } from "@/components/providers/ApprovalProvider";
 import type { SessionBillResult, TableSessionDetail } from "@/lib/types-service";
@@ -53,6 +53,8 @@ export function BillDialog({
   const [points, setPoints] = useState("");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  const [buyerGstin, setBuyerGstin] = useState("");
+  const [buyerName, setBuyerName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,6 +90,9 @@ export function BillDialog({
   const submit = async () => {
     setError(null);
     if (phone && !indianPhone.safeParse(phone).success) return setError("Enter a valid 10-digit mobile number");
+    const gstin = buyerGstin.trim().toUpperCase();
+    if (gstin && gstinProblem(gstin)) return setError(gstinProblem(gstin));
+    if (gstin && buyerName.trim().length < 2) return setError("Enter the buyer's legal name for a B2B invoice");
     if (mode === "BY_SEAT" && !seatSel.length) return setError("Select at least one seat");
     if (mode === "BY_ITEMS" && !groups.length) return setError("Assign items to at least one bill");
     const n = Number(discount);
@@ -102,6 +107,8 @@ export function BillDialog({
       redeemPoints: !multi && Number(points) > 0 ? Math.floor(Number(points)) : undefined,
       customerPhone: phone || undefined,
       customerName: name.trim() || undefined,
+      buyerGstin: gstin || undefined,
+      buyerName: gstin ? buyerName.trim() : undefined,
     };
     setBusy(true);
     try {
@@ -246,6 +253,8 @@ export function BillDialog({
           <Input label="Coupon" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} disabled={multi} className="font-mono uppercase" />
           <Input label="Customer phone" inputMode="numeric" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} />
           <Input label="Customer name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+          <Input label="Buyer GSTIN (B2B)" value={buyerGstin} maxLength={15} onChange={(e) => setBuyerGstin(e.target.value.toUpperCase())} className="font-mono uppercase" hint="Only for a GST-registered business customer" />
+          {buyerGstin.trim() && <Input label="Buyer legal name" value={buyerName} maxLength={200} onChange={(e) => setBuyerName(e.target.value)} />}
           <Input label="Redeem points" inputMode="numeric" value={points} onChange={(e) => setPoints(e.target.value.replace(/\D/g, ""))} disabled={multi || !phone} hint={!phone ? "Needs the customer's phone" : undefined} />
           {multi && <p className="self-center text-xs text-muted">Flat discounts, coupons and points apply to a single bill — bill groups one at a time to use them.</p>}
         </fieldset>

@@ -51,6 +51,12 @@ export const TWO_FACTOR_REQUIRED_ROLES: Role[] = ["BUSINESS_OWNER", "OUTLET_MANA
 export const mustSetUpTwoFactor = (user: { role: Role; totpEnabledAt: Date | null }, ctx: TenantContext) =>
   !user.totpEnabledAt && TWO_FACTOR_REQUIRED_ROLES.includes(user.role) && featureEnabled(ctx.features, "REQUIRE_2FA", ctx.modules);
 
+/** Why a non-ACTIVE business can't be used (QA 16b: archived businesses say so instead of "suspended"). */
+export const businessClosedMessage = (status: string | undefined) =>
+  status === "ARCHIVED"
+    ? "This business account has been closed (archived). Contact your CANAVO administrator."
+    : "This business account is suspended. Contact your CANAVO administrator.";
+
 async function loadBusiness(id: string) {
   const b = await platformPrisma.business.findUnique({ where: { id }, select: { id: true, status: true, modules: true, features: true } });
   if (!b) throw notFound("Business");
@@ -58,7 +64,7 @@ async function loadBusiness(id: string) {
 }
 
 function enterBusiness(req: Request, ctx: TenantContext, b: { id: string; status: string; modules: string[]; features: unknown }) {
-  if (b.status !== "ACTIVE") throw forbidden("This business account is suspended. Contact your CANAVO administrator.");
+  if (b.status !== "ACTIVE") throw forbidden(businessClosedMessage(b.status));
   ctx.businessId = b.id;
   ctx.modules = normalizeModules(b.modules);
   ctx.features = normalizeFeatures(b.features);

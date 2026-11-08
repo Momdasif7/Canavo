@@ -46,6 +46,17 @@ export const businessUpdateSchema = z.object({
 });
 
 /**
+ * QA 16b (gap 8): super admin archives a business that left the platform. Typing the business name
+ * confirms it; nobody in the business can sign in afterwards, and the data is kept for the statutory
+ * retention period (see businessRetentionEnd in the API).
+ */
+export const businessArchiveSchema = z.object({
+  confirmName: z.string().trim().min(1).max(120),
+  reason: z.string().trim().min(3).max(500),
+});
+export type BusinessArchiveInput = z.infer<typeof businessArchiveSchema>;
+
+/**
  * Super admin: add an owner account to a business. Only owners — the owner
  * (and their managers) create every other staff account inside the hotel.
  */

@@ -12005,6 +12005,77 @@
           }
         },
         {
+          "name": "POST /platform/businesses/{id}/archive",
+          "request": {
+            "method": "POST",
+            "description": "Archive a business that left the platform: nobody can sign in, data kept until deleteAfter (statutory retention). Body: businessArchiveSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/businesses/:id/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "businesses",
+                ":id",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmName\": \"string\",\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /platform/businesses/{id}/restore",
+          "request": {
+            "method": "POST",
+            "description": "Undo an archive: the business is ACTIVE again.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/businesses/:id/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "businesses",
+                ":id",
+                "restore"
+              ]
+            }
+          }
+        },
+        {
           "name": "POST /platform/businesses/{id}/users",
           "request": {
             "method": "POST",

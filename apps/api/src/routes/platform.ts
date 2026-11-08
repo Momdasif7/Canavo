@@ -2,6 +2,7 @@ import { Router } from "express";
 import { superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { bcrypt } from "../lib/bcrypt-pool";
 import {
+  businessArchiveSchema,
   businessCreateSchema,
   FEATURES,
   normalizeFeatures,
@@ -138,6 +139,7 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
   const data = parse(businessUpdateSchema, req.body);
   const before = await db.business.findUnique({ where: { id } });
   if (!before) throw notFound("Business");
+  if (before.status === "ARCHIVED") throw conflict("This business is archived. Restore it before changing it.");
   const { features: featureChanges, ...rest } = data;
   const features = featureChanges ? { ...normalizeFeatures(before.features), ...featureChanges } : undefined;
   const business = await db.business.update({
@@ -155,6 +157,53 @@ platformRouter.patch("/businesses/:id", async (req, res) => {
   }
   await audit(req, "platform.business.update", "Business", id, { fields: Object.keys(data), modules: business.modules, status: business.status, ...(featureChanges && { features: featureChanges }) });
   res.json({ ...business, modules: normalizeModules(business.modules), features: normalizeFeatures(business.features) });
+});
+
+/**
+ * QA 16b (gap 8): earliest date an archived business's data may be deleted. The later of
+ *  - GST (CGST Act s.36 + Rule 56): 72 months from the due date of the annual return (GSTR-9, 31 Dec after the FY), and
+ *  - Income tax (Rule 6F): 6 years from the end of the assessment year (FY + 1),
+ * for the financial year the business was archived in: 1 April of (FY-end year + 7), IST.
+ */
+export function businessRetentionEnd(archivedAt: Date): Date {
+  const ist = new Date(archivedAt.getTime() + 5.5 * 3_600_000);
+  const fyEndYear = ist.getUTCMonth() >= 3 ? ist.getUTCFullYear() + 1 : ist.getUTCFullYear();
+  return new Date(Date.UTC(fyEndYear + 7, 3, 1) - 5.5 * 3_600_000);
+}
+
+/** Archive a business: it becomes read-only and everyone in it is signed out (data kept until deleteAfter). */
+platformRouter.post("/businesses/:id/archive", async (req, res) => {
+  const id = param(req, "id");
+  const data = parse(businessArchiveSchema, req.body);
+  const before = await db.business.findUnique({ where: { id }, select: { name: true, status: true } });
+  if (!before) throw notFound("Business");
+  if (before.status === "ARCHIVED") throw conflict("This business is already archived");
+  if (data.confirmName.toLowerCase() !== before.name.trim().toLowerCase()) throw badRequest("Type the business name exactly to confirm");
+  const archivedAt = new Date();
+  const business = await db.business.update({
+    where: { id },
+    data: { status: "ARCHIVED", archivedAt, archiveReason: data.reason, deleteAfter: businessRetentionEnd(archivedAt) },
+    select: { id: true, name: true, status: true, archivedAt: true, archiveReason: true, deleteAfter: true },
+  });
+  const users = await db.user.findMany({ where: { businessId: id }, select: { id: true } });
+  for (const u of users) await forceLogout(u.id);
+  await audit(req, "platform.business.archive", "Business", id, { reason: data.reason, previousStatus: before.status, deleteAfter: business.deleteAfter });
+  res.json(business);
+});
+
+/** Undo an archive (e.g. the business came back): ACTIVE again; owners sign in with their old passwords. */
+platformRouter.post("/businesses/:id/restore", async (req, res) => {
+  const id = param(req, "id");
+  const before = await db.business.findUnique({ where: { id }, select: { status: true, archivedAt: true } });
+  if (!before) throw notFound("Business");
+  if (before.status !== "ARCHIVED") throw conflict("Only an archived business can be restored");
+  const business = await db.business.update({
+    where: { id },
+    data: { status: "ACTIVE", archivedAt: null, archiveReason: null, deleteAfter: null },
+    select: { id: true, name: true, status: true, archivedAt: true, archiveReason: true, deleteAfter: true },
+  });
+  await audit(req, "platform.business.restore", "Business", id, { archivedAt: before.archivedAt });
+  res.json(business);
 });
 
 /** Add an owner account to a business (owners then create their managers and staff). */

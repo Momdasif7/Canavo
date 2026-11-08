@@ -588,6 +588,21 @@
             "type": "boolean",
             "default": false
           },
+          "buyerGstin": {
+            "type": "string"
+          },
+          "buyerName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "buyerAddress": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "placeOfSupply": {
+            "type": "string"
+          },
           "items": {
             "type": "array",
             "items": {
@@ -1978,6 +1993,21 @@
           "interState": {
             "type": "boolean",
             "default": false
+          },
+          "buyerGstin": {
+            "type": "string"
+          },
+          "buyerName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "buyerAddress": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "placeOfSupply": {
+            "type": "string"
           },
           "notes": {
             "type": "string",
@@ -4444,6 +4474,25 @@
             }
           }
         }
+      },
+      "businessArchiveSchema": {
+        "type": "object",
+        "properties": {
+          "confirmName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "confirmName",
+          "reason"
+        ]
       },
       "platformUserCreateSchema": {
         "type": "object",
@@ -19173,6 +19222,102 @@
                 "$ref": "#/components/schemas/businessUpdateSchema"
               }
             }
+          }
+        }
+      }
+    },
+    "/platform/businesses/{id}/archive": {
+      "post": {
+        "summary": "Archive a business that left the platform: nobody can sign in, data kept until deleteAfter (statutory retention). Body: businessArchiveSchema",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/businessArchiveSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform/businesses/{id}/restore": {
+      "post": {
+        "summary": "Undo an archive: the business is ACTIVE again.",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }

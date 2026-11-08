@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeBill, type TaxConfig } from "@canavo/shared";
-import { buildGstr1, fpOf, lineTxval, splitInvoiceNumber, type Gstr1Order } from "./gstr1";
+import { B2CL_LIMIT_PAISE, buildGstr1, fpOf, gstDate, lineTxval, splitInvoiceNumber, supplyKind, type Gstr1Order } from "./gstr1";
 
 const base: TaxConfig = {
   pricesIncludeTax: true, interState: false, compositionScheme: false,
@@ -158,5 +158,14 @@ describe("GSTR-1 builder", () => {
     expect(gap.payload.doc_issue.doc_det[1].docs[0]).toMatchObject({ from: "CNINV-2026-00001", to: "CNINV-2026-00004", totnum: 2 });
     expect(gap.warnings.some((w) => w.includes("2 credit note number(s) missing"))).toBe(true);
     expect(res.payload.doc_issue.doc_det.map((d) => d.doc_num)).toEqual([1]);
+  });
+
+  it("QA 16b: B2CL threshold is > ₹1,00,000 (Notification 12/2024-CT), B2B wins over B2CL, dates are dd-mm-yyyy IST", () => {
+    expect(B2CL_LIMIT_PAISE).toBe(10_000_000);
+    expect(supplyKind({ interState: true, total: 10_000_000 })).toBe("B2CS");
+    expect(supplyKind({ interState: true, total: 10_000_001 })).toBe("B2CL");
+    expect(supplyKind({ interState: false, total: 50_000_000 })).toBe("B2CS");
+    expect(supplyKind({ buyerGstin: "29AAAAA0000A1Z5", interState: true, total: 50_000_000 })).toBe("B2B");
+    expect(gstDate("2026-10-31T19:00:00Z")).toBe("01-11-2026");
   });
 });

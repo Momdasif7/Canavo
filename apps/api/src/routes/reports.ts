@@ -9,7 +9,7 @@ import { moduleEnabled } from "../lib/tenant";
 import { addDays, isValidYmd, startOfLocalDay, zonedParts } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { sendExport, type ExportColumn, type ExportFormat, type ExportTable } from "../services/report-export";
-import { buildGstr1, type Gstr1Order } from "../services/gstr1";
+import { buildGstr1, type Gstr1Order, type Gstr1Payload, type ItemDetail } from "../services/gstr1";
 import { inclusiveRate, resolveItemTax } from "../services/tax";
 import { aboveApprovalLimit, ownerSummary } from "../services/owner-summary";
 
@@ -596,6 +596,7 @@ export async function gstr1For(outlet: Outlet, month: string) {
     where: window(ctx),
     select: {
       invoiceNumber: true, status: true, documentType: true, interState: true,
+      createdAt: true, grandTotal: true, buyerGstin: true, placeOfSupply: true,
       items: {
         select: {
           hsnCode: true, gstRate: true, quantity: true, taxableValue: true, serviceCharge: true, cgst: true, sgst: true, igst: true,
@@ -608,11 +609,14 @@ export async function gstr1For(outlet: Outlet, month: string) {
   const cns = await prisma.creditNote.findMany({
     where: window(ctx),
     select: {
-      number: true, items: true, amount: true, taxableValue: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true,
-      order: { select: { documentType: true, interState: true, items: { select: { id: true, hsnCode: true, gstRate: true, quantity: true, taxableValue: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, taxRates: true, total: true } } } },
+      number: true, createdAt: true, items: true, amount: true, taxableValue: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true,
+      order: { select: { documentType: true, interState: true, grandTotal: true, buyerGstin: true, placeOfSupply: true, items: { select: { id: true, hsnCode: true, gstRate: true, quantity: true, taxableValue: true, serviceCharge: true, cgst: true, sgst: true, igst: true, cess: true, otherTaxes: true, taxRates: true, total: true } } } },
     },
   });
-  const creditNotes = cns.map((c) => ({ number: c.number, documentType: c.order.documentType, interState: c.order.interState, items: creditLines(c) }));
+  const creditNotes = cns.map((c) => ({
+    number: c.number, documentType: c.order.documentType, interState: c.order.interState, items: creditLines(c),
+    createdAt: c.createdAt, amount: c.amount, buyerGstin: c.order.buyerGstin, placeOfSupply: c.order.placeOfSupply, invoiceTotal: c.order.grandTotal,
+  }));
   const result = buildGstr1({
     creditNotes,
     gstin: outlet.gstin,
@@ -1568,6 +1572,35 @@ function creditLines(c: { items: unknown; amount: number; cgst: number; sgst: nu
   });
 }
 
+/** QA 16b: B2B / B2CL / CDNR / CDNUR as one row per document and rate (xlsx / pdf export). */
+function b2bTables(p: Gstr1Payload, money: (r: number) => number): ExportTable[] {
+  type Row = { section: string; party: string; number: string; date: string; val: number; pos: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number };
+  const rows: Row[] = [];
+  const add = (section: string, party: string, number: string, date: string, val: number, pos: string, itms: ItemDetail[]) => {
+    for (const { itm_det: d } of itms) {
+      rows.push({ section, party, number, date, val: money(val), pos, rt: d.rt, txval: money(d.txval), iamt: money(d.iamt), camt: money(d.camt ?? 0), samt: money(d.samt ?? 0), csamt: money(d.csamt) });
+    }
+  };
+  for (const e of p.b2b ?? []) for (const i of e.inv) add("B2B", e.ctin, i.inum, i.idt, i.val, i.pos, i.itms);
+  for (const e of p.b2cl ?? []) for (const i of e.inv) add("B2CL", "-", i.inum, i.idt, i.val, e.pos, i.itms);
+  for (const e of p.cdnr ?? []) for (const n of e.nt) add("CDNR", e.ctin, n.nt_num, n.nt_dt, n.val, n.pos, n.itms);
+  for (const n of p.cdnur ?? []) add("CDNUR", "-", n.nt_num, n.nt_dt, n.val, n.pos, n.itms);
+  if (!rows.length) return [];
+  return [
+    {
+      title: "B2B, B2CL, CDNR, CDNUR",
+      columns: [
+        { key: "section", header: "Table" }, { key: "party", header: "Buyer GSTIN", width: 17 }, { key: "number", header: "Number", width: 18 },
+        { key: "date", header: "Date", width: 11 }, { key: "val", header: "Value", type: "money" }, { key: "pos", header: "POS" },
+        { key: "rt", header: "Rate %", type: "number" }, { key: "txval", header: "Taxable value", type: "money", width: 14 },
+        { key: "iamt", header: "IGST", type: "money" }, { key: "camt", header: "CGST", type: "money" }, { key: "samt", header: "SGST", type: "money" },
+        { key: "csamt", header: "Cess", type: "money" },
+      ],
+      rows,
+    },
+  ];
+}
+
 reportsRouter.get("/gstr1", async (req, res) => {
   const q = parse(
     z.object({
@@ -1605,6 +1638,7 @@ reportsRouter.get("/gstr1", async (req, res) => {
       rows: p.b2cs.map((b) => ({ ...b, txval: money(b.txval), iamt: money(b.iamt), camt: money(b.camt), samt: money(b.samt), csamt: money(b.csamt) })),
       totals: true,
     },
+    ...b2bTables(p, money),
     {
       title: "HSN",
       columns: [

@@ -1,4 +1,4 @@
-import { computeBill, withTaxMode, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
+import { computeBill, gstinProblem, withTaxMode, type BillDiscount, type BillResult, type OrderCreateInput, type TaxConfig } from "@canavo/shared";
 import type { DocumentType, FoodType, MenuItem, OrderType, Outlet, TaxDetail, TaxExtra } from "@/lib/types";
 import type { FreeItemSuggestion } from "@/lib/types-service";
 
@@ -96,6 +96,9 @@ export interface CartMeta {
   delivery: DeliveryMeta;
   /** Phase 5 (CANTEEN): scanned member ("" = none); the company's share is added at billing */
   memberId?: string;
+  /** QA 16b: B2B tax invoice — registered buyer's GSTIN and legal name ("" = B2C) */
+  buyerGstin?: string;
+  buyerName?: string;
 }
 
 export const EMPTY_META: CartMeta = {
@@ -128,6 +131,12 @@ export const pointsToRedeem = (meta: CartMeta): number | undefined => {
 
 /** Reasons the order can't be charged yet (order-type specific), or null. */
 export function metaError(meta: CartMeta): string | null {
+  const gstin = meta.buyerGstin?.trim();
+  if (gstin) {
+    const problem = gstinProblem(gstin);
+    if (problem) return problem;
+    if ((meta.buyerName?.trim().length ?? 0) < 2) return "Enter the buyer's legal name for a B2B invoice";
+  }
   if (meta.orderType === "DELIVERY") {
     if (!meta.customerName.trim() || !meta.customerPhone.trim()) return "Delivery needs the customer's name and phone";
     if (meta.delivery.address.trim().length < 5) return "Enter the delivery address";
@@ -407,6 +416,8 @@ export function toOrderInput(lines: CartLine[], meta: CartMeta, clientOrderId?: 
     customerPhone: meta.customerPhone.trim() || undefined,
     memberId: meta.memberId || undefined,
     interState: false,
+    buyerGstin: meta.buyerGstin?.trim().toUpperCase() || undefined,
+    buyerName: meta.buyerGstin?.trim() ? meta.buyerName?.trim() : undefined,
     items: lines.map((l) => ({
       menuItemId: l.itemId,
       variantId: l.variantId,
