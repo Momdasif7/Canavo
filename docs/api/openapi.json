@@ -4331,7 +4331,8 @@
                 "ATTENDANCE",
                 "REPORTS",
                 "CANTEEN",
-                "CHANNELS"
+                "CHANNELS",
+                "THEATRE"
               ]
             },
             "minItems": 1
@@ -4436,7 +4437,8 @@
                 "ATTENDANCE",
                 "REPORTS",
                 "CANTEEN",
-                "CHANNELS"
+                "CHANNELS",
+                "THEATRE"
               ]
             },
             "minItems": 1
@@ -5084,6 +5086,169 @@
           "unitPrice",
           "mode"
         ]
+      },
+      "screenSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "screenUpdateSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999
+          }
+        }
+      },
+      "seatBulkSchema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z]{1,2}$"
+            },
+            "minItems": 1,
+            "maxItems": 60
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z]{1,2}\\d{1,3}$"
+            },
+            "maxItems": 500,
+            "default": []
+          }
+        },
+        "required": [
+          "rows",
+          "from",
+          "to"
+        ]
+      },
+      "showTimeSchema": {
+        "type": "object",
+        "properties": {
+          "screenId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "intervalAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "default": null
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "orderCutoffMin": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120,
+            "default": 15
+          }
+        },
+        "required": [
+          "screenId",
+          "title",
+          "startsAt",
+          "endsAt"
+        ]
+      },
+      "showTimeUpdateSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "intervalAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "orderCutoffMin": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          }
+        }
+      },
+      "theatreSettingsSchema": {
+        "type": "object",
+        "properties": {
+          "seatOrdering": {
+            "type": "boolean",
+            "default": false
+          },
+          "intervalLeadMin": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 10
+          },
+          "counterPickup": {
+            "type": "boolean",
+            "default": true
+          },
+          "deliverDuringShow": {
+            "type": "boolean",
+            "default": true
+          }
+        }
       }
     },
     "responses": {
@@ -15342,7 +15507,7 @@
     },
     "/public/t/{token}": {
       "get": {
-        "summary": "QR table page: outlet, table and menu",
+        "summary": "QR table page: outlet, table and menu (a cinema seat adds theatre { seat, show, options, settings })",
         "tags": [
           "Public ordering"
         ],
@@ -15371,7 +15536,7 @@
     },
     "/public/t/{token}/orders": {
       "post": {
-        "summary": "Order from the table (joins the running tab). Body: qrOrderSchema",
+        "summary": "Order from the table (joins the running tab). Body: qrOrderSchema; a cinema seat takes seatOrderSchema (timing) and always returns a UPI QR to prepay",
         "tags": [
           "Public ordering"
         ],
@@ -15408,7 +15573,7 @@
         }
       },
       "get": {
-        "summary": "This table's orders and their status",
+        "summary": "This table's orders and their status (seats: timing, pickupToken, runner stage, pending UPI)",
         "tags": [
           "Public ordering"
         ],
@@ -20821,6 +20986,765 @@
             }
           }
         }
+      }
+    },
+    "/theatre/screens": {
+      "get": {
+        "summary": "Screens with seats by row, seat QR tokens, current / next show → Screen[]",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a screen (code S1, S2 … fixed for its life; own screen QR). Body: screenSchema → Screen",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/screenSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theatre/screens/{id}": {
+      "patch": {
+        "summary": "Rename / reorder a screen. Body: screenUpdateSchema → Screen",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/screenUpdateSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a screen and its seats. 409 while a seat has an open tab or a waiting order, or when the screen has seat orders in its history",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/theatre/screens/{id}/seats": {
+      "post": {
+        "summary": "Bulk-add seats rows × from…to minus skip (idempotent; inactive seats in the range come back; at most 3,000 per screen). Body: seatBulkSchema → { created, skipped, total }",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/seatBulkSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theatre/screens/{id}/qr/rotate": {
+      "post": {
+        "summary": "New screen QR token (old posters stop working) → Screen",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/theatre/seats/{id}": {
+      "delete": {
+        "summary": "Delete a seat (deactivated when it has history). 409 while it has an open tab / waiting order",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/theatre/showtimes": {
+      "get": {
+        "summary": "Shows overlapping a local day ?date=YYYY-MM-DD (default today) &screenId → ShowTime[]",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a show. 409 if it overlaps another show on the screen. Body: showTimeSchema → ShowTime",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/showTimeSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theatre/showtimes/{id}": {
+      "patch": {
+        "summary": "Edit a show (same overlap / time rules). Body: showTimeUpdateSchema → ShowTime",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/showTimeUpdateSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a show; 409 when it has seat orders (kept for the reports)",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/theatre/settings": {
+      "get": {
+        "summary": "Theatre settings (seat ordering, interval lead minutes, counter pickup, deliver during show) → TheatreSettings",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Change theatre settings. Body: theatreSettingsSchema (partial) → TheatreSettings",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/theatreSettingsSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theatre/board": {
+      "get": {
+        "summary": "Runner board ?screenId: seat orders by screen and row + counter pickups by token → RunnerBoard",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/theatre/orders/{requestId}/ready": {
+      "post": {
+        "summary": "Food ready for a runner / the counter (its KOTs → Ready). 409 unpaid, held for the interval, delivered → BoardOrder",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/theatre/orders/{requestId}/delivered": {
+      "post": {
+        "summary": "Handed over at the seat / counter (KOTs → Served) → BoardOrder",
+        "tags": [
+          "Cinema"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/reports/theatre": {
+      "get": {
+        "summary": "Cinema seat orders ?from&to (local days) &format=json|xlsx|pdf → TheatreReport { totals, byScreen, byShow, byTiming }",
+        "tags": [
+          "Reports"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/public/s/{screenToken}": {
+      "get": {
+        "summary": "Screen poster QR: outlet, screen, show and active seats by row (each with its seat QR token)",
+        "tags": [
+          "Public ordering"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "screenToken",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/public/t/{token}/orders/{orderToken}/upi": {
+      "post": {
+        "summary": "Seat order: a fresh UPI QR when the first expired → { qrPayload, imageUrl, amount, mock }",
+        "tags": [
+          "Public ordering"
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "orderToken",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

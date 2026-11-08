@@ -99,6 +99,7 @@ model Outlet {
   /// Phase 6.3/6.4: QR ordering and online ordering settings (see storefrontSettingsSchema)
   storefront              Json                 @default("{}")
   channelRequests         ChannelRequest[]
+  showTimes               ShowTime[]
   customerOtps            CustomerOtp[]
   channelConnections      ChannelConnection[]
   channelItemMaps         ChannelItemMap[]
@@ -589,6 +590,8 @@ model KotTicket {
   sessionId   String?
   /// Pre-orders: hidden from the kitchen until this time
   releaseAt   DateTime?
+  /// THEATRE: big header line for the kitchen, e.g. "SCREEN S2 · F12 · INTERVAL"
+  header      String?
   outletId    String
   kotNumber   Int
   station     String
@@ -737,14 +740,46 @@ enum TableShape {
   RECTANGLE
 }
 
+/// THEATRE: a FLOOR area is a normal dining room; a SCREEN area is a cinema screen whose tables are seats.
+enum AreaKind {
+  FLOOR
+  SCREEN
+}
+
 model DiningArea {
   id        String        @id @default(cuid())
   outletId  String
   name      String
   sortOrder Int           @default(0)
+  kind      AreaKind      @default(FLOOR)
+  /// THEATRE: short code on seat labels and KOTs ("S2"); set once when the screen is created
+  code      String?
+  /// THEATRE: screen-level QR (/s/<qrToken>) where the guest picks a seat; rotating it kills printed posters
+  qrToken   String?       @unique
   tables    DiningTable[]
+  showTimes ShowTime[]
 
   @@index([outletId])
+}
+
+/// THEATRE: one show on a screen. Drives the interval (KOT release) and the order cut-off.
+model ShowTime {
+  id             String     @id @default(cuid())
+  outletId       String
+  /// The screen (DiningArea of kind SCREEN)
+  areaId         String
+  title          String
+  startsAt       DateTime
+  intervalAt     DateTime?
+  endsAt         DateTime
+  /// Ordering closes this many minutes before the end
+  orderCutoffMin Int        @default(15)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  outlet         Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  area           DiningArea @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, areaId, startsAt])
 }
 
 model DiningTable {
@@ -765,6 +800,9 @@ model DiningTable {
   active       Boolean        @default(true)
   /// Phase 6.3: unguessable token in the table's QR code (/t/<token>); rotating it kills printed codes
   qrToken      String?        @unique
+  /// THEATRE: a seat (table in a SCREEN area): row letters and seat number, e.g. "F" + 12
+  seatRow      String?
+  seatNumber   Int?
   area         DiningArea?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
   waiter       User?          @relation("tableWaiter", fields: [waiterId], references: [id], onDelete: SetNull)
   sessions     TableSession[]
@@ -2056,11 +2094,22 @@ model ChannelRequest {
   /// Credit note issued for the refund (paid bills)
   creditNoteId  String?
   refundError   String?
+  /// THEATRE seat orders: NOW | INTERVAL | COUNTER (null = a normal table QR / online order)
+  seatTiming    String?
+  /// THEATRE: the show the seat order was placed in
+  showTimeId    String?
+  /// THEATRE: pickup number per outlet per local day (1, 2, 3 …), counter pickup orders
+  pickupToken   Int?
+  /// THEATRE runner board: food ready for a runner / the counter, and handed over at the seat / counter
+  readyAt       DateTime?
+  deliveredAt   DateTime?
   createdAt     DateTime  @default(now())
   outlet        Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
   @@index([outletId, status, createdAt])
   @@index([tableId, createdAt])
+  @@index([outletId, pickupToken, createdAt])
+  @@index([showTimeId])
 }
 
 // ---------- Phase 6.1: online channels (aggregators through a partner hub) ----------

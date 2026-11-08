@@ -10,6 +10,7 @@ import { emitToOutlet } from "../realtime";
 import { alertOrderReady } from "../services/alerts";
 import { onKotReady } from "../services/channels/service";
 import { emitBoardChange, isBoardChannel } from "../services/channels/board";
+import { THEATRE_EVENT } from "../services/theatre-kot";
 
 export const kotRouter = Router();
 kotRouter.use(authenticate, requireOutlet, requireModule("KOT"));
@@ -33,6 +34,13 @@ async function present(kots: KotRow[]) {
     const label = [session.table.label, ...session.mergedTableIds.map((id) => labels.get(id) ?? "?")].join("+");
     return { ...k, session: { id: session.id, tableLabel: label, table: { label } } };
   });
+}
+
+/** Tell kitchen displays about KOTs changed elsewhere (THEATRE runner board), same payload as PATCH /kot/:id. */
+export async function emitKotsUpdated(outletId: string, ids: string[]) {
+  if (!ids.length) return;
+  const rows = await prisma.kotTicket.findMany({ where: { id: { in: ids }, outletId }, include: kotInclude });
+  for (const k of await present(rows)) emitToOutlet(outletId, "kot:updated", k);
 }
 
 /**
@@ -104,6 +112,8 @@ kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
     void emitBoardChange(req.outletId!, kot.orderId).catch((e) => console.error("[channels] board emit failed", e));
   }
   if (status === "READY" && found.status !== "READY") void alertOrderReady(req.outletId!, kot.id);
+  // THEATRE: a seat order's kitchen progress moves it on the runner board.
+  if (found.header && status !== found.status) emitToOutlet(req.outletId!, THEATRE_EVENT, { action: "kitchen", kotId: found.id });
   if (kot.sessionId) emitToOutlet(req.outletId!, "table:updated", { tableIds: [kot.session!.tableId, ...kot.session!.mergedTableIds], sessionId: kot.sessionId, action: "kot" });
   res.json(shaped);
 });
@@ -122,12 +132,14 @@ kotRouter.post("/:id/print", requirePermission("kot:view"), async (req, res) => 
   await audit(req, reprint ? "kot.reprint" : "kot.print", "KotTicket", found.id);
   const items = found.items as { name: string; quantity: number; addons?: string[]; notes?: string | null; voided?: boolean }[];
   const order = found.order;
-  const header = found.session
+  const header = found.header
+    ? found.header
+    : found.session
     ? `DINE-IN  Table ${found.session.tableLabel}`
     : `${order?.orderType.replace("_", "-") ?? ""}${order?.tableLabel ? `  Table ${order.tableLabel}` : ""}`;
   const lines = [
     `${reprint ? "** REPRINT ** " : ""}KOT #${found.kotNumber}  [${found.station}]`,
-    ...(order?.scheduledFor ? [] : [header]),
+    ...(order?.scheduledFor && !found.header ? [] : [header]),
     ...(order?.scheduledFor ? [`PRE-ORDER for ${hhmm(order.scheduledFor, tz)}${order.customerName ? ` (${order.customerName})` : ""}`] : []),
     ...(order ? [`Bill ${order.invoiceNumber}`] : ["Running tab"]),
     hhmm(new Date(found.createdAt), tz),

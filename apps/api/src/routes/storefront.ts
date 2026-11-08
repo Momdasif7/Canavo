@@ -58,10 +58,12 @@ storefrontRouter.put("/settings", requirePermission("channel:manage"), async (re
     if (taken) throw conflict("That web address is taken — try another");
   }
   if (settings.onlineOrdering && !(slug === undefined ? outlet.publicSlug : slug)) throw conflict("Choose a web address for your online page first");
+  // THEATRE settings share the storefront JSON (key "theatre", PATCH /theatre/settings): keep them.
+  const stored = outlet.storefront && typeof outlet.storefront === "object" && !Array.isArray(outlet.storefront) ? (outlet.storefront as Record<string, unknown>) : {};
   try {
     await prisma.outlet.update({
       where: { id: outlet.id },
-      data: { storefront: settings as unknown as Prisma.InputJsonValue, ...(slug !== undefined && { publicSlug: slug }) },
+      data: { storefront: { ...settings, ...("theatre" in stored && { theatre: stored.theatre }) } as unknown as Prisma.InputJsonValue, ...(slug !== undefined && { publicSlug: slug }) },
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw conflict("That web address is taken — try another");
@@ -76,11 +78,13 @@ storefrontRouter.put("/settings", requirePermission("channel:manage"), async (re
 /** Active tables with their QR token (tables that never had one get one now). */
 storefrontRouter.get("/tables", requireAnyPermission("channel:manage", "table:manage"), async (req, res) => {
   const outletId = req.outletId!;
+  // Cinema seats have their own QR sheets (/theatre); ?includeScreens=1 lists them too.
+  const seats = req.query.includeScreens === "1" ? {} : { seatRow: null };
   const missing = await prisma.diningTable.findMany({ where: { outletId, active: true, qrToken: null }, select: { id: true } });
   for (const t of missing) await prisma.diningTable.update({ where: { id: t.id }, data: { qrToken: newPublicToken() } });
   res.json(
     await prisma.diningTable.findMany({
-      where: { outletId, active: true },
+      where: { outletId, active: true, ...seats },
       select: { id: true, label: true, qrToken: true, area: { select: { name: true } } },
       orderBy: { label: "asc" },
     }),

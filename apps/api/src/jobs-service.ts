@@ -7,6 +7,8 @@ import { assignWaitingDeliveries } from "./services/delivery-assign";
 import { runForOutlet } from "./lib/tenant";
 import { emitToOutlet } from "./realtime";
 import { alertKitchenNewKots } from "./services/alerts";
+import { THEATRE_EVENT } from "./services/theatre-kot";
+import { expireUnpaidSeatOrders } from "./services/theatre";
 
 const CURSOR_KEY = "service.kotReleaseCursor";
 const NO_SHOW_AFTER_MIN = 30;
@@ -33,6 +35,8 @@ export async function releaseDueKots(now = new Date()) {
   for (const k of due) byOutlet.set(k.outletId, [...(byOutlet.get(k.outletId) ?? []), k]);
   for (const [outletId, kots] of byOutlet) {
     emitToOutlet(outletId, "kot:new", kots.map((k) => ({ ...k, session: null })));
+    // THEATRE: interval seat orders just reached the kitchen (runner board WAITING → PREPARING).
+    if (kots.some((k) => k.header)) emitToOutlet(outletId, THEATRE_EVENT, { action: "released" });
     void alertKitchenNewKots(outletId, kots, "Pre-order released");
     console.info(`[job:kot-release] released ${kots.length} pre-order KOT(s) for outlet ${outletId}`);
   }
@@ -117,5 +121,9 @@ export function registerJobs(): void {
   registerJob("service-reservations", 30_000, async () => {
     await markReservedTables();
     await markNoShows();
+  });
+  // THEATRE: seat orders never paid are cancelled (their bills would stay open forever).
+  registerJob("theatre-unpaid-expiry", 60_000, async () => {
+    await expireUnpaidSeatOrders();
   });
 }

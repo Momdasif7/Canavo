@@ -33,6 +33,7 @@ import { onOrderCancelledService, selectZone } from "./service-context";
 import { phoneTokenValid } from "./storefront-otp";
 import { resolveItemTax } from "./tax";
 import { lastKotNumberToday } from "./kot-number";
+import { emitTheatre, fireSeatKots, readTheatreSettings } from "./theatre-kot";
 
 /**
  * Phase 6.3 / 6.4 (CHANNELS): QR table ordering and the outlet's online ordering page.
@@ -61,15 +62,20 @@ export function acceptingNow(s: StorefrontSettings, timezone: string, at = new D
 }
 
 /** The business's brand accent when CHANNELS is on (false = the business can't take public orders). */
-async function channelsOn(businessId: string): Promise<false | { accent: string }> {
+async function channelsOn(businessId: string): Promise<false | { accent: string; theatre: boolean }> {
   const b = await platformPrisma.business.findUnique({ where: { id: businessId }, select: { status: true, modules: true, brand: true } });
-  if (!(b && b.status === "ACTIVE" && normalizeModules(b.modules).includes("CHANNELS"))) return false;
-  return { accent: normalizeBrand(b.brand).accent };
+  const modules = b ? normalizeModules(b.modules) : [];
+  if (!(b && b.status === "ACTIVE" && modules.includes("CHANNELS"))) return false;
+  return { accent: normalizeBrand(b.brand).accent, theatre: modules.includes("THEATRE") };
 }
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
-/** Table + outlet from a QR token. Unknown token, or a business without CHANNELS: not found. */
+/**
+ * Table + outlet from a QR token. Unknown token, or a business without CHANNELS: not found.
+ * A cinema seat (THEATRE) follows the theatre's own switch (seat ordering) instead of dine-in QR
+ * ordering, and is not found when the business doesn't have THEATRE.
+ */
 export async function tableByToken(token: string) {
   if (!TOKEN_RE.test(token)) throw notFound("Table");
   const table = await platformPrisma.diningTable.findUnique({ where: { qrToken: token } });
@@ -78,8 +84,11 @@ export async function tableByToken(token: string) {
   const brand = await channelsOn(outlet.businessId);
   if (!brand) throw notFound("Table");
   const settings = readSettings(outlet);
-  if (!settings.qrOrdering && !settings.menuView) throw notFound("Table");
-  return { table, outlet, settings, accent: brand.accent };
+  const seat = table.seatRow !== null;
+  if (seat) {
+    if (!brand.theatre || (!readTheatreSettings(outlet).seatOrdering && !settings.menuView)) throw notFound("Table");
+  } else if (!settings.qrOrdering && !settings.menuView) throw notFound("Table");
+  return { table, outlet, settings, accent: brand.accent, seat };
 }
 
 /** Outlet from its public slug; refuses when CHANNELS is off or the page is switched off entirely. */
@@ -258,7 +267,8 @@ const emitRequest = (outletId: string, id: string, action: string) => emitToOutl
 // ---------------------------------------------------------------------------
 
 export async function placeQrOrder(token: string, input: QrOrderInput, ip?: string) {
-  const { table, outlet, settings } = await tableByToken(token);
+  const { table, outlet, settings, seat } = await tableByToken(token);
+  if (seat) throw badRequest("Seat orders need a delivery time"); // routed to placeSeatOrder
   return runForOutlet(outlet.id, async () => {
     if (!settings.qrOrdering) throw conflict("This table doesn't take orders from the QR code — please ask a waiter");
     if (!table.active) throw conflict("This table isn't in use right now — please ask a waiter");
@@ -371,6 +381,16 @@ export async function acceptRequest(req: Request, request: ChannelRequest) {
   });
   if (!claimed.count) throw conflict("Someone already handled this order");
   try {
+    if (request.seatTiming) {
+      // THEATRE: the bill exists since the guest ordered (UPI up front); the kitchen gets it once paid.
+      await prisma.$transaction(async (tx) => {
+        await fireSeatKots(tx, request.id);
+        await emitTheatre(tx, outletId, { requestId: request.id, action: "accepted" });
+      });
+      kickOutbox();
+      emitRequest(outletId, request.id, "accepted");
+      return prisma.channelRequest.findUniqueOrThrow({ where: { id: request.id } });
+    }
     let data: Prisma.ChannelRequestUpdateInput;
     if (request.channel === "QR") {
       if (!request.tableId) throw badRequest("QR order without a table");
@@ -411,8 +431,12 @@ export async function rejectRequest(req: Request, request: ChannelRequest, reaso
     data: { status: "REJECTED", rejectReason: reason, decidedById: req.user?.id, decidedAt: new Date() },
   });
   if (!claimed.count) throw conflict("Someone already handled this order");
-  if (request.orderId) await withdrawOnlineOrder(req, request, `Online order rejected: ${reason}`);
+  if (request.orderId) await withdrawOnlineOrder(req, request, `${request.seatTiming ? "Seat order" : "Online order"} rejected: ${reason}`);
   emitRequest(request.outletId, request.id, "rejected");
+  if (request.seatTiming) {
+    await prisma.$transaction((tx) => emitTheatre(tx, request.outletId, { requestId: request.id, action: "rejected" }));
+    kickOutbox();
+  }
   return prisma.channelRequest.findUniqueOrThrow({ where: { id: request.id } });
 }
 
@@ -700,8 +724,11 @@ export function addressQuote(outlet: Outlet, to: { pincode?: string; area?: stri
   };
 }
 
-/** A fresh UPI QR for what's still due on an online order (inside the tenant context). */
-export async function requestUpi(outlet: Outlet, orderId: string) {
+/**
+ * A fresh UPI QR for what's still due on an online / seat order (inside the tenant context): the
+ * store's own Razorpay account, the platform's shared one, or a plain UPI intent (mock) to confirm by hand.
+ */
+export async function issueUpi(outlet: Outlet, orderId: string) {
   const order = await getOrder(orderId, outlet.id);
   if (order.status !== "OPEN") throw conflict(order.status === "PAID" ? "Already paid" : "This order was cancelled");
   const paid = order.payments.filter((p) => p.status === "SUCCESS").reduce((s, p) => s + p.amount, 0);
@@ -709,7 +736,12 @@ export async function requestUpi(outlet: Outlet, orderId: string) {
   if (due <= 0) throw conflict("Nothing to pay");
   await prisma.payment.updateMany({ where: { orderId, mode: "UPI", status: "PENDING" }, data: { status: "FAILED" } });
   const qr = await createUpiQr({ amount: due, orderId, invoiceNumber: order.invoiceNumber, payeeName: outlet.name, vpa: outlet.upiVpa });
-  return prisma.payment.create({ data: { orderId, mode: "UPI", amount: due, status: "PENDING", gatewayRef: qr.gatewayRef, qrPayload: qr.qrPayload } });
+  const payment = await prisma.payment.create({ data: { orderId, mode: "UPI", amount: due, status: "PENDING", gatewayRef: qr.gatewayRef, qrPayload: qr.qrPayload } });
+  return { payment, qr };
+}
+
+export async function requestUpi(outlet: Outlet, orderId: string) {
+  return (await issueUpi(outlet, orderId)).payment;
 }
 
 /** Online order by its public token (inside the tenant context). */
