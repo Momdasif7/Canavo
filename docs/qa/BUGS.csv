@@ -113,3 +113,35 @@ BUG-111,Staff moved to another outlet kept receiving the old outlet events until
 BUG-112,New QR/online order pushes used the normal Android channel (closed app did not ring); channel deep links wrong,P2,Notifications,,LOCAL,,apps/api/test/integration/realtime-qa.test.ts,,,,docs/qa/phase-10-realtime.md,Verified,Phase 10 (realtime),d8a2927,Fixed; suites green
 BUG-113,Mark-unread in one tab marked read in other tabs; clear-read not synced,P3,Notifications,,LOCAL,,apps/api/test/integration/realtime-qa.test.ts,,,,docs/qa/phase-10-realtime.md,Verified,Phase 10 (realtime),d8a2927,Fixed; suites green
 BUG-114,"Delivery and reservation live updates broadcast customer names, phones and addresses to every role in the outlet",P2,Realtime / Privacy,,LOCAL,,apps/api/test/integration/realtime-qa.test.ts,,,,docs/qa/phase-10-realtime.md,Verified,Phase 10 (realtime),(this commit),Fixed; suites green
+BUG-115,Web UI defect ui-1 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-116,Web UI defect ui-2 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-117,Web UI defect ui-3 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-118,Web UI defect ui-4 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-119,Web UI defect ui-5 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-120,Web UI defect ui-7 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-121,Web UI defect ui-8 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-122,Web UI defect ui-9 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-123,Web UI defect ui-10 (see report),P2,Web,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-124,POS reused the paid bill order id for an identical next cart (online: old bill returned; offline: second bill dropped),P0,Web / POS,,LOCAL,,,,,,docs/qa/phase-11-web-ui.md,Verified,Phase 11 (web UI),,Fixed; suites green
+BUG-125,Bluetooth printer off after connect: every later print failed until restart,P1,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-126,Offline bill rejected 3x stuck as failed with no retry (cash taken),P1,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-127,Offline sync retried every 30 s with no backoff,P2,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-128,"Mobile floor plan, tab, partner home, inbox did not reload after socket reconnect",P2,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-129,Failed push registration never retried in session,P3,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-130,Mobile tsconfig ignoreDeprecations broke typecheck,P3,Mobile,,LOCAL,,,,,,docs/qa/phase-12-mobile.md,Verified,Phase 12 (mobile),,Fixed; suites green
+BUG-131,1-year reports took 3.6-5.7 s (all bill lines loaded into Node),P2,Reports,,LOCAL,,,,,,docs/qa/phase-13-performance.md,Verified,Phase 13 (performance),,Fixed; suites green
+BUG-132,"Login storm: p95 10.6 s, 17.6% failed (password hashing blocked the event loop)",P1,Auth,,LOCAL,,,,,,docs/qa/phase-13-performance.md,Verified,Phase 13 (performance),,Fixed; suites green
+BUG-133,Best-seller query on every online menu view,P3,Storefront,,LOCAL,,,,,,docs/qa/phase-13-performance.md,Verified,Phase 13 (performance),,Fixed; suites green
+BUG-134,Dashboard first-load JS 265 kB,P3,Web,,LOCAL,,,,,,docs/qa/phase-13-performance.md,Verified,Phase 13 (performance),,Fixed; suites green
+BUG-135,30 parallel bills at one outlet exceeded the 5 s Prisma transaction timeout under load,P1,Orders,,LOCAL,,,,,,docs/qa/phase-13-performance.md,Verified,Phase 13 (performance),,Fixed; suites green
+BUG-136,Compliance defect cmp-1 (see report),P1,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-137,Compliance defect cmp-2 (see report),P1,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-138,Compliance defect cmp-3 (see report),P2,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-139,Compliance defect cmp-4 (see report),P2,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-140,Compliance defect cmp-5 (see report),P1,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-141,Compliance defect cmp-6 (see report),P1,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-142,Compliance defect cmp-7 (see report),P1,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-143,Compliance defect cmp-8 (see report),P3,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-144,Compliance defect cmp-9 (see report),P3,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-145,Compliance defect cmp-10 (see report),P3,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
+BUG-146,Compliance defect cmp-11 (see report),P3,Compliance,,LOCAL,,,,,,docs/qa/phase-14-compliance.md,Verified,Phase 14 (compliance),,Fixed; suites green
