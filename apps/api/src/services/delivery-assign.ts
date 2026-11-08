@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { distanceMeters } from "@canavo/shared";
 import { prisma } from "../db";
+import { retryTransaction } from "../lib/tx-retry";
 import { emitToOutlet } from "../realtime";
 import { notify, outletManagers } from "./notify";
 
@@ -105,6 +106,27 @@ export async function canTakeOrder(outletId: string, agentId: string, db: Db = p
   return { ok: p.available, reason: p.reason, partner: p };
 }
 
+/**
+ * Lock the partner's row, then check they can take one more order (QA Phase 9). Every assignment
+ * — manual, auto at billing, the waiting-orders sweep — takes this lock in its transaction, so two
+ * at the same moment run one after the other and the second sees the first: a partner can never
+ * end up over the limit (or get an order while out on a run) because two checks passed at once.
+ */
+export async function lockAndCheckPartner(tx: Prisma.TransactionClient, outletId: string, agentId: string) {
+  await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${agentId} FOR NO KEY UPDATE`;
+  return canTakeOrder(outletId, agentId, tx);
+}
+
+/** pickAvailablePartner + lockAndCheckPartner: the best partner who still has room once locked. */
+export async function pickAndLockPartner(tx: Prisma.TransactionClient, outletId: string): Promise<{ id: string; name: string } | null> {
+  for (let i = 0; i < 5; i++) {
+    const p = await pickAvailablePartner(outletId, tx);
+    if (!p) return null;
+    if ((await lockAndCheckPartner(tx, outletId, p.id)).ok) return p;
+  }
+  return null;
+}
+
 /** A partner picked up an order (or completed one straight away): they're out on a run. */
 export async function startRun(db: Db, agentId: string) {
   await db.user.updateMany({ where: { id: agentId, deliveryAtOutlet: true }, data: { deliveryAtOutlet: false, deliveryRunStartedAt: new Date() } });
@@ -155,10 +177,15 @@ export async function assignWaitingDeliveries(outletId: string): Promise<number>
   });
   let assigned = 0;
   for (const d of waiting) {
-    const partner = await pickAvailablePartner(outletId);
-    if (!partner) break;
-    // Conditional update: never steal a delivery someone assigned in the meantime.
-    const { count } = await prisma.delivery.updateMany({ where: { id: d.id, agentId: null }, data: { agentId: partner.id, assignedAt: new Date() } });
+    const res = await retryTransaction(async (tx) => {
+      const partner = await pickAndLockPartner(tx, outletId);
+      if (!partner) return null;
+      // Conditional update: never steal a delivery someone assigned in the meantime.
+      const { count } = await tx.delivery.updateMany({ where: { id: d.id, agentId: null }, data: { agentId: partner.id, assignedAt: new Date() } });
+      return { partner, count };
+    });
+    if (!res) break;
+    const { partner, count } = res;
     if (!count) continue;
     assigned++;
     await notify([partner.id], "New delivery assigned", `${d.order.invoiceNumber} · ${d.customerName} · ${d.address}${d.cod ? " · COD" : ""}`, "delivery");

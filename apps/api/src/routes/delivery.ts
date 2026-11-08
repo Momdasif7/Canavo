@@ -26,6 +26,7 @@ import {
 } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
 import { addDays, startOfLocalDay, zonedParts } from "../lib/time";
 import { requireAnyPermission, authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
@@ -37,7 +38,7 @@ import { canTransitionDelivery, selectZone } from "../services/service-context";
 import { amountPaid, assertConfirmable, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { cashBalance, cashCollected, cashHandedOver, pendingCollections, reallocateHandovers } from "../services/delivery-cash";
-import { assignWaitingDeliveries, canTakeOrder, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
+import { assignWaitingDeliveries, lockAndCheckPartner, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
 import { alertPartnerCash } from "../services/alerts";
 
 export const deliveryRouter = Router();
@@ -744,20 +745,19 @@ deliveryRouter.patch("/:id/assign", requirePermission("delivery:manage"), async 
   const outletId = req.outletId!;
   const d = await findDelivery(param(req, "id"), outletId);
   if (d.status === "DELIVERED" || d.status === "CANCELLED") throw conflict(`Delivery is ${d.status.toLowerCase()}`);
-  if (agentId && agentId !== d.agentId) {
-    const check = await canTakeOrder(outletId, agentId);
-    if (!check.partner) throw badRequest("Delivery agent not found in this outlet");
-    if (!check.ok) {
-      const manager = ["OUTLET_MANAGER", "BUSINESS_OWNER", "SUPER_ADMIN"].includes(req.user!.role);
-      if (!manager || !force) {
-        throw new HttpError(409, `${check.partner.name} can't take this order: ${check.reason}`, { code: "PARTNER_UNAVAILABLE", reason: check.reason, canForce: manager });
+  const updated = await retryTransaction(async (tx) => {
+    if (agentId && agentId !== d.agentId) {
+      // Checked under the partner's lock: an auto-assignment at the same moment can't push them over the limit.
+      const check = await lockAndCheckPartner(tx, outletId, agentId);
+      if (!check.partner) throw badRequest("Delivery agent not found in this outlet");
+      if (!check.ok) {
+        const manager = ["OUTLET_MANAGER", "BUSINESS_OWNER", "SUPER_ADMIN"].includes(req.user!.role);
+        if (!manager || !force) {
+          throw new HttpError(409, `${check.partner.name} can't take this order: ${check.reason}`, { code: "PARTNER_UNAVAILABLE", reason: check.reason, canForce: manager });
+        }
       }
     }
-  }
-  const updated = await prisma.delivery.update({
-    where: { id: d.id },
-    data: { agentId, assignedAt: agentId ? new Date() : null },
-    include,
+    return tx.delivery.update({ where: { id: d.id }, data: { agentId, assignedAt: agentId ? new Date() : null }, include });
   });
   await audit(req, d.agentId ? "delivery.reassign" : "delivery.assign", "Delivery", d.id, { from: d.agentId, to: agentId });
   if (agentId) await notify([agentId], "New delivery assigned", `${d.order.invoiceNumber} · ${d.customerName} · ${d.address}`, "delivery");

@@ -46,6 +46,8 @@ export default function TablesPage() {
     if (!editing) softReload();
   });
   useSocketEvent("reservation:updated", () => !editing && softReload());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => !editing && softReload());
   useEffect(() => {
     const id = window.setInterval(() => !editing && void reload(), 60_000);
     return () => window.clearInterval(id);

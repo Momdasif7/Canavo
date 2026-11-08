@@ -96,6 +96,8 @@ export function OnlineOrdersBoard() {
     reloadSoon();
   });
   useSocketEvent("channel:rider", () => reloadSoon());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => reloadSoon());
 
   const replace = (o: ChannelBoardOrder) => setData((d) => (d ? { orders: d.orders.map((x) => (x.orderId === o.orderId ? o : x)) } : d));
 

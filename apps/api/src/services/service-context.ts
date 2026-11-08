@@ -5,7 +5,7 @@ import { deliveryAreaAllowed, deliveryAreaRefusal, distanceMeters, formatINR, ty
 import { prisma } from "../db";
 import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { badRequest, forbidden, HttpError } from "../lib/http";
-import { autoAssignEnabled, canTakeOrder, notifyNoPartner, pickAvailablePartner } from "./delivery-assign";
+import { autoAssignEnabled, canTakeOrder, lockAndCheckPartner, notifyNoPartner, pickAndLockPartner } from "./delivery-assign";
 import { userCan } from "../middleware/auth";
 
 type Tx = Prisma.TransactionClient;
@@ -246,9 +246,10 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     if (d.agentId) {
       const check = await canTakeOrder(outlet.id, d.agentId);
       if (!check.partner) throw badRequest("Delivery agent not found in this outlet");
+      // Only managers may overload a partner, and only after confirming (forceAssign).
+      const manager = req.user && ["OUTLET_MANAGER", "BUSINESS_OWNER", "SUPER_ADMIN"].includes(req.user.role);
+      data.forceAssign = Boolean(manager && d.forceAssign);
       if (!check.ok) {
-        // Only managers may overload a partner, and only after confirming (forceAssign).
-        const manager = req.user && ["OUTLET_MANAGER", "BUSINESS_OWNER", "SUPER_ADMIN"].includes(req.user.role);
         if (!manager || !d.forceAssign) {
           throw new HttpError(409, `${check.partner.name} can't take this order: ${check.reason}`, {
             code: "PARTNER_UNAVAILABLE",
@@ -300,8 +301,15 @@ export async function onOrderCreatedService(tx: Tx, orderId: string, input: Orde
     const d = input.delivery;
     // No partner chosen → give it to an available (on-duty) partner automatically.
     let agentId = d.agentId;
-    if (!agentId && (await autoAssignEnabled(order.outletId, tx))) {
-      agentId = (await pickAvailablePartner(order.outletId, tx))?.id;
+    if (agentId) {
+      // Re-checked under the partner's lock (QA Phase 9): checked before the transaction, another
+      // assignment may have filled them meanwhile. A confirmed manager override still goes through.
+      const check = await lockAndCheckPartner(tx, order.outletId, agentId);
+      if (!check.ok && !ctx.data?.forceAssign) {
+        throw new HttpError(409, `${check.partner?.name ?? "The partner"} can't take this order: ${check.reason}`, { code: "PARTNER_UNAVAILABLE", reason: check.reason });
+      }
+    } else if (await autoAssignEnabled(order.outletId, tx)) {
+      agentId = (await pickAndLockPartner(tx, order.outletId))?.id;
     }
     const delivery = await tx.delivery.create({
       data: {
@@ -367,6 +375,8 @@ export async function announceDelivery(deliveryId: string) {
 export async function onOrderPaidService(tx: Tx, orderId: string): Promise<void> {
   const order = await tx.order.findUnique({ where: { id: orderId }, select: { tableSessionId: true, outletId: true } });
   if (!order?.tableSessionId) return;
+  // Tab lock (QA Phase 9): a round being added right now commits first and is seen as unbilled.
+  await tx.$queryRaw`SELECT id FROM "TableSession" WHERE id = ${order.tableSessionId} FOR NO KEY UPDATE`;
   const session = await tx.tableSession.findUnique({ where: { id: order.tableSessionId } });
   if (!session || session.status !== "OPEN") return;
   const [unbilled, openOrders] = await Promise.all([

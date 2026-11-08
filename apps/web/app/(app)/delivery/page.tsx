@@ -36,6 +36,8 @@ export default function DeliveryPage() {
   }, [loadAgents]);
   // Assignments, pick-ups, deliveries and "back at the outlet" all change who can take orders.
   useSocketEvent("delivery:updated", () => void loadAgents());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => void loadAgents());
   useSocketEvent<{ agentId: string; lat: number; lng: number; at: string; deliveryId: string }>("delivery:location", (l) =>
     setAgents((list) => list.map((a) => (a.id === l.agentId ? { ...a, location: { lat: l.lat, lng: l.lng, at: l.at, deliveryId: l.deliveryId } } : a))),
   );

@@ -50,6 +50,8 @@ export function IncomingOrders({ onChanged }: { onChanged?: () => void }) {
   };
 
   useSocketEvent("channel:request", () => enabled && reloadAll());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => enabled && reloadAll());
   useEffect(() => {
     if (!enabled) return;
     const id = window.setInterval(() => {

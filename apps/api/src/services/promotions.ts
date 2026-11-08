@@ -407,6 +407,14 @@ export async function onOrderCreated(tx: Tx, orderId: string, pricing: PricingRe
       UPDATE "Coupon" SET "usedCount" = "usedCount" + 1
       WHERE id = ${pricing.couponId} AND ("usageLimit" IS NULL OR "usedCount" < "usageLimit")`;
     if (n === 0) throw badRequest(`Coupon ${pricing.couponCode} has reached its usage limit`);
+    // The UPDATE above holds the coupon row until commit, so redemptions of one coupon run one at a
+    // time: re-count this customer's uses now (they were counted before the transaction — two bills
+    // for the same customer at once both passed a per-customer limit of 1; QA Phase 9).
+    const coupon = await tx.coupon.findUnique({ where: { id: pricing.couponId }, select: { perCustomerLimit: true } });
+    if (coupon?.perCustomerLimit != null && pricing.customerId) {
+      const used = await tx.couponRedemption.count({ where: { couponId: pricing.couponId, customerId: pricing.customerId } });
+      if (used >= coupon.perCustomerLimit) throw badRequest(`Coupon ${pricing.couponCode} was already used by this customer`);
+    }
     await tx.couponRedemption.create({
       data: {
         couponId: pricing.couponId,

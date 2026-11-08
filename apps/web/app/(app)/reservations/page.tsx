@@ -53,6 +53,8 @@ export default function ReservationsPage() {
   const tables = useApiQuery<DiningTable[]>(outletId ? `tables:${outletId}` : null, () => api.get<DiningTable[]>("/tables"));
 
   useSocketEvent("reservation:updated", () => void list.reload());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => void list.reload());
 
   const rows = useMemo(() => [...(list.data ?? [])].sort((a, b) => a.reservedFor.localeCompare(b.reservedFor)), [list.data]);
   const booked = rows.filter((r) => r.status === "BOOKED");
