@@ -4,30 +4,30 @@ The full matrix is in [`RTM.csv`](RTM.csv): 92 requirements, each mapped to plan
 
 | Module | Requirements | Status |
 |---|---|---|
-| Auth | 7 | Not started |
-| RBAC | 7 | Not started |
-| Platform | 6 | Not started |
-| Outlet | 3 | Not started |
-| Menu | 6 | Not started |
-| Billing | 15 | Not started |
-| Offers | 5 | Not started |
-| Kitchen | 4 | Not started |
-| Tables | 2 | Not started |
-| Reservations | 1 | Not started |
-| Delivery | 7 | Not started |
-| Inventory | 5 | Not started |
-| Customers | 2 | Not started |
-| Attendance | 3 | Not started |
-| Reports | 4 | Not started |
-| Notifications | 1 | Not started |
-| Realtime | 1 | Not started |
-| Security | 7 | Not started |
-| Ops | 2 | Not started |
-| Perf | 1 | Not started |
-| Compliance | 1 | Not started |
-| Mobile | 1 | Not started |
-| Web UI | 1 | Not started |
-| **Total** | **92** | |
+| Auth | 7 | Automated: pass · manual 0/17 executed |
+| RBAC | 7 | Automated: pass · manual 0/323 executed |
+| Platform | 6 | Automated: pass · manual 0/6 executed |
+| Outlet | 3 | Automated: pass · manual 0/4 executed |
+| Menu | 6 | Automated: pass · manual 0/9 executed |
+| Billing | 15 | Automated: pass · manual 0/32 executed |
+| Offers | 5 | Automated: pass · manual 0/12 executed |
+| Kitchen | 4 | Automated: pass · manual 0/9 executed |
+| Tables | 2 | Automated: pass · manual 0/6 executed |
+| Reservations | 1 | Automated: pass · manual 0/2 executed |
+| Delivery | 7 | Automated: pass · manual 0/11 executed |
+| Inventory | 5 | Automated: pass · manual 0/8 executed |
+| Customers | 2 | Automated: pass · manual 0/7 executed |
+| Attendance | 3 | Automated: pass · manual 0/7 executed |
+| Reports | 4 | Automated: pass · manual 0/7 executed |
+| Notifications | 1 | Automated: pass · manual 0/4 executed |
+| Realtime | 1 | Automated: pass · manual 0/1 executed |
+| Security | 7 | Automated: pass · manual 0/6 executed |
+| Ops | 2 | Automated: pass · manual 0/0 executed |
+| Perf | 1 | Automated: pass · manual 0/0 executed |
+| Compliance | 1 | Automated: pass · manual 0/13 executed |
+| Mobile | 1 | Automated: pass · manual 0/1 executed |
+| Web UI | 1 | Automated: pass · manual 0/8 executed |
+| **Total** | **92** | manual cases linked: 493 |
 
 Level codes: U = Unit, P = Property, I = Integration, A = API, D = DB, S = Security, C = Concurrency, RT = Realtime, E = E2E, L = Load, M = Manual, SA = Static.
 

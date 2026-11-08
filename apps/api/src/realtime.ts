@@ -102,6 +102,12 @@ export function disconnectSockets(target: { userId: string } | { sid: string }) 
   io.in("userId" in target ? `user:${target.userId}` : `session:${target.sid}`).disconnectSockets(true);
 }
 
+/** Shutdown: stop the revalidation sweep and disconnect this instance's sockets (clients reconnect elsewhere). */
+export function closeRealtime() {
+  clearInterval(sweepTimer);
+  io?.local.disconnectSockets(true);
+}
+
 /**
  * Share rooms across API instances through Redis (Phase 1.5). With REDIS_URL unset the
  * server stays single-instance (in-memory adapter). Returns a closer for shutdown.

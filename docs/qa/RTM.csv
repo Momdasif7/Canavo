@@ -1,93 +1,93 @@
 Req ID,Module,Requirement / business rule,Risk,Planned levels,Test case IDs,Automated / Manual,Status
-AUTH-01,Auth,Login with email + password returns access/refresh tokens; wrong password refused,R4/R10,"Unit, API, E2E",TC-AUTH-* (to assign),Automated,Not started
-AUTH-02,Auth,Login by phone OTP (dev: devCode); OTP expiry and single use,R10,"API, Manual",TC-AUTH-* (to assign),Automated + Manual,Not started
-AUTH-03,Auth,Staff PIN for attendance clock-in; wrong PIN refused; lockout after repeated failures,R10,"API, Manual",TC-AUTH-* (to assign),Automated + Manual,Not started
-AUTH-04,Auth,Refresh token rotation; logout invalidates session,R4,API,TC-AUTH-* (to assign),Automated,Not started
-AUTH-05,Auth,Token version: role change / password reset / suspension signs user out everywhere,R4,API,TC-AUTH-* (to assign),Automated,Not started
-AUTH-06,Auth,Suspended business: all its users refused at login and on existing sessions,R4,API,TC-AUTH-* (to assign),Automated,Not started
-AUTH-07,Auth,"Brute-force protection on login, OTP and PIN endpoints (rate limit)",R10,"API, Security",TC-SEC-* (to assign),Automated,Not started
-RBAC-01,RBAC,Effective permissions = role permissions ∩ business modules (shared rbac.ts/modules.ts),R4,Unit,TC-RBAC-* (to assign),Automated,Not started
-RBAC-02,RBAC,Every API route enforces authenticate + requirePermission (+ requireOutlet where outlet-scoped),R1/R4,"Static, API",TC-RBAC-* (to assign),Automated,Not started
-RBAC-03,RBAC,Business-owned rows are filtered by businessId for every query (tenant extension),R1,"Integration, DB",TC-ISO-* (to assign),Automated,Not started
-RBAC-04,RBAC,Cross-tenant and cross-outlet IDs (IDOR/BOLA) return 404/403 for every route,R1,Security,TC-ISO-* (to assign),Automated,Not started
-RBAC-05,RBAC,"Super Admin has only platform:manage, admin:backup, audit:view and is refused all hotel data",R1/R4,"API, Security",TC-ISO-* (to assign),Automated,Not started
-RBAC-06,RBAC,Account creation chain: SA→Owner; Owner→Manager+staff (no Owner); Manager→staff only,R4,"API, Security",TC-RBAC-* (to assign),Automated,Not started
-RBAC-07,RBAC,Disabled module hides screens and API rejects its routes; module dependencies auto-added,R4,"Unit, API, E2E",TC-RBAC-* (to assign),Automated,Not started
-PLAT-01,Platform,Super Admin onboards a business with owner login and optional first outlet + default tax rates,,"API, E2E",TC-PLAT-* (to assign),Automated,Not started
-PLAT-02,Platform,Platform console shows account info only (no sales/staff); summary counts,R1,"API, E2E",TC-PLAT-* (to assign),Automated,Not started
-PLAT-03,Platform,Create owner / reset owner password (signs owner out),R4,API,TC-PLAT-* (to assign),Automated,Not started
-PLAT-04,Platform,Suspend / activate business; suspension force-logs out its users,R4,API,TC-PLAT-* (to assign),Automated,Not started
-PLAT-05,Platform,Platform audit log shows platform actions only,R1,API,TC-PLAT-* (to assign),Automated,Not started
-PLAT-06,Platform,Backups: create/list/restore; no download for Super Admin,R20,"API, DB",TC-DB-* (to assign),Automated,Not started
-OUT-01,Outlet,"Outlet settings: GST registration, composition, GSTIN, invoice prefix, packaging, geofence, dispatch limit, POS photos",R2,"API, E2E",TC-OUT-* (to assign),Automated,Not started
-OUT-02,Outlet,Staff CRUD within own outlets; cannot edit self role/status/outlets,R4,API,TC-STAFF-* (to assign),Automated,Not started
-OUT-03,Outlet,"Staff Aadhaar: encrypted at rest, masked, reveal audited; owner all, manager only staff below in own outlets",R9,"Unit, API, Security",TC-SEC-* (to assign),Automated,Not started
-MENU-01,Menu,Categories and sub-categories CRUD; delete blocked when items exist,,"API, E2E",TC-MENU-* (to assign),Automated,Not started
-MENU-02,Menu,"Items with sizes, add-ons, per-outlet overrides, availability window (incl. overnight)",R2,"Unit, API, E2E",TC-MENU-* (to assign),Automated,Not started
-MENU-03,Menu,New items default to GST 0% (business default rate),R2,API,TC-MENU-* (to assign),Automated,Not started
-MENU-04,Menu,"Photo upload: magic bytes jpg/png/webp, ≤5 MB; URL host-independent display",R11,"API, E2E",TC-MENU-* (to assign),Automated,Not started
-MENU-05,Menu,"Excel/CSV bulk upload: template, row preview, errors, update by category+name, sizes, ingredients, apply transaction",R11/R12,"API, E2E",TC-MENU-* (to assign),Automated,Not started
-MENU-06,Menu,"Custom tax rates (CGST/SGST/IGST/cess/extras), default rate",R2,"Unit, API",TC-TAX-* (to assign),Automated,Not started
-BILL-01,Billing,"computeBill: GST registered, exclusive/inclusive prices, CGST+SGST vs IGST",R2,"Unit, Property",TC-GST-* (to assign),Automated,Not started
-BILL-02,Billing,"GST off → plain BILL, no tax lines, menu price",R2,"Unit, API",TC-GST-* (to assign),Automated,Not started
-BILL-03,Billing,"Composition scheme → Bill of Supply, no tax",R2,"Unit, API",TC-GST-* (to assign),Automated,Not started
-BILL-04,Billing,Cess and named extra taxes per line,R2,Unit,TC-GST-* (to assign),Automated,Not started
-BILL-05,Billing,Discounts reduce taxable value; manual discount ₹/%,R2,Unit,TC-GST-* (to assign),Automated,Not started
-BILL-06,Billing,"Service charge (dine-in), delivery fee, packaging taxed at each line's rate",R2,Unit,TC-GST-* (to assign),Automated,Not started
-BILL-07,Billing,Round to nearest rupee; round-off line,R2,"Unit, Property",TC-GST-* (to assign),Automated,Not started
-BILL-08,Billing,Server recomputes totals; client totals ignored,R2,"API, Security",TC-BILL-* (to assign),Automated,Not started
-BILL-09,Billing,Order types takeaway / dine-in / delivery / pre-order,,"API, E2E",TC-BILL-* (to assign),Automated,Not started
-BILL-10,Billing,Split payments cash/UPI/card/khata sum to total; overpay/underpay rules,R2,"API, E2E",TC-BILL-* (to assign),Automated,Not started
-BILL-11,Billing,"Invoice number per business per FY, ≤16 chars, no gaps/duplicates; FY rollover 1 Apr IST",R2/R5/R13,"Unit, API, Concurrency",TC-BILL-* (to assign),Automated,Not started
-BILL-12,Billing,"Cancel bill (reason, permission); restores stock, coupon, points, khata",R14,API,TC-BILL-* (to assign),Automated,Not started
-BILL-13,Billing,Receipts 58/80 mm text + PDF; public receipt link signed,,"API, Manual",TC-BILL-* (to assign),Automated + Manual,Not started
-BILL-14,Billing,"Offline billing: clientId idempotent sync, no duplicates",R3,"API, Concurrency, Manual",TC-BILL-* (to assign),Automated + Manual,Not started
-BILL-15,Billing,Bill history / filters / bills:view permission,R4,"API, E2E",TC-BILL-* (to assign),Automated,Not started
-OFR-01,Offers,"Offer types: happy hour, item discount, BxGy, combo, bill discount; time windows in outlet TZ (incl. overnight)",R2/R13,Unit,TC-OFR-* (to assign),Automated,Not started
-OFR-02,Offers,One offer per bill: best saving; tie → higher priority; coupon wins tie,R2,"Unit, API",TC-OFR-* (to assign),Automated,Not started
-OFR-03,Offers,BxGy free item suggested/auto-added only when that offer wins,R2,"Unit, API, E2E",TC-OFR-* (to assign),Automated,Not started
-OFR-04,Offers,"Coupons: validity window, min order, usage limit, per-customer limit, race-safe redemption",R5,"Unit, API, Concurrency",TC-OFR-* (to assign),Automated,Not started
-OFR-05,Offers,Loyalty points + manual discount apply on top of the one offer,R2,"Unit, API",TC-OFR-* (to assign),Automated,Not started
-KOT-01,Kitchen,KOT per kitchen station created with the order (not for running-tab re-bill),R6,API,TC-KOT-* (to assign),Automated,Not started
-KOT-02,Kitchen,KOT status flow PENDING→PREPARING→READY→SERVED; order.ready notification,,"API, E2E",TC-KOT-* (to assign),Automated,Not started
-KOT-03,Kitchen,kot:new emitted only after commit; KDS resync on reconnect/wake/15 s; Live indicator,R6,"Integration, Realtime, E2E",TC-RT-* (to assign),Automated,Not started
-KOT-04,Kitchen,KOT print text; separate 58/80 mm KOT paper width; reprint marked,,"Unit, E2E",TC-KOT-* (to assign),Automated,Not started
-TAB-01,Tables,"Floor plan, open tab, rounds fire KOTs, table status",,"API, E2E",TC-TAB-* (to assign),Automated,Not started
-TAB-02,Tables,Bill tab full / split; last bill closes tab; split must be atomic,R7,"API, Concurrency",TC-TAB-* (to assign),Automated,Not started
-RES-01,Reservations,Reservations CRUD; pre-order KOT released before pickup by lead time; cancellation,,"API, Unit",TC-RES-* (to assign),Automated,Not started
-DEL-01,Delivery,"Auto-assign to available partner (on duty, at outlet, under limit); prefer partner with 1 order",R15,"Unit, API",TC-DEL-* (to assign),Automated,Not started
-DEL-02,Delivery,Limit N per outlet (default 2); 'on a run' lock until delivered + back,R15,"API, Concurrency",TC-DEL-* (to assign),Automated,Not started
-DEL-03,Delivery,"Back detection: GPS within geofence+accuracy, clock-in, manager button (409 if orders out)",R15,"Unit, API",TC-DEL-* (to assign),Automated,Not started
-DEL-04,Delivery,Waiting queue auto-assigned on return / every minute; managers notified,R15,API,TC-DEL-* (to assign),Automated,Not started
-DEL-05,Delivery,Cashier cannot overload partner (409); manager force with warning,R4,API,TC-DEL-* (to assign),Automated,Not started
-DEL-06,Delivery,"COD: amount to collect, collected → cash in hand = collected − handed over; handover CRUD; FIFO settle",R2,"API, DB",TC-DEL-* (to assign),Automated,Not started
-DEL-07,Delivery,"Partner portal: own deliveries only, dashboard, history, activity timeline, clock in/out",R4,"API, E2E",TC-DEL-* (to assign),Automated,Not started
-INV-01,Inventory,Sale deducts recipe; size recipe overrides item recipe; cancel restores,R14,"Unit, API",TC-INV-* (to assign),Automated,Not started
-INV-02,Inventory,Negative stock allowed; low-stock alert,R14,API,TC-INV-* (to assign),Automated,Not started
-INV-03,Inventory,Purchases update weighted-average cost; vendors; payments,R14,"Unit, API",TC-INV-* (to assign),Automated,Not started
-INV-04,Inventory,"Audits (count vs snapshot), transfers between outlets, wastage",R14,API,TC-INV-* (to assign),Automated,Not started
-INV-05,Inventory,Stock reports for inventory role; food cost/margins owner+manager only,R4,API,TC-INV-* (to assign),Automated,Not started
-CUS-01,Customers,"Customer by phone; points earn on paid bill, redeem, tiers by spend",R5,"Unit, API",TC-CUS-* (to assign),Automated,Not started
-CUS-02,Customers,Khata credit with limit; payments; reversal on cancel,R2/R5,"API, Concurrency",TC-CUS-* (to assign),Automated,Not started
-ATT-01,Attendance,Clock in/out with GPS geofence + PIN; delivery partners clock out anywhere,,"Unit, API, Manual",TC-ATT-* (to assign),Automated + Manual,Not started
-ATT-02,Attendance,Manual attendance by owner/manager for staff below; shifts; late/early/overtime,R4,API,TC-ATT-* (to assign),Automated,Not started
-ATT-03,Attendance,Leave and salary sheet,,API,TC-ATT-* (to assign),Automated,Not started
-REP-01,Reports,"Sales, items, peak hours, GST, GSTR-1, profit, staff, customers, inventory, delivery reports match raw SQL",R2/R13,"API, DB",TC-REP-* (to assign),Automated,Not started
-REP-02,Reports,Excel/PDF exports; formula-injection safe,R12,"API, Security",TC-REP-* (to assign),Automated,Not started
-REP-03,Reports,Scheduled email reports; all-outlets overview,,API,TC-REP-* (to assign),Automated,Not started
-REP-04,Reports,Reports only for owner/manager (report:view),R4,API,TC-REP-* (to assign),Automated,Not started
-NOT-01,Notifications,Each event creates notification for correct roles/outlet with deep link; push urgent channel,,"API, Realtime",TC-NOT-* (to assign),Automated,Not started
-RT-01,Realtime,Socket auth; room scoping by assigned outlet; Super Admin joins no outlet room,R1,"Realtime, Security",TC-RT-* (to assign),Automated,Not started
-SEC-01,Security,"Uploads: magic bytes, size cap, no SVG/polyglot, nosniff, path traversal safe",R11,"API, Security",TC-SEC-* (to assign),Automated,Not started
-SEC-02,Security,SSRF-safe bulk-upload image URLs (no internal IPs),R11,"API, Security",TC-SEC-* (to assign),Automated,Not started
-SEC-03,Security,"Security headers (helmet), CORS whitelist, no stack traces in prod",,"API, Security",TC-SEC-* (to assign),Automated,Not started
-SEC-04,Security,"Owner data export only own business, no passwords/Aadhaar",R1/R9,API,TC-SEC-* (to assign),Automated,Not started
-SEC-05,Security,"Razorpay webhook signature, replay, idempotency",R2,API,TC-SEC-* (to assign),Automated,Not started
-SEC-06,Security,IP whitelist for Super Admin with lockout protection,,"Unit, API",TC-SEC-* (to assign),Automated,Not started
-SEC-07,Security,Production boot refuses missing DATA_ENCRYPTION_KEY / weak secrets; no demo users,R18,"Unit, Manual",TC-OPS-* (to assign),Automated + Manual,Not started
-OPS-01,Ops,"Health/ready endpoints, graceful shutdown, structured logs, single-instance jobs or locking",R8,"API, Manual",TC-OPS-* (to assign),Automated + Manual,Not started
-OPS-02,Ops,Migrations apply from empty and from previous state; backup restore drill,R17/R20,DB,TC-DB-* (to assign),Automated,Not started
-PERF-01,Perf,"p95 bill < 500 ms, menu < 300 ms, 1-year report < 3 s, errors < 0.1 % at target load",R16,Load,TC-PERF-* (to assign),Automated,Not started
-CMP-01,Compliance,"GST bill fields, HSN, Bill of Supply wording, GSTR-1 totals; IST business days; DPDP/UIDAI review",R2/R9/R13,"Concurrency, Manual",TC-CMP-* (to assign),Automated + Manual,Not started
-MOB-01,Mobile,"Mobile offline queue, permissions, tokens in SecureStore, printing",R3/R19,"Manual, Unit",TC-MOB-* (to assign),Automated + Manual,Not started
-UI-01,Web UI,"Role journeys, cross-browser, responsive, a11y, double-submit protection, session expiry",,E2E,TC-E2E-* (to assign),Automated,Not started
+AUTH-01,Auth,Login with email + password returns access/refresh tokens; wrong password refused,R4/R10,"Unit, API, E2E",TC-AUTH-001 … TC-AUTH-011 (9 manual),Automated,Automated: pass (2026-11-09); manual: 0/9 executed
+AUTH-02,Auth,Login by phone OTP (dev: devCode); OTP expiry and single use,R10,"API, Manual",TC-AUTH-013 … TC-ONL-015 (3 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/3 executed
+AUTH-03,Auth,Staff PIN for attendance clock-in; wrong PIN refused; lockout after repeated failures,R10,"API, Manual",TC-ATT-003 (1 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/1 executed
+AUTH-04,Auth,Refresh token rotation; logout invalidates session,R4,API,TC-AUTH-012 … TC-AUTH-016 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+AUTH-05,Auth,Token version: role change / password reset / suspension signs user out everywhere,R4,API,TC-AUTH-015 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+AUTH-06,Auth,Suspended business: all its users refused at login and on existing sessions,R4,API,automated only,Automated,Automated: pass (2026-11-09)
+AUTH-07,Auth,"Brute-force protection on login, OTP and PIN endpoints (rate limit)",R10,"API, Security",TC-AUTH-010 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+RBAC-01,RBAC,Effective permissions = role permissions ∩ business modules (shared rbac.ts/modules.ts),R4,Unit,TC-STF-004 … TC-RBAC-308 (93 manual),Automated,Automated: pass (2026-11-09); manual: 0/93 executed
+RBAC-02,RBAC,Every API route enforces authenticate + requirePermission (+ requireOutlet where outlet-scoped),R1/R4,"Static, API",TC-POS-022 … TC-RBAC-307 (225 manual),Automated,Automated: pass (2026-11-09); manual: 0/225 executed
+RBAC-03,RBAC,Business-owned rows are filtered by businessId for every query (tenant extension),R1,"Integration, DB",automated only,Automated,Automated: pass (2026-11-09)
+RBAC-04,RBAC,Cross-tenant and cross-outlet IDs (IDOR/BOLA) return 404/403 for every route,R1,Security,automated only,Automated,Automated: pass (2026-11-09)
+RBAC-05,RBAC,"Super Admin has only platform:manage, admin:backup, audit:view and is refused all hotel data",R1/R4,"API, Security",TC-AUTH-007 … TC-INT-010 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+RBAC-06,RBAC,Account creation chain: SA→Owner; Owner→Manager+staff (no Owner); Manager→staff only,R4,"API, Security",TC-STF-001 … TC-STF-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+RBAC-07,RBAC,Disabled module hides screens and API rejects its routes; module dependencies auto-added,R4,"Unit, API, E2E",TC-PLAT-004 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-01,Platform,Super Admin onboards a business with owner login and optional first outlet + default tax rates,,"API, E2E",TC-PLAT-001 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-02,Platform,Platform console shows account info only (no sales/staff); summary counts,R1,"API, E2E",TC-PLAT-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-03,Platform,Create owner / reset owner password (signs owner out),R4,API,TC-PLAT-006 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-04,Platform,Suspend / activate business; suspension force-logs out its users,R4,API,TC-PLAT-003 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-05,Platform,Platform audit log shows platform actions only,R1,API,TC-ADM-004 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+PLAT-06,Platform,Backups: create/list/restore; no download for Super Admin,R20,"API, DB",TC-PLAT-005 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+OUT-01,Outlet,"Outlet settings: GST registration, composition, GSTIN, invoice prefix, packaging, geofence, dispatch limit, POS photos",R2,"API, E2E",TC-SET-001 … TC-SET-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+OUT-02,Outlet,Staff CRUD within own outlets; cannot edit self role/status/outlets,R4,API,TC-STF-003 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+OUT-03,Outlet,"Staff Aadhaar: encrypted at rest, masked, reveal audited; owner all, manager only staff below in own outlets",R9,"Unit, API, Security",TC-STF-005 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+MENU-01,Menu,Categories and sub-categories CRUD; delete blocked when items exist,,"API, E2E",TC-MENU-010 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+MENU-02,Menu,"Items with sizes, add-ons, per-outlet overrides, availability window (incl. overnight)",R2,"Unit, API, E2E",TC-POS-003 … TC-MENU-001 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+MENU-03,Menu,New items default to GST 0% (business default rate),R2,API,automated only,Automated,Automated: pass (2026-11-09)
+MENU-04,Menu,"Photo upload: magic bytes jpg/png/webp, ≤5 MB; URL host-independent display",R11,"API, E2E",TC-MENU-009 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+MENU-05,Menu,"Excel/CSV bulk upload: template, row preview, errors, update by category+name, sizes, ingredients, apply transaction",R11/R12,"API, E2E",TC-MENU-002 … TC-MENU-007 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+MENU-06,Menu,"Custom tax rates (CGST/SGST/IGST/cess/extras), default rate",R2,"Unit, API",automated only,Automated,Automated: pass (2026-11-09)
+BILL-01,Billing,"computeBill: GST registered, exclusive/inclusive prices, CGST+SGST vs IGST",R2,"Unit, Property",TC-POS-001 … TC-POS-017 (6 manual),Automated,Automated: pass (2026-11-09); manual: 0/6 executed
+BILL-02,Billing,"GST off → plain BILL, no tax lines, menu price",R2,"Unit, API",automated only,Automated,Automated: pass (2026-11-09)
+BILL-03,Billing,"Composition scheme → Bill of Supply, no tax",R2,"Unit, API",TC-SET-003 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+BILL-04,Billing,Cess and named extra taxes per line,R2,Unit,automated only,Automated,Automated: pass (2026-11-09)
+BILL-05,Billing,Discounts reduce taxable value; manual discount ₹/%,R2,Unit,TC-POS-011 … TC-POS-013 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+BILL-06,Billing,"Service charge (dine-in), delivery fee, packaging taxed at each line's rate",R2,Unit,TC-SET-004 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+BILL-07,Billing,Round to nearest rupee; round-off line,R2,"Unit, Property",TC-POS-018 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+BILL-08,Billing,Server recomputes totals; client totals ignored,R2,"API, Security",automated only,Automated,Automated: pass (2026-11-09)
+BILL-09,Billing,Order types takeaway / dine-in / delivery / pre-order,,"API, E2E",TC-POS-007 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+BILL-10,Billing,Split payments cash/UPI/card/khata sum to total; overpay/underpay rules,R2,"API, E2E",TC-PAY-001 … TC-PAY-010 (6 manual),Automated,Automated: pass (2026-11-09); manual: 0/6 executed
+BILL-11,Billing,"Invoice number per business per FY, ≤16 chars, no gaps/duplicates; FY rollover 1 Apr IST",R2/R5/R13,"Unit, API, Concurrency",TC-SET-007 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+BILL-12,Billing,"Cancel bill (reason, permission); restores stock, coupon, points, khata",R14,API,TC-PAY-011 … TC-BILL-010 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+BILL-13,Billing,Receipts 58/80 mm text + PDF; public receipt link signed,,"API, Manual",TC-BILL-006 … TC-MOB-005 (3 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/3 executed
+BILL-14,Billing,"Offline billing: clientId idempotent sync, no duplicates",R3,"API, Concurrency, Manual",TC-MOB-002 … TC-OFF-002 (3 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/3 executed
+BILL-15,Billing,Bill history / filters / bills:view permission,R4,"API, E2E",TC-BILL-001 … TC-BILL-008 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+OFR-01,Offers,"Offer types: happy hour, item discount, BxGy, combo, bill discount; time windows in outlet TZ (incl. overnight)",R2/R13,Unit,TC-OFR-001 … TC-OFR-010 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+OFR-02,Offers,One offer per bill: best saving; tie → higher priority; coupon wins tie,R2,"Unit, API",TC-POS-010 … TC-OFR-005 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+OFR-03,Offers,BxGy free item suggested/auto-added only when that offer wins,R2,"Unit, API, E2E",TC-OFR-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+OFR-04,Offers,"Coupons: validity window, min order, usage limit, per-customer limit, race-safe redemption",R5,"Unit, API, Concurrency",TC-OFR-006 … TC-OFR-009 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+OFR-05,Offers,Loyalty points + manual discount apply on top of the one offer,R2,"Unit, API",TC-CUS-005 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+KOT-01,Kitchen,KOT per kitchen station created with the order (not for running-tab re-bill),R6,API,TC-POS-015 … TC-TAB-002 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+KOT-02,Kitchen,KOT status flow PENDING→PREPARING→READY→SERVED; order.ready notification,,"API, E2E",TC-BILL-002 … TC-KOT-001 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+KOT-03,Kitchen,kot:new emitted only after commit; KDS resync on reconnect/wake/15 s; Live indicator,R6,"Integration, Realtime, E2E",TC-BILL-003 … TC-KOT-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+KOT-04,Kitchen,KOT print text; separate 58/80 mm KOT paper width; reprint marked,,"Unit, E2E",TC-KOT-006 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+TAB-01,Tables,"Floor plan, open tab, rounds fire KOTs, table status",,"API, E2E",TC-TAB-001 … TC-TAB-006 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+TAB-02,Tables,Bill tab full / split; last bill closes tab; split must be atomic,R7,"API, Concurrency",TC-TAB-003 … TC-TAB-008 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+RES-01,Reservations,Reservations CRUD; pre-order KOT released before pickup by lead time; cancellation,,"API, Unit",TC-RES-001 … TC-RES-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+DEL-01,Delivery,"Auto-assign to available partner (on duty, at outlet, under limit); prefer partner with 1 order",R15,"Unit, API",TC-POS-021 … TC-DLM-004 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+DEL-02,Delivery,Limit N per outlet (default 2); 'on a run' lock until delivered + back,R15,"API, Concurrency",TC-DLM-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+DEL-03,Delivery,"Back detection: GPS within geofence+accuracy, clock-in, manager button (409 if orders out)",R15,"Unit, API",TC-DLM-006 … TC-MOB-004 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+DEL-04,Delivery,Waiting queue auto-assigned on return / every minute; managers notified,R15,API,automated only,Automated,Automated: pass (2026-11-09)
+DEL-05,Delivery,Cashier cannot overload partner (409); manager force with warning,R4,API,TC-DLM-003 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+DEL-06,Delivery,"COD: amount to collect, collected → cash in hand = collected − handed over; handover CRUD; FIFO settle",R2,"API, DB",TC-DLM-005 … TC-DLP-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+DEL-07,Delivery,"Partner portal: own deliveries only, dashboard, history, activity timeline, clock in/out",R4,"API, E2E",TC-DLP-003 … TC-DLP-004 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+INV-01,Inventory,Sale deducts recipe; size recipe overrides item recipe; cancel restores,R14,"Unit, API",TC-INV-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+INV-02,Inventory,Negative stock allowed; low-stock alert,R14,API,TC-INV-001 … TC-INV-006 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+INV-03,Inventory,Purchases update weighted-average cost; vendors; payments,R14,"Unit, API",TC-INV-003 … TC-INV-004 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+INV-04,Inventory,"Audits (count vs snapshot), transfers between outlets, wastage",R14,API,TC-INV-005 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+INV-05,Inventory,Stock reports for inventory role; food cost/margins owner+manager only,R4,API,TC-INV-008 … TC-INV-011 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+CUS-01,Customers,"Customer by phone; points earn on paid bill, redeem, tiers by spend",R5,"Unit, API",TC-POS-014 … TC-CUS-004 (3 manual),Automated,Automated: pass (2026-11-09); manual: 0/3 executed
+CUS-02,Customers,Khata credit with limit; payments; reversal on cancel,R2/R5,"API, Concurrency",TC-PAY-006 … TC-CUS-003 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+ATT-01,Attendance,Clock in/out with GPS geofence + PIN; delivery partners clock out anywhere,,"Unit, API, Manual",TC-DLP-001 … TC-ATT-002 (4 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/4 executed
+ATT-02,Attendance,Manual attendance by owner/manager for staff below; shifts; late/early/overtime,R4,API,TC-ATT-004 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+ATT-03,Attendance,Leave and salary sheet,,API,TC-ATT-005 … TC-ATT-006 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+REP-01,Reports,"Sales, items, peak hours, GST, GSTR-1, profit, staff, customers, inventory, delivery reports match raw SQL",R2/R13,"API, DB",TC-REP-001 … TC-REP-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+REP-02,Reports,Excel/PDF exports; formula-injection safe,R12,"API, Security",TC-MENU-006 … TC-REP-003 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+REP-03,Reports,Scheduled email reports; all-outlets overview,,API,TC-REP-004 … TC-REP-005 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+REP-04,Reports,Reports only for owner/manager (report:view),R4,API,TC-REP-006 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+NOT-01,Notifications,Each event creates notification for correct roles/outlet with deep link; push urgent channel,,"API, Realtime",TC-QRT-002 … TC-NOT-001 (4 manual),Automated,Automated: pass (2026-11-09); manual: 0/4 executed
+RT-01,Realtime,Socket auth; room scoping by assigned outlet; Super Admin joins no outlet room,R1,"Realtime, Security",TC-NOT-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+SEC-01,Security,"Uploads: magic bytes, size cap, no SVG/polyglot, nosniff, path traversal safe",R11,"API, Security",TC-MENU-005 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+SEC-02,Security,SSRF-safe bulk-upload image URLs (no internal IPs),R11,"API, Security",TC-MENU-008 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+SEC-03,Security,"Security headers (helmet), CORS whitelist, no stack traces in prod",,"API, Security",TC-L10N-004 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+SEC-04,Security,"Owner data export only own business, no passwords/Aadhaar",R1/R9,API,TC-INT-009 … TC-ADM-002 (2 manual),Automated,Automated: pass (2026-11-09); manual: 0/2 executed
+SEC-05,Security,"Razorpay webhook signature, replay, idempotency",R2,API,TC-PAY-002 (1 manual),Automated,Automated: pass (2026-11-09); manual: 0/1 executed
+SEC-06,Security,IP whitelist for Super Admin with lockout protection,,"Unit, API",automated only,Automated,Automated: pass (2026-11-09)
+SEC-07,Security,Production boot refuses missing DATA_ENCRYPTION_KEY / weak secrets; no demo users,R18,"Unit, Manual",automated only,Automated + Manual,Automated: pass (2026-11-09)
+OPS-01,Ops,"Health/ready endpoints, graceful shutdown, structured logs, single-instance jobs or locking",R8,"API, Manual",automated only,Automated + Manual,Automated: pass (2026-11-09)
+OPS-02,Ops,Migrations apply from empty and from previous state; backup restore drill,R17/R20,DB,automated only,Automated,Automated: pass (2026-11-09)
+PERF-01,Perf,"p95 bill < 500 ms, menu < 300 ms, 1-year report < 3 s, errors < 0.1 % at target load",R16,Load,automated only,Automated,Automated: pass (2026-11-09)
+CMP-01,Compliance,"GST bill fields, HSN, Bill of Supply wording, GSTR-1 totals; IST business days; DPDP/UIDAI review",R2/R9/R13,"Concurrency, Manual",TC-POS-019 … TC-L10N-001 (13 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/13 executed
+MOB-01,Mobile,"Mobile offline queue, permissions, tokens in SecureStore, printing",R3/R19,"Manual, Unit",TC-MOB-001 (1 manual),Automated + Manual,Automated: pass (2026-11-09); manual: 0/1 executed
+UI-01,Web UI,"Role journeys, cross-browser, responsive, a11y, double-submit protection, session expiry",,E2E,TC-AUTH-017 … TC-UI-003 (8 manual),Automated,Automated: pass (2026-11-09); manual: 0/8 executed

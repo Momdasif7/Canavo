@@ -4,7 +4,8 @@ installProcessHandlers();
 import http from "node:http";
 import { createApp } from "./app";
 import { env } from "./env";
-import { attachRedisAdapter, initRealtime, socketEmitter } from "./realtime";
+import { attachRedisAdapter, closeRealtime, initRealtime, socketEmitter } from "./realtime";
+import { createShutdown } from "./lib/shutdown";
 import { platformPrisma, prisma } from "./db";
 import { startJobs, stopJobs } from "./jobs";
 import { registerAllJobs } from "./jobs-all";
@@ -40,20 +41,16 @@ assertNoDemoLogins(platformPrisma, { NODE_ENV: env.NODE_ENV, ALLOW_DEMO_SEED: pr
     process.exit(1);
   });
 
-let stopping = false;
-const shutdown = async (signal: string) => {
-  if (stopping) return;
-  stopping = true;
-  console.info(`[api] ${signal}: draining…`);
-  // Stop taking new connections, let in-flight requests finish (max 10 s), then stop background work.
-  const closed = new Promise<void>((r) => server.close(() => r()));
-  const timeout = new Promise<void>((r) => setTimeout(r, 10_000).unref());
-  await Promise.race([closed, timeout]);
-  stopOutboxPublisher();
-  await stopJobs();
-  await closeRedis?.();
-  await Promise.allSettled([prisma.$disconnect(), platformPrisma.$disconnect()]);
-  process.exit(0);
-};
+// Graceful shutdown: /ready → 503, stop accepting, drain HTTP + sockets (max 10 s), then background work and DB.
+const shutdown = createShutdown({
+  server,
+  closeSockets: closeRealtime,
+  steps: [
+    ["outbox", stopOutboxPublisher],
+    ["pg-boss", stopJobs],
+    ["redis", () => closeRedis?.()],
+    ["prisma", () => Promise.allSettled([prisma.$disconnect(), platformPrisma.$disconnect()])],
+  ],
+});
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

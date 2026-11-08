@@ -2,6 +2,7 @@ import express from "express";
 import "./outbox-tasks";
 import cors from "cors";
 import { allowedOrigin } from "./lib/cors";
+import { isDraining } from "./lib/shutdown";
 import { gauge, httpLogger, httpMetrics, metricsEndpoint, requestId } from "./lib/observability";
 import { platformPrisma } from "./db";
 import helmet from "helmet";
@@ -79,6 +80,8 @@ export function createApp() {
   app.get("/metrics", metricsEndpoint);
   /** Readiness for the host's health check: the database must answer. */
   app.get("/ready", async (_req, res) => {
+    // Draining after SIGTERM: tell the load balancer to stop sending traffic here.
+    if (isDraining()) return res.status(503).json({ ok: false, draining: true });
     try {
       await platformPrisma.$queryRaw`SELECT 1`;
       res.json({ ok: true, db: "up" });

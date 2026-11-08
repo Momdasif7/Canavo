@@ -17,7 +17,10 @@
     "db:migrate": "npm run prisma:migrate -w @canavo/api",
     "db:seed": "npm run seed -w @canavo/api",
     "security:secrets": "sh scripts/security/secrets.sh",
-    "security:sast": "sh scripts/security/sast.sh"
+    "security:sast": "sh scripts/security/sast.sh",
+    "test:smoke-pack": "node scripts/qa/regression.mjs smoke",
+    "test:critical": "node scripts/qa/regression.mjs critical",
+    "test:regression": "node scripts/qa/regression.mjs regression"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
