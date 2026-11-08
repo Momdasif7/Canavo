@@ -9,13 +9,14 @@ This is the contract between the backend (agent th1) and the web app (agent th2)
 
 ## Data model (owned by th1)
 
-- **`DiningArea`:** new `kind` enum `FLOOR | SCREEN` (default `FLOOR`) and `qrToken String? @unique`, the screen-level QR. A screen is an area with `kind = SCREEN`.
+- **`DiningArea`:** new `kind` enum `FLOOR | SCREEN` (default `FLOOR`), `qrToken String? @unique` (the screen-level QR) and `code String?` (the screen code, set once at creation). A screen is an area with `kind = SCREEN`.
 - **`DiningTable`:** new `seatRow String?` and `seatNumber Int?`. A seat is a table in a SCREEN area.
   - Its `label` is `<screenCode>-<row><number>`, e.g. `S2-F12`, unique per outlet as today.
-  - The screen code is `S` followed by the screen's position (1, 2, …), or the area's own short code if one is set.
+  - The screen code is `S` followed by the smallest free number (S1, S2, …), stored in `DiningArea.code` when the screen is created and never changed, so seat labels stay valid when screens are renamed or reordered.
   - Seats keep `capacity` 1, `shape` SQUARE and get their own `qrToken` when created.
 - **`ShowTime` (new, outlet-scoped, with RLS):** `id`, `outletId`, `areaId` (screen), `title`, `startsAt`, `intervalAt?`, `endsAt`, `orderCutoffMin` (default 15), `createdAt`, `updatedAt`. Indexed `(outletId, areaId, startsAt)`.
-- **`ChannelRequest`:** new `seatTiming String?` (`NOW | INTERVAL | COUNTER`), `showTimeId String?` and `pickupToken Int?`. The pickup token runs per outlet per local day: 1, 2, 3…
+- **`ChannelRequest`:** new `seatTiming String?` (`NOW | INTERVAL | COUNTER`), `showTimeId String?` and `pickupToken Int?`. The pickup token runs per outlet per local day: 1, 2, 3… (COUNTER orders only). Also `readyAt` / `deliveredAt DateTime?` for the runner board stages, so the board works without the KOT module.
+- **`KotTicket`:** new `header String?`, the big seat line (e.g. `SCREEN S2 · F12 · INTERVAL`). It is on every KOT in `GET /kot`, `kot:new` and `kot:updated`, and is the header line of the printed KOT. An INTERVAL badge = header contains `· INTERVAL` (held ones also carry `releaseAt`).
 - **Theatre settings:** stored inside `Outlet.storefront` JSON under the key `theatre` (`theatreSettingsSchema`).
 
 ## Staff API
@@ -27,20 +28,24 @@ All routes require authentication, an outlet, `requireModule("THEATRE")` and the
 | `GET /theatre/screens` | `table:serve` | none | `Screen[]` (shape below) |
 | `POST /theatre/screens` | `table:manage` | `screenSchema` | `Screen` (201) |
 | `PATCH /theatre/screens/:id` | `table:manage` | `screenUpdateSchema` | `Screen` |
-| `DELETE /theatre/screens/:id` | `table:manage` | none | 204. 409 if a seat has an open session or a pending request. |
-| `POST /theatre/screens/:id/seats` | `table:manage` | `seatBulkSchema` | `{ created: number, skipped: number, total: number }` |
+| `DELETE /theatre/screens/:id` | `table:manage` | none | 204. 409 if a seat has an open session or a pending request, or if the screen has seat orders in its history (rename it instead). |
+| `POST /theatre/screens/:id/seats` | `table:manage` | `seatBulkSchema` | `{ created: number, skipped: number, total: number }`. Inactive seats in the range are reactivated (counted as created). At most 3,000 seats per screen (400). |
 | `DELETE /theatre/seats/:id` | `table:manage` | none | 204. The seat is deactivated if it has history. |
 | `POST /theatre/screens/:id/qr/rotate` | `table:manage` | none | `Screen`. Gives the screen a new `qrToken`; the old one stops working. |
 | `GET /theatre/showtimes?date=YYYY-MM-DD&screenId=` | `table:serve` | none | `ShowTime[]` overlapping that local day |
 | `POST /theatre/showtimes` | `table:manage` | `showTimeSchema` | `ShowTime` (201). 409 if it overlaps another show on the same screen. |
 | `PATCH /theatre/showtimes/:id` | `table:manage` | `showTimeUpdateSchema` | `ShowTime` (same overlap rule) |
-| `DELETE /theatre/showtimes/:id` | `table:manage` | none | 204 |
+| `DELETE /theatre/showtimes/:id` | `table:manage` | none | 204. 409 if the show has seat orders (kept for the reports). |
 | `GET /theatre/settings` | `table:serve` | none | `TheatreSettings` |
-| `PATCH /theatre/settings` | `table:manage` | `theatreSettingsSchema.partial()` | `TheatreSettings` |
+| `PATCH /theatre/settings` | `table:manage` | `theatreSettingsSchema.partial()` (unknown keys → 400) | `TheatreSettings` |
 | `GET /theatre/board?screenId=` | `table:serve` | none | `RunnerBoard` (below) |
 | `POST /theatre/orders/:requestId/ready` | `table:serve` | none | `BoardOrder` (the food is ready for a runner or the counter) |
 | `POST /theatre/orders/:requestId/delivered` | `table:serve` | none | `BoardOrder` (handed over at the seat or counter) |
-| `GET /reports/theatre?from=YYYY-MM-DD&to=YYYY-MM-DD` | `report:view` | none | `TheatreReport` (below) |
+| `GET /reports/theatre?from=YYYY-MM-DD&to=YYYY-MM-DD` | `report:view` | `&format=json\|xlsx\|pdf` | `TheatreReport` (below); 403 without THEATRE. Defaults: `to` = today, `from` = to − 6 days. |
+
+Board details: orders of the last 12 hours, not rejected; unpaid ones (`paid: false`, stage WAITING) only for 30 minutes after placing, so a cashier can confirm a mock UPI payment by hand (`POST /orders/:orderId/payments/:paymentId/confirm`); DELIVERED ones for 15 minutes. `ready` → 409 when unpaid, not yet accepted, held for the interval or already delivered; `ready` on a READY order returns it unchanged. Kitchen marking all KOTs READY also shows READY. Unpaid seat orders are cancelled automatically after 30 minutes (job `theatre-unpaid-expiry`).
+
+Restaurant screens are unaffected: `GET /tables/floor` never shows SCREEN areas or seats; `GET /tables`, `GET /tables/areas` and `GET /storefront/tables` leave them out unless `?includeScreens=1`; `/tables/areas/:id` and `POST /tables` with a screen's `areaId` → 404.
 
 ```ts
 type Screen = {
@@ -110,7 +115,10 @@ These follow the existing table-QR rate limits.
     - **NOW and COUNTER:** the KOT goes out once payment is confirmed (and, if the outlet requires QR confirmation, accepted).
     - **INTERVAL:** the KOT is created with `releaseAt = intervalAt − intervalLeadMin`.
   - **KOT text:** the header reads `SCREEN <code> · <row><n> · NOW|INTERVAL|COUNTER #<token>`.
-- **`GET /public/t/:token/orders`:** adds `timing`, `pickupToken` and `stage` (as in `BoardOrder`) for seat orders.
+- **`GET /public/t/:token/orders`:** for a seat, the orders of the current show on that seat: `{ id, token, createdAt, status, stage, timing, pickupToken, releaseAt, paid, rejectReason, total, items: { name, quantity }[], upi: { amount, qrPayload } | null }`. `stage` is the `BoardOrder` stage, or `CANCELLED` for a rejected / expired order. `upi` is the QR still to pay.
+- **`POST /public/t/:token/orders/:orderToken/upi`** (seat orders): a fresh UPI QR when the first expired → `{ qrPayload, imageUrl, amount, mock }` (201); 409 if already paid / cancelled.
+- **Seat page extras:** `GET /public/t/:token` for a seat has `ordering` (= `theatre.show.orderingOpen`), `notice` (e.g. "No show on this screen now"), `hours: null`. When there is no show, `theatre.show` is `null` and the reason is in `notice`. Not yet open: `show.reason` = "Ordering opens at HH:MM". Seat ordering off: "Seat ordering is off right now". Seats follow `seatOrdering`, not dine-in `qrOrdering`, and ignore the dine-in accepting hours.
+- **Order response for a seat (201):** `{ id, token, status: "ACCEPTED" | "PENDING", timing, pickupToken: number | null, total, upi: { qrPayload, imageUrl: string | null, amount, mock } }`.
 
 ## Web pages (owned by th2)
 
