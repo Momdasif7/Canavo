@@ -228,9 +228,9 @@ export function DeliverySection({
   const [mapOpen, setMapOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadQuote = useCallback(async (coords?: { lat: number; lng: number }) => {
+  const loadQuote = useCallback(async (coords?: { lat: number; lng: number }, pincode?: string) => {
     try {
-      setQuote(await endpoints.deliveryQuote(coords ?? {}));
+      setQuote(await endpoints.deliveryQuote({ ...(coords ?? {}), ...(pincode && { pincode }) }));
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -284,6 +284,8 @@ export function DeliverySection({
   };
 
   const hasCoords = d.latitude != null && d.longitude != null;
+  /** The outlet takes addresses without a map: PIN code instead of the pin / zones. */
+  const addressOnly = quote?.addressMode === "ADDRESS";
   const zones = quote?.zones ?? [];
   const outletPos = outlet && outlet.latitude != null && outlet.longitude != null ? { lat: outlet.latitude, lng: outlet.longitude } : null;
 
@@ -301,7 +303,31 @@ export function DeliverySection({
       />
       <Input placeholder="Landmark (optional)" value={d.landmark} onChangeText={(v) => patchDelivery({ landmark: v })} maxLength={200} />
 
-      {hasCoords ? (
+      {addressOnly ? (
+        <>
+          <Input
+            placeholder="PIN code (required)"
+            value={d.pincode ?? ""}
+            keyboardType="number-pad"
+            maxLength={6}
+            onChangeText={(v) => {
+              const pincode = v.replace(/\D/g, "");
+              patchDelivery({ pincode, latitude: undefined, longitude: undefined, zoneId: undefined });
+              if (pincode.length === 6) void loadQuote(undefined, pincode);
+            }}
+          />
+          {quote && (d.pincode ?? "").length === 6 && !quote.deliverable ? (
+            <Notice kind="error" message={quote.message ?? "Outside our delivery areas."} />
+          ) : (
+            <Notice
+              kind="success"
+              message={`Address only · fee ${inr(quote?.fee ?? 0)} · ~${quote?.etaMinutes ?? 30} min${quote?.minOrder ? ` · min order ${inrShort(quote.minOrder)}` : ""}`}
+            />
+          )}
+        </>
+      ) : null}
+
+      {!addressOnly && hasCoords ? (
         <MiniMap
           pin={{ lat: d.latitude!, lng: d.longitude! }}
           outlet={outletPos}
@@ -310,6 +336,7 @@ export function DeliverySection({
           onPress={() => setMapOpen(true)}
         />
       ) : null}
+      {!addressOnly ? (
       <Row>
         <Button
           title={hasCoords ? "Adjust pin" : "Pick on map"}
@@ -328,7 +355,8 @@ export function DeliverySection({
           onPress={useMyLocation}
         />
       </Row>
-      {hasCoords ? (
+      ) : null}
+      {!addressOnly && hasCoords ? (
         <Pressable
           onPress={() => {
             patchDelivery({ latitude: undefined, longitude: undefined });
@@ -345,7 +373,7 @@ export function DeliverySection({
       ) : null}
 
       {quote && quote.deliveryEnabled === false ? <Notice kind="error" message="Delivery is switched off for this outlet." /> : null}
-      {quote && quote.distanceKm != null ? (
+      {!addressOnly && quote && quote.distanceKm != null ? (
         quote.deliverable ? (
           <Notice
             kind="success"
@@ -357,7 +385,7 @@ export function DeliverySection({
           <Notice kind="error" message={`${quote.distanceKm} km away — outside our delivery zones.`} />
         )
       ) : null}
-      {!hasCoords && zones.length ? (
+      {!addressOnly && !hasCoords && zones.length ? (
         <View style={{ gap: 6 }}>
           <AppText variant="small">No pin? Choose the zone:</AppText>
           <Row style={{ flexWrap: "wrap" }}>

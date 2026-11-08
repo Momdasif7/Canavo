@@ -33,11 +33,12 @@ export function nextAgentStep(s: DeliveryStatus): { status: DeliveryStatus; labe
   return null;
 }
 
-export function mapsUrl(d: Pick<Delivery, "latitude" | "longitude" | "address" | "landmark">) {
+export function mapsUrl(d: Pick<Delivery, "latitude" | "longitude" | "address" | "landmark" | "pincode">) {
+  // No pin (address-only delivery): search the typed address, landmark and PIN code.
   const dest =
     d.latitude != null && d.longitude != null
       ? `${d.latitude},${d.longitude}`
-      : encodeURIComponent([d.address, d.landmark].filter(Boolean).join(", "));
+      : encodeURIComponent([d.address, d.landmark, d.pincode].filter(Boolean).join(", "));
   // Universal link: opens the Google Maps app when installed, else the browser.
   return `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`;
 }
@@ -207,6 +208,7 @@ export function DeliveryCard({
         <AppText style={{ fontWeight: "800", fontSize: font.lg }}>{d.customerName}</AppText>
         <AppText>{d.address}</AppText>
         {d.landmark ? <AppText variant="muted">Near {d.landmark}</AppText> : null}
+        {d.pincode ? <AppText variant="muted">PIN {d.pincode}</AppText> : null}
         <AppText variant="small">
           {[
             d.distanceKm != null ? `${d.distanceKm} km` : null,

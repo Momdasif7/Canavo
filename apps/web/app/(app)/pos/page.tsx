@@ -211,6 +211,8 @@ export default function PosPage() {
   const codActive = isDelivery && online && meta.delivery.cod;
   const coords = deliveryCoords(meta.delivery);
   const coordKey = useDebouncedValue(coords ? `${coords.lat},${coords.lng}` : "", 400);
+  /** Address-only outlets: the PIN code decides whether we deliver there */
+  const pinKey = useDebouncedValue(/^[1-9]\d{5}$/.test(meta.delivery.pincode?.trim() ?? "") ? meta.delivery.pincode!.trim() : "", 400);
   const [quote, setQuote] = useState<DeliveryQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -223,14 +225,14 @@ export default function PosPage() {
     setQuoteLoading(true);
     setQuoteError(null);
     api
-      .get<DeliveryQuote>("/delivery/quote", { query: { lat, lng } })
+      .get<DeliveryQuote>("/delivery/quote", { query: { lat, lng, pincode: pinKey || undefined } })
       .then((q) => !cancelled && setQuote(q))
       .catch((e) => !cancelled && setQuoteError(errorMessage(e)))
       .finally(() => !cancelled && setQuoteLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [isDelivery, coordKey, online]);
+  }, [isDelivery, coordKey, pinKey, online]);
   // Who's on duty decides auto-assignment: refresh while the delivery form is open.
   useEffect(() => {
     if (!isDelivery || !online) return;
@@ -251,7 +253,9 @@ export default function PosPage() {
   const localCharges = useMemo(() => {
     const out: { label: string; amount: number }[] = [];
     if ((meta.orderType === "TAKEAWAY" || isDelivery) && outlet?.packagingCharge) out.push({ label: "Packaging", amount: outlet.packagingCharge });
-    if (isDelivery && quote) {
+    if (isDelivery && quote?.addressMode === "ADDRESS") {
+      if (quote.fee) out.push({ label: "Delivery fee", amount: quote.fee });
+    } else if (isDelivery && quote) {
       const zone = coords ? quote.zone : quote.zones.find((z) => z.id === meta.delivery.zoneId);
       if (zone?.fee) out.push({ label: "Delivery fee", amount: zone.fee });
     }

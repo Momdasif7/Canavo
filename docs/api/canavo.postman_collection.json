@@ -5747,6 +5747,73 @@
       "name": "Delivery",
       "item": [
         {
+          "name": "GET /delivery/settings",
+          "request": {
+            "method": "GET",
+            "description": "How the outlet takes delivery addresses: map pin (zones) or address only (flat fee, allowed areas)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "settings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /delivery/settings",
+          "request": {
+            "method": "PUT",
+            "description": "Owner / manager: change the delivery address mode, flat fee, minimum order, allowed areas. Body: deliverySettingsUpdateSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "settings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /delivery/zones",
           "request": {
             "method": "GET",
@@ -5886,7 +5953,7 @@
           "name": "GET /delivery/quote",
           "request": {
             "method": "GET",
-            "description": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address)",
+            "description": "Zone, fee, ETA, distance for ?lat&lng (zones list when only ?address); address-only outlets: flat fee and the ?pincode / ?area check",
             "header": [
               {
                 "key": "Authorization",
@@ -11135,7 +11202,7 @@
           "name": "GET /public/o/{slug}/delivery-quote",
           "request": {
             "method": "GET",
-            "description": "Delivery zone, fee and ETA for a map pin; refuses addresses outside every zone. Query: publicDeliveryQuoteSchema",
+            "description": "Delivery fee and ETA: zone for a map pin (?lat&lng), or the flat fee and allowed-area check (?pincode&area) for address-only outlets; refuses addresses outside. Query: publicDeliveryQuoteSchema",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/public/o/:slug/delivery-quote",

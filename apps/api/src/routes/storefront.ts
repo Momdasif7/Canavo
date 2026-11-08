@@ -37,6 +37,8 @@ async function settingsView(outletId: string) {
     slug: outlet.publicSlug,
     outletName: outlet.name,
     deliveryAvailable: moduleEnabled("DELIVERY") && outlet.deliveryEnabled,
+    /** How delivery addresses are taken (Delivery → Settings) */
+    deliveryMode: outlet.deliveryAddressMode,
     tablesAvailable: moduleEnabled("TABLES"),
     upiReady: (await razorpayEnabled()) || Boolean(outlet.upiVpa),
   };

@@ -95,7 +95,7 @@ export function DeliveryPin({
   };
 
   return (
-    <div className="space-y-2" data-testid="delivery-pin">
+    <div className="space-y-2 rounded-2xl border border-line p-3" data-testid="delivery-pin">
       <div className="flex flex-wrap items-center gap-2">
         <p className="flex-1 text-sm font-semibold text-fg">Delivery location</p>
         <Button size="sm" variant="outline" icon={<Crosshair size={18} />} loading={locating} onClick={locate}>

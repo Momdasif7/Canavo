@@ -98,6 +98,9 @@ export const onlineOrderSchema = z.object({
     .object({
       address: z.string().trim().min(5).max(500),
       landmark: z.string().trim().max(200).optional(),
+      /** Address-only delivery: PIN code (required) and the area chosen from the outlet's list */
+      pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "Enter a 6-digit PIN code").optional(),
+      area: z.string().trim().max(60).optional(),
       zoneId: z.string().max(40).optional(),
       latitude: z.number().min(-90).max(90).optional(),
       longitude: z.number().min(-180).max(180).optional(),
@@ -115,10 +118,16 @@ export const CUSTOMER_OTP = { ttlSeconds: 300, cooldownSeconds: 30, maxAttempts:
 export const customerOtpRequestSchema = z.object({ phone: indianPhone });
 export const customerOtpVerifySchema = z.object({ phone: indianPhone, code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code") });
 
-/** Delivery quote for a map pin on the online ordering page. */
+/**
+ * Delivery quote on the online ordering page: a map pin (lat / lng) for map delivery, or the PIN
+ * code / area for outlets that take addresses without a map.
+ */
 export const publicDeliveryQuoteSchema = z.object({
-  lat: z.coerce.number().min(-90).max(90),
-  lng: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
+  pincode: z.string().trim().max(10).optional(),
+  area: z.string().trim().max(60).optional(),
+  address: z.string().trim().max(500).optional(),
 });
 
 /** Refund status of a rejected / cancelled online order paid by UPI. */

@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DeliveryStatus, Outlet, Prisma } from "@prisma/client";
-import { distanceMeters, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
+import { deliveryAreaAllowed, deliveryAreaRefusal, distanceMeters, formatINR, type BillSplitMode, type OrderCreateInput } from "@canavo/shared";
 import { prisma } from "../db";
 import { outboxEmitOutlet, outboxTask } from "../lib/outbox";
 import { badRequest, forbidden, HttpError } from "../lib/http";
@@ -198,36 +198,50 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
     const lenient = offline || aggregator;
     if (!outlet.deliveryEnabled && !lenient) throw badRequest("Delivery is not enabled for this outlet");
 
-    let distanceKm: number | undefined;
-    if (d.latitude !== undefined && d.longitude !== undefined && outlet.latitude != null && outlet.longitude != null) {
-      distanceKm =
-        Math.round(
-          (distanceMeters({ latitude: outlet.latitude, longitude: outlet.longitude }, { latitude: d.latitude, longitude: d.longitude }) / 1000) * 100,
-        ) / 100;
-    }
-    const zones = await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true } });
-    let zone: (typeof zones)[number] | null = null;
-    if (d.zoneId) {
-      zone = zones.find((z) => z.id === d.zoneId) ?? null;
-      if (!zone) throw badRequest("Unknown or inactive delivery zone");
-      if (distanceKm !== undefined && distanceKm > zone.radiusKm && !lenient) {
-        throw badRequest(`Address is ${distanceKm} km away, outside zone ${zone.name} (${zone.radiusKm} km)`);
+    if (outlet.deliveryAddressMode === "ADDRESS" && !aggregator) {
+      // Address-only delivery: no map, no zones — PIN code + allowed areas, flat fee, own minimum order.
+      if (!lenient) {
+        if (!d.pincode) throw badRequest("Enter the 6-digit PIN code of the delivery address");
+        if (!deliveryAreaAllowed(outlet.deliveryAreas, { pincode: d.pincode, address: d.address })) throw badRequest(deliveryAreaRefusal(outlet.deliveryAreas, d.pincode));
+        if (outlet.deliveryMinOrder > 0 && (await roughSubtotal(outlet.id, input.items)) < outlet.deliveryMinOrder) {
+          throw badRequest(`Minimum order for delivery is ${formatINR(outlet.deliveryMinOrder)}`);
+        }
       }
-    } else if (zones.length) {
-      if (distanceKm === undefined && !aggregator) throw badRequest("Provide map coordinates or choose a delivery zone");
-      zone = distanceKm === undefined ? null : selectZone(zones, distanceKm);
-      if (!zone && !lenient) {
-        const max = Math.max(...zones.map((z) => z.radiusKm));
-        throw badRequest(`Address is ${distanceKm} km away — we deliver within ${max} km`);
+      if (outlet.deliveryFlatFee > 0) extraCharges.push({ label: "Delivery fee", amount: outlet.deliveryFlatFee });
+      data.delivery = { zoneId: null, etaMinutes: outlet.deliveryEtaMinutes, distanceKm: null, addressOnly: true };
+    } else {
+      let distanceKm: number | undefined;
+      if (d.latitude !== undefined && d.longitude !== undefined && outlet.latitude != null && outlet.longitude != null) {
+        distanceKm =
+          Math.round(
+            (distanceMeters({ latitude: outlet.latitude, longitude: outlet.longitude }, { latitude: d.latitude, longitude: d.longitude }) / 1000) * 100,
+          ) / 100;
       }
-    }
-    if (zone && zone.minOrder > 0 && !lenient) {
-      const sub = await roughSubtotal(outlet.id, input.items);
-      if (sub < zone.minOrder) {
-        throw badRequest(`Minimum order for ${zone.name} is ₹${(zone.minOrder / 100).toFixed(2)}`);
+      const zones = await prisma.deliveryZone.findMany({ where: { outletId: outlet.id, active: true } });
+      let zone: (typeof zones)[number] | null = null;
+      if (d.zoneId) {
+        zone = zones.find((z) => z.id === d.zoneId) ?? null;
+        if (!zone) throw badRequest("Unknown or inactive delivery zone");
+        if (distanceKm !== undefined && distanceKm > zone.radiusKm && !lenient) {
+          throw badRequest(`Address is ${distanceKm} km away, outside zone ${zone.name} (${zone.radiusKm} km)`);
+        }
+      } else if (zones.length) {
+        if (distanceKm === undefined && !aggregator) throw badRequest("Provide map coordinates or choose a delivery zone");
+        zone = distanceKm === undefined ? null : selectZone(zones, distanceKm);
+        if (!zone && !lenient) {
+          const max = Math.max(...zones.map((z) => z.radiusKm));
+          throw badRequest(`Address is ${distanceKm} km away — we deliver within ${max} km`);
+        }
       }
+      if (zone && zone.minOrder > 0 && !lenient) {
+        const sub = await roughSubtotal(outlet.id, input.items);
+        if (sub < zone.minOrder) {
+          throw badRequest(`Minimum order for ${zone.name} is ₹${(zone.minOrder / 100).toFixed(2)}`);
+        }
+      }
+      if (zone && zone.fee > 0 && !aggregator) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
+      data.delivery = { zoneId: zone?.id ?? null, etaMinutes: zone?.etaMinutes ?? null, distanceKm: distanceKm ?? null };
     }
-    if (zone && zone.fee > 0 && !aggregator) extraCharges.push({ label: "Delivery fee", amount: zone.fee });
 
     if (d.agentId) {
       const check = await canTakeOrder(outlet.id, d.agentId);
@@ -244,7 +258,6 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
         }
       }
     }
-    data.delivery = { zoneId: zone?.id ?? null, etaMinutes: zone?.etaMinutes ?? null, distanceKm: distanceKm ?? null };
   }
 
   if (input.orderType === "PRE_ORDER") {
@@ -282,7 +295,7 @@ export async function onOrderCreatedService(tx: Tx, orderId: string, input: Orde
   }
 
   if (input.orderType === "DELIVERY" && input.delivery) {
-    const meta = (ctx.data?.delivery ?? {}) as { zoneId?: string | null; etaMinutes?: number | null; distanceKm?: number | null };
+    const meta = (ctx.data?.delivery ?? {}) as { zoneId?: string | null; etaMinutes?: number | null; distanceKm?: number | null; addressOnly?: boolean };
     const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { outletId: true, createdAt: true } });
     const d = input.delivery;
     // No partner chosen → give it to an available (on-duty) partner automatically.
@@ -302,8 +315,10 @@ export async function onOrderCreatedService(tx: Tx, orderId: string, input: Orde
         customerPhone: input.customerPhone!,
         address: d.address,
         landmark: d.landmark,
-        latitude: d.latitude,
-        longitude: d.longitude,
+        pincode: d.pincode,
+        // Address-only outlets never keep a pin (staff get the typed address and a maps search link).
+        latitude: meta.addressOnly ? undefined : d.latitude,
+        longitude: meta.addressOnly ? undefined : d.longitude,
         distanceKm: meta.distanceKm ?? undefined,
         zoneId: meta.zoneId ?? undefined,
         etaAt: new Date(Date.now() + (meta.etaMinutes ?? 30) * 60_000),

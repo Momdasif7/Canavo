@@ -98,10 +98,10 @@ export function PhoneVerify({ slug, phone, token, onVerified }: { slug: string; 
   };
 
   return (
-    <div className="space-y-2 rounded-xl border border-line p-3" data-testid="phone-verify">
+    <div className="space-y-2 rounded-2xl border border-primary/30 bg-primary-50/60 p-3 dark:bg-primary/10" data-testid="phone-verify">
       {!sentTo ? (
         <>
-          <p className="text-sm text-muted">We&apos;ll text a 6-digit code to confirm your number.</p>
+          <p className="text-sm text-fg"><span className="font-bold">Verify your number</span> — we&apos;ll text a 6-digit code (helps the restaurant trust your order).</p>
           <Button variant="outline" block loading={busy} disabled={!phoneOk} onClick={() => void send()}>
             {phoneOk ? `Send code to ${phone}` : "Enter your mobile number above"}
           </Button>

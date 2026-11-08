@@ -31,6 +31,8 @@ export interface CartLine {
 export interface DeliveryDraft {
   address: string;
   landmark: string;
+  /** 6-digit PIN code (outlets that take addresses without a map) */
+  pincode?: string;
   latitude?: number;
   longitude?: number;
   zoneId?: string;
@@ -303,6 +305,7 @@ export function toOrderInput(
         ? {
             address: d.address.trim(),
             landmark: d.landmark.trim() || undefined,
+            pincode: d.pincode?.trim() || undefined,
             latitude: d.latitude,
             longitude: d.longitude,
             zoneId: d.zoneId,

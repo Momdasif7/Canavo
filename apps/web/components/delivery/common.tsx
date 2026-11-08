@@ -54,11 +54,16 @@ export function EtaCountdown({ etaAt, now, done, className }: { etaAt: string | 
 export const mapsLink = (lat: number, lng: number) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 export const mapsAddressLink = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 
-/** Turn-by-turn directions (Google Maps) to the drop: coordinates when known, else the address. */
-export const directionsLink = (d: Pick<Delivery, "latitude" | "longitude" | "address" | "landmark">) =>
-  `https://www.google.com/maps/dir/?api=1&destination=${
-    d.latitude != null && d.longitude != null ? `${d.latitude},${d.longitude}` : encodeURIComponent([d.address, d.landmark].filter(Boolean).join(", "))
-  }`;
+/** Typed address as one line for a maps search (address, landmark, PIN code). */
+const typedAddress = (d: Pick<Delivery, "address" | "landmark" | "pincode">) => [d.address, d.landmark, d.pincode].filter((x) => x && x.trim()).join(", ");
+
+/** "Open in Google Maps": the pin when there is one, else a search for the typed address (address-only delivery). */
+export const deliveryMapsLink = (d: Pick<Delivery, "latitude" | "longitude" | "address" | "landmark" | "pincode">) =>
+  d.latitude != null && d.longitude != null ? mapsLink(d.latitude, d.longitude) : mapsAddressLink(typedAddress(d));
+
+/** Turn-by-turn directions (Google Maps) to the drop: coordinates when known, else the typed address. */
+export const directionsLink = (d: Pick<Delivery, "latitude" | "longitude" | "address" | "landmark" | "pincode">) =>
+  `https://www.google.com/maps/dir/?api=1&destination=${d.latitude != null && d.longitude != null ? `${d.latitude},${d.longitude}` : encodeURIComponent(typedAddress(d))}`;
 
 /** Split delivery notes into problems reported by the partner ("ISSUE: …") and the rest. */
 export function splitNotes(notes: string | null | undefined): { issues: string[]; other: string[] } {

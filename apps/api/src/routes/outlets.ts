@@ -53,6 +53,7 @@ const BASIC_OUTLET_FIELDS = {
   posShowImages: true,
   gstEnabled: true,
   deliveryEnabled: true,
+  deliveryAddressMode: true,
 } as const;
 
 const outletSelect = (req: Express.Request) => (userCan(req, "settings:view") ? undefined : BASIC_OUTLET_FIELDS);

@@ -31,6 +31,8 @@ export async function publicCall<T>(method: "GET" | "POST", path: string, body?:
 
 export interface PublicBrand {
   name: string;
+  /** Business brand colour (hex) — the customer pages' accent */
+  accent?: string | null;
   address: string;
   phone: string | null;
   logoUrl: string | null;
@@ -57,6 +59,8 @@ export interface PublicMenuItem {
 export interface PublicMenu {
   categories: { id: string; name: string; parentId: string | null; sortOrder: number }[];
   items: PublicMenuItem[];
+  /** Most-sold items lately ("Bestseller" badge) */
+  bestsellers?: string[];
 }
 
 export interface TablePage extends PublicMenu {
@@ -78,6 +82,12 @@ export interface OutletPage extends PublicMenu {
   takeaway: boolean;
   delivery: boolean;
   zones: { id: string; name: string; radiusKm: number; fee: number; minOrder: number; etaMinutes: number }[];
+  /** MAP: map pin + zones; ADDRESS: typed address + PIN code, flat fee (no map) */
+  deliveryMode?: "MAP" | "ADDRESS";
+  /** ADDRESS mode: flat fee, minimum order, ETA and allowed PIN codes / areas (empty = anywhere) */
+  deliveryFlat?: { fee: number; minOrder: number; etaMinutes: number; areas: string[] } | null;
+  /** Offers running now (applied automatically to the bill) */
+  offers?: { id: string; name: string; summary: string }[];
   payments: { COUNTER: boolean; COD: boolean; UPI: boolean };
   needsConfirmation: boolean;
   /** Customers verify their phone by OTP before ordering */
@@ -86,8 +96,12 @@ export interface OutletPage extends PublicMenu {
   location: { lat: number; lng: number } | null;
 }
 
-/** Zone and fee for a delivery map pin. */
+/** Zone and fee for a delivery map pin, or the flat fee / area check of an address-only outlet. */
 export interface DeliveryQuote {
+  mode?: "MAP" | "ADDRESS";
+  fee?: number | null;
+  etaMinutes?: number | null;
+  minOrder?: number | null;
   outletLocation: boolean;
   deliverable: boolean;
   distanceKm: number | null;
@@ -168,6 +182,7 @@ export interface StorefrontSettingsView {
   slug: string | null;
   outletName: string;
   deliveryAvailable: boolean;
+  deliveryMode?: "MAP" | "ADDRESS";
   tablesAvailable: boolean;
   upiReady: boolean;
 }

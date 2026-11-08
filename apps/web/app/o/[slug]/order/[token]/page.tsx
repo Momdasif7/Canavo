@@ -5,18 +5,43 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
 import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle, FilePdf, XCircle } from "@phosphor-icons/react";
+import { ArrowLeft, Bag, CheckCircle, CookingPot, FilePdf, HandCoins, Moped, Phone, Receipt, Storefront, XCircle } from "@phosphor-icons/react";
 import { formatINR } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { publicCall, REFUND_LABEL, STAGE_LABEL, type OnlineOrderView, type OrderStage } from "@/lib/storefront";
 import { useToast } from "@/components/providers/ToastProvider";
-import { StoreHeader } from "@/components/storefront/StoreMenu";
+import { BrandStyle, StoreHeader } from "@/components/storefront/StoreMenu";
 import { Button } from "@/components/ui/Button";
 import { ErrorState, LoadingState } from "@/components/ui/States";
 
-const STEPS: OrderStage[] = ["waiting", "received", "preparing", "ready"];
-const stepIndex = (s: OrderStage) => (s === "confirmed" ? 1 : s === "served" ? 3 : STEPS.indexOf(s));
+interface TrackStep {
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+}
+
+/** Steps of the live tracker and how far the order got. */
+function tracker(view: OnlineOrderView): { steps: TrackStep[]; current: number } {
+  const pickup = view.orderType === "TAKEAWAY";
+  const base: TrackStep[] = [
+    { label: "Order placed", hint: view.stage === "waiting" ? "Waiting for the restaurant to accept" : "We've got your order", icon: <Receipt size={18} weight="bold" /> },
+    { label: "Accepted", hint: "The restaurant confirmed it", icon: <CheckCircle size={18} weight="bold" /> },
+    { label: "Being prepared", hint: "The kitchen is cooking", icon: <CookingPot size={18} weight="bold" /> },
+  ];
+  const steps = pickup
+    ? [...base, { label: "Ready for pickup", hint: "Collect it at the counter", icon: <Bag size={18} weight="bold" /> }]
+    : [...base, { label: "Out for delivery", hint: "On the way to you", icon: <Moped size={18} weight="bold" /> }, { label: "Delivered", hint: "Enjoy your meal!", icon: <HandCoins size={18} weight="bold" /> }];
+  const stage: Record<OrderStage, number> = { waiting: 0, confirmed: 1, received: 1, preparing: 2, ready: 3, served: 3, cancelled: 0 };
+  let current = stage[view.stage];
+  if (!pickup) {
+    const d = view.delivery?.status;
+    if (d === "OUT_FOR_DELIVERY") current = 3;
+    else if (d === "DELIVERED") current = 4;
+    else current = Math.min(current, 2);
+  }
+  return { steps, current };
+}
 
 /** Phase 6.4: order confirmation with live status, UPI payment and the receipt once paid. */
 export default function OnlineOrderStatusPage() {
@@ -56,55 +81,92 @@ export default function OnlineOrderStatusPage() {
     }
   };
 
-  if (error && !view) return <main className="mx-auto max-w-md p-6"><ErrorState message={error} onRetry={load} /></main>;
+  if (error && !view)
+    return (
+      <main className="mx-auto max-w-md p-6">
+        <ErrorState message={error} onRetry={load} />
+      </main>
+    );
   if (!view) return <LoadingState label="Loading your order…" />;
 
   const cancelled = view.stage === "cancelled";
-  const current = stepIndex(view.stage);
   const pickup = view.orderType === "TAKEAWAY";
+  const { steps, current } = tracker(view);
+  const done = current === steps.length - 1;
+  const headline = cancelled ? "Order not accepted" : done ? (pickup ? "Ready for pickup!" : "Delivered!") : view.stage === "waiting" ? "Order placed" : steps[current].label;
 
   return (
-    <main className="min-h-screen pb-10">
+    <main className="min-h-screen bg-bg pb-10">
+      <BrandStyle accent={view.outlet.accent} />
       <StoreHeader brand={view.outlet} />
       <div className="mx-auto max-w-xl space-y-4 px-4 pt-4">
-        <section className="rounded-2xl border border-line bg-surface p-4 text-center" aria-live="polite">
-          {cancelled ? <XCircle size={48} className="mx-auto text-red-600" weight="fill" /> : <CheckCircle size={48} className="mx-auto text-secondary" weight="fill" />}
-          <h2 className="mt-2 text-xl font-bold text-fg">{cancelled ? "Order not accepted" : view.stage === "ready" ? (pickup ? "Ready for pickup" : "Ready — on its way soon") : "Order placed"}</h2>
-          <p className="text-sm text-muted">
-            Order {view.invoiceNumber} · {formatTime(view.createdAt)}
-          </p>
-          {cancelled && view.rejectReason && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{view.rejectReason}</p>}
-          {cancelled && view.refund ? (
-            <p className="mt-3 rounded-xl bg-surface-2 p-3 text-sm text-fg" data-testid="refund-status">
-              <span className="font-semibold">Refund {formatINR(view.refund.amount)}:</span> {REFUND_LABEL[view.refund.status]}
+        <section className={clsx("overflow-hidden rounded-3xl border shadow-sm", cancelled ? "border-red-200 bg-surface dark:border-red-500/30" : "border-line bg-surface")} aria-live="polite">
+          <div className={clsx("px-5 pb-5 pt-6 text-center", cancelled ? "bg-red-50 dark:bg-red-500/10" : "bg-gradient-to-b from-primary-50 to-transparent dark:from-primary/10")}>
+            {cancelled ? (
+              <XCircle size={56} className="mx-auto text-red-600" weight="fill" />
+            ) : (
+              <span className="mx-auto flex h-16 w-16 animate-pop-in items-center justify-center rounded-full bg-secondary text-white shadow-lg shadow-secondary/30">
+                <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M5 12.5l4.5 4.5L19 7.5" strokeDasharray="48" className="animate-draw-check" />
+                </svg>
+              </span>
+            )}
+            <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-fg" data-testid="order-headline">
+              {headline}
+            </h2>
+            <p className="mt-0.5 text-sm text-muted">
+              Order {view.invoiceNumber} · {formatTime(view.createdAt)} · {pickup ? "Pickup" : "Delivery"}
             </p>
-          ) : (
-            cancelled && view.payment === "UPI" && view.balance < view.grandTotal && <p className="mt-2 text-sm text-muted">Your UPI payment will be refunded by the restaurant.</p>
-          )}
+            {cancelled && view.rejectReason && <p className="mt-2 text-sm font-medium text-red-700 dark:text-red-300">{view.rejectReason}</p>}
+            {cancelled && view.refund ? (
+              <p className="mt-3 rounded-xl bg-surface p-3 text-sm text-fg" data-testid="refund-status">
+                <span className="font-semibold">Refund {formatINR(view.refund.amount)}:</span> {REFUND_LABEL[view.refund.status]}
+              </p>
+            ) : (
+              cancelled && view.payment === "UPI" && view.balance < view.grandTotal && <p className="mt-2 text-sm text-muted">Your UPI payment will be refunded by the restaurant.</p>
+            )}
+          </div>
           {!cancelled && (
-            <ol className="mt-4 grid grid-cols-4 gap-1 text-xs font-semibold">
-              {STEPS.map((s, i) => (
-                <li key={s} className="flex flex-col items-center gap-1">
-                  <span className={clsx("h-2 w-full rounded-full", i <= current ? "bg-secondary" : "bg-line")} />
-                  <span className={i <= current ? "text-fg" : "text-muted"}>{s === "waiting" ? "Placed" : s === "received" ? "Accepted" : STAGE_LABEL[s]}</span>
-                </li>
-              ))}
+            <ol className="px-5 pb-5" aria-label="Order status">
+              {steps.map((s, i) => {
+                const reached = i <= current;
+                const now = i === current && !done;
+                return (
+                  <li key={s.label} className="relative flex gap-3 pb-4 last:pb-0">
+                    {i < steps.length - 1 && <span className={clsx("absolute left-[17px] top-9 h-[calc(100%-2rem)] w-0.5", i < current ? "bg-secondary" : "bg-line")} aria-hidden />}
+                    <span
+                      className={clsx(
+                        "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2",
+                        reached ? "border-secondary bg-secondary text-white" : "border-line bg-surface text-muted",
+                        now && "ring-4 ring-secondary/20",
+                      )}
+                    >
+                      {s.icon}
+                    </span>
+                    <div className="pt-1">
+                      <p className={clsx("font-bold", reached ? "text-fg" : "text-muted")}>
+                        {s.label}
+                        {now && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-secondary align-middle" aria-hidden />}
+                      </p>
+                      {(now || (done && i === current)) && <p className="text-sm text-muted">{i === 0 && view.stage === "waiting" ? STAGE_LABEL.waiting : s.hint}</p>}
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
-          {!cancelled && view.stage === "waiting" && <p className="mt-3 text-sm text-muted">{STAGE_LABEL.waiting}…</p>}
-          {view.delivery && !cancelled && <p className="mt-2 text-sm text-muted">Delivery: {view.delivery.status.replace(/_/g, " ").toLowerCase()}</p>}
         </section>
 
         {view.upi && !cancelled && (
-          <section className="rounded-2xl border border-line bg-surface p-4 text-center">
-            <h2 className="font-bold text-fg">Pay {formatINR(view.upi.amount)} with UPI</h2>
+          <section className="rounded-3xl border border-primary/30 bg-surface p-5 text-center shadow-sm">
+            <h2 className="text-lg font-extrabold text-fg">Pay {formatINR(view.upi.amount)} with UPI</h2>
             <p className="text-sm text-muted">Scan with any UPI app, or tap the button on this phone.</p>
             {view.upi.qrPayload.startsWith("upi://") ? (
               <>
-                <div className="mx-auto mt-3 w-fit rounded-xl bg-white p-3">
+                <div className="mx-auto mt-3 w-fit rounded-2xl bg-white p-3 shadow-sm">
                   <QRCodeSVG value={view.upi.qrPayload} size={200} />
                 </div>
-                <a href={view.upi.qrPayload} className="mt-3 inline-flex min-h-tap items-center justify-center rounded-xl bg-primary px-5 font-semibold text-primary-fg">
+                <a href={view.upi.qrPayload} className="mt-3 inline-flex min-h-tap items-center justify-center rounded-xl bg-primary px-6 font-bold text-primary-fg">
                   Open UPI app
                 </a>
               </>
@@ -119,47 +181,50 @@ export default function OnlineOrderStatusPage() {
             </div>
           </section>
         )}
-        {view.status === "PAID" && !cancelled && (
-          <p className="rounded-xl bg-secondary/10 p-3 text-center text-sm font-semibold text-secondary dark:text-green-300">Paid — thank you!</p>
-        )}
+        {view.status === "PAID" && !cancelled && <p className="rounded-2xl bg-secondary-50 p-3 text-center text-sm font-bold text-secondary-700 dark:bg-green-500/15 dark:text-green-300">Paid — thank you!</p>}
 
-        <section className="rounded-2xl border border-line bg-surface p-4">
-          <h2 className="mb-2 font-bold text-fg">Your order</h2>
+        <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+          <h2 className="mb-2 text-xs font-extrabold uppercase tracking-wider text-muted">Your order</h2>
           <ul className="divide-y divide-line text-sm">
             {view.items.map((i, n) => (
               <li key={n} className="flex justify-between gap-3 py-2">
                 <span>
-                  {i.quantity} × {i.name}
+                  <span className="font-semibold">{i.quantity} ×</span> {i.name}
                 </span>
                 <span className="tabular-nums">{formatINR(i.total)}</span>
               </li>
             ))}
           </ul>
-          <dl className="mt-2 space-y-1 border-t border-line pt-2 text-sm">
+          <dl className="mt-2 space-y-1 border-t border-dashed border-line pt-2 text-sm">
+            <div className="flex justify-between text-muted">
+              <dt>Item total</dt>
+              <dd className="tabular-nums">{formatINR(view.subtotal)}</dd>
+            </div>
             {view.discount > 0 && (
-              <div className="flex justify-between text-secondary">
+              <div className="flex justify-between text-secondary dark:text-green-300">
                 <dt>Discount</dt>
-                <dd>−{formatINR(view.discount)}</dd>
+                <dd className="tabular-nums">−{formatINR(view.discount)}</dd>
               </div>
             )}
             {view.charges.map((c) => (
               <div key={c.label} className="flex justify-between text-muted">
                 <dt>{c.label}</dt>
-                <dd>{formatINR(c.amount)}</dd>
+                <dd className="tabular-nums">{formatINR(c.amount)}</dd>
               </div>
             ))}
             {view.tax > 0 && (
               <div className="flex justify-between text-muted">
                 <dt>GST{view.outlet.pricesIncludeTax ? " (included)" : ""}</dt>
-                <dd>{formatINR(view.tax)}</dd>
+                <dd className="tabular-nums">{formatINR(view.tax)}</dd>
               </div>
             )}
-            <div className="flex justify-between text-base font-bold text-fg">
+            <div className="flex justify-between pt-1 text-base font-extrabold text-fg">
               <dt>Total</dt>
-              <dd>{formatINR(view.grandTotal)}</dd>
+              <dd className="tabular-nums">{formatINR(view.grandTotal)}</dd>
             </div>
           </dl>
-          <p className="mt-2 text-sm text-muted">
+          <p className="mt-3 flex items-center gap-2 rounded-xl bg-surface-2 p-2.5 text-sm text-fg">
+            {view.payment === "COD" ? <HandCoins size={18} /> : <Storefront size={18} />}
             {view.payment === "COUNTER" ? "Pay at the counter when you collect." : view.payment === "COD" ? "Pay cash to the delivery partner." : view.payment === "UPI" ? (view.status === "PAID" ? "Paid by UPI." : "Pay by UPI using the QR above.") : null}
           </p>
           {view.receiptUrl && (
@@ -169,19 +234,16 @@ export default function OnlineOrderStatusPage() {
           )}
         </section>
 
-        <p className="text-center text-sm">
-          <Link href={`/o/${slug}`} className="font-semibold text-primary underline-offset-2 hover:underline">
-            Back to the menu
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Link href={`/o/${slug}`} className="inline-flex min-h-tap items-center justify-center gap-2 rounded-xl border border-line bg-surface font-semibold text-fg hover:bg-surface-2">
+            <ArrowLeft size={18} /> Back to the menu
           </Link>
           {view.outlet.phone && (
-            <>
-              {" · "}
-              <a href={`tel:${view.outlet.phone}`} className="font-semibold text-primary underline-offset-2 hover:underline">
-                Call {view.outlet.name}
-              </a>
-            </>
+            <a href={`tel:${view.outlet.phone}`} className="inline-flex min-h-tap items-center justify-center gap-2 rounded-xl border border-line bg-surface font-semibold text-fg hover:bg-surface-2">
+              <Phone size={18} /> Call {view.outlet.name}
+            </a>
           )}
-        </p>
+        </div>
       </div>
     </main>
   );

@@ -26,7 +26,7 @@ import {
   NEXT_ACTION,
   STATUS_LABEL,
   confirmForceAssign,
-  mapsAddressLink,
+  deliveryMapsLink,
   mapsLink,
   partnerOptionLabel,
   partnerUnavailable,
@@ -186,7 +186,7 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
                       <Phone size={12} /> {d.customerPhone}
                     </a>
                     <a
-                      href={d.latitude != null && d.longitude != null ? mapsLink(d.latitude, d.longitude) : mapsAddressLink(d.address)}
+                      href={deliveryMapsLink(d)}
                       target="_blank"
                       rel="noreferrer"
                       className="mt-1 flex items-start gap-1 text-xs hover:text-primary"
@@ -195,9 +195,15 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
                       <span className="line-clamp-2">
                         {d.address}
                         {d.landmark && ` (${d.landmark})`}
+                        {d.pincode && ` · PIN ${d.pincode}`}
                         {d.distanceKm != null && ` · ${d.distanceKm} km`}
                       </span>
                     </a>
+                    {(d.latitude == null || d.longitude == null) && (
+                      <a href={deliveryMapsLink(d)} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline dark:text-sky-300" data-testid="open-in-maps">
+                        <MapTrifold size={14} /> Open in Google Maps
+                      </a>
+                    )}
                     {d.latitude != null && d.longitude != null && (
                       <button
                         type="button"
