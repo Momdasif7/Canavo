@@ -40,9 +40,11 @@ export function dataKey(): Buffer {
   return cachedKey;
 }
 
+const TAG_BYTES = 16;
+
 export function encryptWith(key: Buffer, plaintext: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return [VERSION, iv.toString("base64"), cipher.getAuthTag().toString("base64"), ct.toString("base64")].join(":");
 }
@@ -50,8 +52,11 @@ export function encryptWith(key: Buffer, plaintext: string): string {
 export function decryptWith(key: Buffer, payload: string): string {
   const [version, iv, tag, ct] = payload.split(":");
   if (version !== VERSION || !iv || !tag || ct === undefined) throw new Error("Unsupported ciphertext format");
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"));
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
+  const authTag = Buffer.from(tag, "base64");
+  // A full-length tag only: GCM would otherwise accept a truncated (forgeable) tag
+  if (authTag.length !== TAG_BYTES) throw new Error("Unsupported ciphertext format");
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"), { authTagLength: TAG_BYTES });
+  decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(Buffer.from(ct, "base64")), decipher.final()]).toString("utf8");
 }
 

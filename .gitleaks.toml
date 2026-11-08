@@ -1,0 +1,31 @@
+# gitleaks config: default rules + allowlist for known test fixtures.
+# Run: npm run security:secrets  (working tree + full git history, via Docker)
+# Every allowlisted value below is a throwaway test/CI value, never used in any real environment.
+title = "CANAVO gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test and CI fixture secrets (not real credentials)"
+regexes = [
+  '''(it|ci)-(access|refresh|receipt)-secret-0123456789abcdef[0-9a-f]*''',
+  '''MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=''', # base64("0123456789abcdef0123456789abcdef")
+  '''0123456789abcdef0123456789abcdef''',
+  '''rzpKeySECRET-a1b2c3d4e5''',
+  '''abcdefghij12''',
+  '''definitely-wrong-1''',
+  '''up-secret-123456''',
+  '''whsec_test_123456''',
+  '''Delivery2026ok''',
+]
+
+[[allowlists]]
+description = "Dependencies and build output"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.next[^/]*/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.turbo/''',
+  '''package-lock\.json$''',
+]
