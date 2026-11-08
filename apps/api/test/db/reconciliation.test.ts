@@ -269,7 +269,8 @@ describe("reconciliation after a busy mixed day", () => {
           await tx.order.update({ where: { id: paid.id }, data: { refundedAmount: { increment: 1 } } }); // A04
           await tx.khataTransaction.delete({ where: { id: kh.id } }); // A07, B02
           await tx.customer.update({ where: { id: cust.id }, data: { points: { increment: 1 } } }); // B01
-          await tx.giftCard.update({ where: { id: card.id }, data: { balance: { increment: 1 } } }); // B04
+          // B04: off by 1 paisa in whichever direction the CHECKs allow (0 ≤ balance ≤ initialValue)
+          await tx.giftCard.update({ where: { id: card.id }, data: { balance: card.balance < card.initialValue ? { increment: 1 } : { decrement: 1 } } });
           await tx.customer.update({ where: { id: member.id }, data: { walletBalance: { increment: 1 } } }); // B05
           await tx.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } }); // B07
           await tx.inventoryStock.update({ where: { outletId_inventoryItemId: { outletId: stock.outletId, inventoryItemId: stock.inventoryItemId } }, data: { quantity: { increment: 0.01 } } }); // C01, C02
