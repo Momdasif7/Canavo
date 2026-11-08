@@ -37,7 +37,7 @@ export default function KhataPage() {
 
   return (
     <PageContainer>
-      <Link href="/customers" className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
+      <Link data-nav="back" href="/customers" className="mb-3 inline-flex min-h-tap items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
         <ArrowLeft size={18} /> Customers
       </Link>
       <PageHeader title="Khata" subtitle={outlet ? `Outstanding credit at ${outlet.name}` : "Outstanding credit"} />

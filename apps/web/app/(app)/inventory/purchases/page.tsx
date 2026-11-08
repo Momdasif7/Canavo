@@ -126,14 +126,7 @@ export default function PurchasesPage() {
         ) : rows.length === 0 ? (
           <EmptyState
             title={filtered ? "No purchases match these filters" : "No purchases yet"}
-            description={filtered ? undefined : "Record vendor deliveries to add stock and track what you owe."}
-            action={
-              manage && !filtered ? (
-                <Button icon={<Plus size={18} />} onClick={() => setFormTarget({ mode: "create" })}>
-                  New purchase
-                </Button>
-              ) : undefined
-            }
+            description={filtered ? undefined : manage ? "Use New purchase above to record vendor deliveries, add stock and track what you owe." : "Vendor deliveries recorded here add stock and track what you owe."}
           />
         ) : (
           <Table>

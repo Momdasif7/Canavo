@@ -294,14 +294,7 @@ export function TabPanel({
             <section aria-label="Items">
               {rounds.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">
-                  Nothing ordered yet.
-                  {s.status === "OPEN" && (
-                    <div className="mt-3">
-                      <Button size="sm" icon={<Plus size={18} />} onClick={() => setDialog("add")}>
-                        Add items
-                      </Button>
-                    </div>
-                  )}
+                  Nothing ordered yet.{s.status === "OPEN" && " Use Add items above to start the order."}
                 </div>
               ) : (
                 <div className="space-y-3">

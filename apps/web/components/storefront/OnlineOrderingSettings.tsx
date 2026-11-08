@@ -179,16 +179,13 @@ export function OnlineOrderingSettings() {
               <div className="flex gap-2">
                 <Input aria-label="Online ordering link" readOnly value={pageUrl} onFocus={(e) => e.target.select()} wrapperClassName="flex-1" />
                 <Button variant="outline" icon={<Copy size={18} />} onClick={() => void copy(pageUrl)}>
-                  Copy
+                  Copy link
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2">
                 <a href={waLink!} target="_blank" rel="noreferrer" className="inline-flex min-h-tap items-center gap-2 rounded-xl bg-[#25D366] px-4 font-semibold text-white hover:opacity-90">
                   <WhatsappLogo size={20} weight="fill" /> Share &quot;Order now&quot; on WhatsApp
                 </a>
-                <Button variant="outline" icon={<Copy size={18} />} onClick={() => void copy(waText)}>
-                  Copy message
-                </Button>
                 <Button variant="outline" icon={<Printer size={18} />} onClick={() => window.print()}>
                   Print poster
                 </Button>

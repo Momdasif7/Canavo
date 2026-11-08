@@ -29,6 +29,7 @@ export default function TableQrCodesPage() {
     <PageContainer>
       <PageHeader
         title="Table QR codes"
+        back={{ href: "/tables", label: "Tables" }}
         subtitle="Print and stick one on each table. Guests scan it to see the menu, order and call a waiter."
         actions={
           <Button icon={<Printer size={20} />} onClick={() => window.print()} disabled={!q.data?.length}>

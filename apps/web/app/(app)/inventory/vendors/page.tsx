@@ -88,13 +88,7 @@ export default function VendorsPage() {
         ) : list.length === 0 ? (
           <EmptyState
             title={q ? "No vendors match" : "No vendors yet"}
-            action={
-              manage && !q ? (
-                <Button icon={<Plus size={18} />} onClick={() => setEditing(undefined)}>
-                  Add vendor
-                </Button>
-              ) : undefined
-            }
+            description={!q && manage ? "Use Add vendor above to add a supplier." : undefined}
           />
         ) : (
           <Table>
