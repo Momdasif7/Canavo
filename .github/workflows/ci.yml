@@ -1,13 +1,71 @@
 name: CI
 
+# Every PR (and main): build, lint, typecheck, unit (root + mobile), integration / API / DB suites on a real
+# Postgres (+ Redis for the Socket.io adapter test), web E2E journeys, security scans and a k6 smoke.
+# The regression pack and its tags are described in docs/qa/REGRESSION.md.
 on:
   push:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22
+  JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdef0123456789
+  JWT_REFRESH_SECRET: ci-refresh-secret-0123456789abcdef012345678
+  RECEIPT_LINK_SECRET: ci-receipt-secret-0123456789abcdef01234567
+  DATA_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+
 jobs:
+  # ---------------------------------------------------------------- build, lint, typecheck, unit (@smoke)
   build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo?schema=public
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @canavo/shared
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Unit tests (shared + api) — @smoke pack
+        run: npm test
+      - run: npm run build
+
+  # ---------------------------------------------------------------- mobile (Expo): typecheck + jest
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+      - run: npm ci && npm run build -w @canavo/shared
+      - run: npm ci
+        working-directory: apps/mobile
+      - run: npx tsc --noEmit
+        working-directory: apps/mobile
+      - run: npx jest --ci
+        working-directory: apps/mobile
+
+  # ---------------------------------------------------------------- integration + API + DB suites (@critical ⊂ these)
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16-alpine
@@ -25,41 +83,144 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo?schema=public
-      JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdef0123456789
-      JWT_REFRESH_SECRET: ci-refresh-secret-0123456789abcdef012345678
-      RECEIPT_LINK_SECRET: ci-receipt-secret-0123456789abcdef01234567
-      NEXT_PUBLIC_API_URL: http://localhost:4000
+      # Migrations run as the owner; the app connects as a NON-superuser so row-level security is enforced.
+      IT_DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo_it?schema=public
+      IT_APP_DATABASE_URL: postgresql://canavo_app_it:canavo_app_it@localhost:5432/canavo_it?schema=public
+      IT_REDIS_URL: redis://localhost:6379
+      WHATSAPP_META_BASE_URL: http://127.0.0.1:4999
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - run: npm run build -w @canavo/shared
-      - run: npm run lint
-      - run: npm test
-      - run: npm run typecheck
-      - run: npx prisma migrate deploy
+      - name: Migrations apply cleanly on an empty database
+        run: npx prisma migrate deploy
         working-directory: apps/api
-      # Real-Postgres integration suite: runs as a NON-superuser role so row-level security is enforced;
-      # covers RLS, outbox crash recovery, pg-boss double-run, idempotency, atomic tab split, Redis adapter.
-      - run: npm run test:integration -w @canavo/api
-        env:
-          IT_DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo_it?schema=public
-          IT_APP_DATABASE_URL: postgresql://canavo_app_it:canavo_app_it@localhost:5432/canavo_it?schema=public
-          IT_REDIS_URL: redis://localhost:6379
-      - run: npm run build
+      - name: Integration suite (RLS, outbox, pg-boss, idempotency, tab split, Redis adapter, …)
+        run: npm run test:integration -w @canavo/api
+      - name: API suite (every route, auth sweep, contract)
+        run: npm run test:api -w @canavo/api
+      - name: Database suite (backup/restore, reconciliation, tenant integrity, concurrency, pool)
+        run: npm run test:db -w @canavo/api
 
-  mobile-typecheck:
+  # ---------------------------------------------------------------- web E2E (plain playwright, NOT a repo dependency)
+  e2e-web:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: canavo
+          POSTGRES_PASSWORD: canavo
+          POSTGRES_DB: canavo_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U canavo" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo_e2e?schema=public
+      PGPASSWORD: canavo
+      PORT: 4180
+      CORS_ORIGINS: http://localhost:3280
+      PUBLIC_API_URL: http://localhost:4180
+      WEB_APP_URL: http://localhost:3280
+      NEXT_PUBLIC_API_URL: http://localhost:4180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm ci && npm run build -w @canavo/shared
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - run: npm ci
-        working-directory: apps/mobile
-      - run: npx tsc --noEmit
-        working-directory: apps/mobile
+      - run: npm run build -w @canavo/shared
+      - name: Scratch database (migrate + demo seed + demo modules / online page)
+        working-directory: apps/api
+        run: |
+          npx prisma migrate deploy
+          npm run seed
+          psql -h localhost -U canavo -d canavo_e2e -v ON_ERROR_STOP=1 \
+            -c "update \"Business\" set modules = modules || '{CANTEEN,CHANNELS,THEATRE}' where id='biz_demo'" \
+            -c "update \"Outlet\" set \"publicSlug\"='demo', storefront='{\"onlineOrdering\":true,\"qrOrdering\":true,\"onlineNeedsConfirmation\":false}'"
+      - name: Build API + web
+        run: npm run build -w @canavo/api && npm run build -w @canavo/web
+      - name: Start API (4180) and web (3280)
+        run: |
+          (cd apps/api && nohup node dist/index.js > "$RUNNER_TEMP/api.log" 2>&1 &)
+          (cd apps/web && nohup npx next start -p 3280 > "$RUNNER_TEMP/web.log" 2>&1 &)
+          npx --yes wait-on@8.0.1 -t 120000 http://localhost:4180/ready http://localhost:3280
+      - name: Install playwright OUTSIDE the repo (product-owner rule — never a repo dependency)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y > /dev/null
+          npm i --no-save playwright axe-core pngjs pixelmatch@5
+          npx playwright install --with-deps chromium firefox webkit
+      - name: Web E2E suites
+        env:
+          PW_PATH: ${{ runner.temp }}/pw/node_modules/playwright
+          OUT_DIR: ${{ runner.temp }}/e2e-out
+          CHROME_CHANNEL: ""
+          # visual baselines are macOS Chrome screenshots: pixel diffs on Linux runners are not meaningful.
+          SUITES: journeys,browsers,network,a11y,robust
+        run: node apps/web/scripts/qa/e2e/run.cjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-web
+          path: |
+            ${{ runner.temp }}/e2e-out
+            ${{ runner.temp }}/api.log
+            ${{ runner.temp }}/web.log
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------- k6 smoke (short profile, not a load test)
+  k6-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: canavo
+          POSTGRES_PASSWORD: canavo
+          POSTGRES_DB: canavo_k6
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U canavo" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://canavo:canavo@localhost:5432/canavo_k6?schema=public&connection_limit=10
+      PORT: 4000
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @canavo/shared && npm run build -w @canavo/api
+      - working-directory: apps/api
+        run: npx prisma migrate deploy && npm run seed
+      - name: Start API
+        run: |
+          (cd apps/api && nohup node dist/index.js > "$RUNNER_TEMP/api.log" 2>&1 &)
+          npx --yes wait-on@8.0.1 -t 60000 http://localhost:4000/ready
+      - name: k6 smoke (5 VUs × 30 s; p95 < 500 ms, errors < 1 %)
+        run: docker run --rm --network host -v "$PWD/apps/api/perf/k6:/s" -w /s -e BASE_URL=http://localhost:4000 grafana/k6:0.54.0 run smoke.js
+      - if: failure()
+        run: tail -n 200 "$RUNNER_TEMP/api.log"
+
+  # ---------------------------------------------------------------- security scans (Docker: gitleaks + semgrep)
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans the full history
+      - name: Secret scan (gitleaks, tree + history)
+        run: npm run security:secrets
+      - name: SAST (semgrep)
+        run: npm run security:sast
