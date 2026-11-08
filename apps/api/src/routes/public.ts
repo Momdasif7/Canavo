@@ -5,9 +5,10 @@ import { env } from "../env";
 import { badRequest, notFound, param, unauthorized } from "../lib/http";
 import { buildReceipt, getOrder, settleIfPaid } from "../services/billing";
 import { renderReceiptPdf } from "../services/pdf";
-import { verifyWebhookSignature } from "../services/razorpay";
+import { hasOwnRazorpay, verifyWebhookSignature } from "../services/razorpay";
 import { emitToOutlet } from "../realtime";
-import { runForOutlet } from "../lib/tenant";
+import { runForBusiness, runForOutlet } from "../lib/tenant";
+import { decrypt } from "../lib/crypto";
 import { alertPaymentReceived } from "../services/alerts";
 import { notify, outletManagers } from "../services/notify";
 
@@ -38,30 +39,67 @@ interface RazorpayQrWebhook {
   };
 }
 
+/** Which account a webhook delivery came through: one store's own Razorpay, or the platform's shared account. */
+type WebhookScope = { businessId: string } | { platform: true };
+
 /**
- * Razorpay webhook. Must receive the raw body for signature verification, so
- * it is mounted before the JSON body parser.
+ * Per-store Razorpay webhook (Settings → Integrations → Razorpay shows the URL). The unguessable key picks
+ * the store; the signature is checked with THAT store's webhook secret; payments and refunds are looked up
+ * inside that store only (row-level security), so store A's webhook can never settle store B's bills.
+ * Mounted before the JSON body parser: the signature covers the raw body.
+ */
+publicRouter.post("/webhooks/razorpay/:businessKey", express.raw({ type: "application/json" }), async (req, res) => {
+  const key = param(req, "businessKey");
+  const integration = /^[A-Za-z0-9_-]{20,64}$/.test(key)
+    ? await platformPrisma.businessIntegration.findUnique({ where: { webhookKey: key }, select: { businessId: true, kind: true, enabled: true, secrets: true } })
+    : null;
+  let secret = "";
+  const enc = (integration?.secrets as { webhookSecret?: string } | null)?.webhookSecret;
+  if (integration?.kind === "RAZORPAY" && integration.enabled && enc) {
+    try {
+      secret = decrypt(enc);
+    } catch {
+      secret = "";
+    }
+  }
+  // Unknown key, disabled store or no webhook secret: the same answer as a bad signature (no probing).
+  if (!Buffer.isBuffer(req.body) || !verifyWebhookSignature(req.body, req.header("x-razorpay-signature"), secret)) throw unauthorized("Bad signature");
+  res.json(await handleRazorpayEvent(req.body, { businessId: integration!.businessId }));
+});
+
+/**
+ * The platform's own Razorpay account (env RAZORPAY_WEBHOOK_SECRET), kept for stores that collect through
+ * the shared account (RAZORPAY_SHARED_ACCOUNT) and for QR codes created before a store added its own keys.
+ * It never settles payments of a store that has its own Razorpay account.
  */
 publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }), async (req, res) => {
   // express.raw only fills a Buffer for JSON bodies; anything else can't carry a valid signature.
-  if (!Buffer.isBuffer(req.body) || !verifyWebhookSignature(req.body, req.header("x-razorpay-signature"))) throw unauthorized("Bad signature");
+  if (!Buffer.isBuffer(req.body) || !verifyWebhookSignature(req.body, req.header("x-razorpay-signature"), env.RAZORPAY_WEBHOOK_SECRET)) throw unauthorized("Bad signature");
+  res.json(await handleRazorpayEvent(req.body, { platform: true }));
+});
+
+async function handleRazorpayEvent(raw: Buffer, scope: WebhookScope) {
   let event: RazorpayQrWebhook;
   try {
-    event = JSON.parse(req.body.toString("utf8")) as RazorpayQrWebhook;
+    event = JSON.parse(raw.toString("utf8")) as RazorpayQrWebhook;
   } catch {
     throw badRequest("Body is not JSON");
   }
   if (!event || typeof event !== "object" || typeof event.event !== "string") throw badRequest("Not a Razorpay event");
-  if (event.event === "refund.processed" || event.event === "refund.failed") return res.json(await refundEvent(event));
-  if (event.event !== "qr_code.credited") return res.json({ ignored: event.event });
+  if (event.event === "refund.processed" || event.event === "refund.failed") return refundEvent(event, scope);
+  if (event.event !== "qr_code.credited") return { ignored: event.event };
 
-  const qrId = event.payload.qr_code?.entity.id;
-  const rzpPayment = event.payload.payment?.entity;
-  if (!qrId || !rzpPayment) return res.json({ ignored: "missing payload" });
+  const qrId = event.payload?.qr_code?.entity?.id;
+  const rzpPayment = event.payload?.payment?.entity;
+  if (!qrId || !rzpPayment) return { ignored: "missing payload" };
 
-  const payment = await prisma.payment.findUnique({ where: { gatewayRef: qrId }, include: { order: true } });
-  if (!payment) return res.json({ ignored: "unknown qr" });
-  if (payment.status === "SUCCESS") return res.json({ ok: true, duplicate: true });
+  // A store's webhook looks only inside that store (RLS); the platform webhook looks everywhere, then
+  // refuses stores that use their own account.
+  const find = () => prisma.payment.findUnique({ where: { gatewayRef: qrId }, include: { order: { include: { outlet: { select: { businessId: true } } } } } });
+  const payment = "businessId" in scope ? await runForBusiness(scope.businessId, find) : await find();
+  if (!payment || ("businessId" in scope && payment.order.outlet.businessId !== scope.businessId)) return { ignored: "unknown qr" };
+  if ("platform" in scope && (await hasOwnRazorpay(payment.order.outlet.businessId))) return { ignored: "store uses its own Razorpay account" };
+  if (payment.status === "SUCCESS") return { ok: true, duplicate: true };
 
   // Webhooks arrive without a login: act inside the order's business.
   const paid = await runForOutlet(payment.order.outletId, () => prisma.$transaction(async (tx) => {
@@ -78,7 +116,7 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
         action: "payment.webhook",
         entity: "Payment",
         entityId: payment.id,
-        meta: { razorpayPaymentId: rzpPayment.id, amount: rzpPayment.amount },
+        meta: { razorpayPaymentId: rzpPayment.id, amount: rzpPayment.amount, account: "businessId" in scope ? "store" : "platform" },
       },
     });
     // Capture the payer's phone before settling so loyalty credits this customer.
@@ -88,20 +126,22 @@ publicRouter.post("/webhooks/razorpay", express.raw({ type: "application/json" }
     }
     return settleIfPaid(payment.orderId, tx);
   }));
-  if (paid === "duplicate") return res.json({ ok: true, duplicate: true });
+  if (paid === "duplicate") return { ok: true, duplicate: true };
 
   emitToOutlet(payment.order.outletId, "payment:confirmed", { orderId: payment.orderId, paymentId: payment.id, paid });
   void runForOutlet(payment.order.outletId, () => alertPaymentReceived(payment.order.outletId, payment.orderId, rzpPayment.amount));
   if (paid) emitToOutlet(payment.order.outletId, "order:paid", { id: payment.orderId, invoiceNumber: payment.order.invoiceNumber });
-  res.json({ ok: true });
-});
+  return { ok: true };
+}
 
 /** Razorpay refund outcome for an online order refunded automatically (Phase 6 follow-up). */
-async function refundEvent(event: RazorpayQrWebhook) {
-  const refund = event.payload.refund?.entity;
+async function refundEvent(event: RazorpayQrWebhook, scope: WebhookScope) {
+  const refund = event.payload?.refund?.entity;
   if (!refund?.id) return { ignored: "missing payload" };
-  const request = await platformPrisma.channelRequest.findFirst({ where: { refundRef: { contains: refund.id } } });
+  const request = await platformPrisma.channelRequest.findFirst({ where: { refundRef: { contains: refund.id } }, include: { outlet: { select: { businessId: true } } } });
   if (!request) return { ignored: "unknown refund" };
+  const businessId = request.outlet.businessId;
+  if ("businessId" in scope ? businessId !== scope.businessId : await hasOwnRazorpay(businessId)) return { ignored: "unknown refund" };
   const status = event.event === "refund.processed" ? "PROCESSED" : "FAILED";
   if (request.refundStatus === status) return { ok: true, duplicate: true };
   await runForOutlet(request.outletId, async () => {

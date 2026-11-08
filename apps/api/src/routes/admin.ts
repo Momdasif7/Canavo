@@ -24,7 +24,8 @@ import { addDays, isValidYmd as isRealDate, startOfLocalDay } from "../lib/time"
 import { authenticate, requireBusiness, requireOutlet, requirePermission, userCan } from "../middleware/auth";
 import { ipAllowed, normalizeIp, superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { sendSchedule } from "../services/report-schedules";
-import { DEFAULT_TEMPLATES, encryptSecret, getStoredConfig, getWaConfig, sendWhatsApp, WA_PURPOSES, WA_SETTING_KEY, type StoredWaConfig, type WaPurpose } from "../services/whatsapp";
+import { DEFAULT_TEMPLATES, getWaConfig, getWaIntegration, sendWhatsApp } from "../services/whatsapp";
+import { saveWhatsApp } from "./integrations";
 import { assertBackupExists, createBackup, listBackups, restoreBackup, streamExport, tableCounts } from "../services/backup";
 
 export const adminRouter = Router();
@@ -267,6 +268,11 @@ async function staffInScope(req: Request) {
   return user;
 }
 
+const noSupportMw = (req: Request, _res: Response, next: NextFunction) => {
+  if (req.support) throw forbidden("Not available in a support view");
+  next();
+};
+
 /** Aadhaar is never shown in a support view, even read-only (Phase 2.4). */
 function noSupport(req: Request) {
   if (req.support) throw forbidden("Staff Aadhaar isn't available in a support view");
@@ -366,36 +372,15 @@ adminRouter.post("/aadhaar/reduce-to-last4", requirePermission("outlet:manage"),
 });
 
 // =====================================================================
-// WhatsApp (per business): provider, keys (encrypted), templates, test send
+// WhatsApp (per business) — older endpoints kept for existing clients; the setup now lives in
+// Settings → Integrations (/integrations/whatsapp) and is owner-only like every integration.
 // =====================================================================
-
-const waTemplatesSchema = z.object(Object.fromEntries(WA_PURPOSES.map((p) => [p, z.string().trim().max(512).optional()])) as Record<WaPurpose, z.ZodOptional<z.ZodString>>);
-const waConfigSchema = z.object({
-  provider: z.enum(["NONE", "META", "WATI"]),
-  meta: z
-    .object({
-      phoneNumberId: z.string().trim().regex(/^\d{6,20}$/, "Phone number ID is the numeric id from Meta's WhatsApp → API setup page"),
-      /** Omit to keep the saved token */
-      accessToken: z.string().trim().min(20).max(1024).optional(),
-      language: z.string().trim().regex(/^[a-z]{2}(_[A-Z]{2})?$/, "Template language code, e.g. en or en_US").default("en"),
-    })
-    .optional(),
-  wati: z
-    .object({
-      apiUrl: z.string().trim().url().refine((u) => u.startsWith("https://"), "WATI API URL must start with https://"),
-      token: z.string().trim().min(10).max(2048).optional(),
-    })
-    .optional(),
-  templates: waTemplatesSchema.optional(),
-  autoDeliveryUpdates: z.boolean().default(false),
-  staffAlerts: z.boolean().default(false),
-});
 
 const last4 = (s: string) => (s ? `••••${s.slice(-4)}` : null);
 
 /** Masked view of the business's WhatsApp setup (tokens are never returned). */
-adminRouter.get("/whatsapp", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
-  const stored = await getStoredConfig(req.businessId!);
+adminRouter.get("/whatsapp", requirePermission("outlet:manage"), requireBusiness, noSupportMw, async (req, res) => {
+  const { stored } = await getWaIntegration(req.businessId!);
   const cfg = await getWaConfig(req.businessId!);
   res.json({
     provider: stored?.provider ?? (cfg.fromEnv ? "WATI" : "NONE"),
@@ -409,45 +394,13 @@ adminRouter.get("/whatsapp", requirePermission("settings:outlet"), requireBusine
   });
 });
 
-adminRouter.put("/whatsapp", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
-  const data = parse(waConfigSchema, req.body);
-  const prev = await getStoredConfig(req.businessId!);
-  if (data.provider === "META") {
-    if (!data.meta) throw badRequest("Enter the Meta phone number ID and access token");
-    if (!data.meta.accessToken && !prev?.meta?.accessTokenEnc) throw badRequest("Enter the Meta access token");
-  }
-  if (data.provider === "WATI") {
-    if (!data.wati) throw badRequest("Enter the WATI API URL and token");
-    if (!data.wati.token && !prev?.wati?.tokenEnc) throw badRequest("Enter the WATI API token");
-  }
-  const templates = Object.fromEntries(Object.entries(data.templates ?? {}).filter(([, v]) => v)) as Partial<Record<WaPurpose, string>>;
-  const value: StoredWaConfig = {
-    provider: data.provider,
-    meta: data.meta
-      ? { phoneNumberId: data.meta.phoneNumberId, language: data.meta.language, accessTokenEnc: data.meta.accessToken ? encryptSecret(data.meta.accessToken) : prev?.meta?.accessTokenEnc }
-      : prev?.meta,
-    wati: data.wati ? { apiUrl: data.wati.apiUrl, tokenEnc: data.wati.token ? encryptSecret(data.wati.token) : prev?.wati?.tokenEnc } : prev?.wati,
-    templates,
-    autoDeliveryUpdates: data.autoDeliveryUpdates,
-    staffAlerts: data.staffAlerts,
-  };
-  await prisma.setting.upsert({
-    where: { scope_key: { scope: req.businessId!, key: WA_SETTING_KEY } },
-    create: { scope: req.businessId!, key: WA_SETTING_KEY, value: value as unknown as Prisma.InputJsonValue },
-    update: { value: value as unknown as Prisma.InputJsonValue },
-  });
-  // Audit without secrets
-  await audit(req, "whatsapp.config", "Setting", WA_SETTING_KEY, {
-    provider: data.provider,
-    tokenChanged: Boolean(data.meta?.accessToken || data.wati?.token),
-    autoDeliveryUpdates: data.autoDeliveryUpdates,
-    staffAlerts: data.staffAlerts,
-  });
+adminRouter.put("/whatsapp", requirePermission("outlet:manage"), requireBusiness, noSupportMw, async (req, res) => {
+  await saveWhatsApp(req, req.body);
   res.json({ ok: true });
 });
 
 /** Send a test message through the saved provider (uses the "test" template, default hello_world). */
-adminRouter.post("/whatsapp/test", requirePermission("settings:outlet"), requireBusiness, async (req, res) => {
+adminRouter.post("/whatsapp/test", requirePermission("outlet:manage"), requireBusiness, noSupportMw, async (req, res) => {
   const { phone } = parse(z.object({ phone: z.string().trim().regex(/^(\+?91)?[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number") }), req.body);
   const result = await sendWhatsApp({
     to: phone.slice(-10),
@@ -456,6 +409,6 @@ adminRouter.post("/whatsapp/test", requirePermission("settings:outlet"), require
     tag: "canavo_test",
     params: [{ name: "message", value: "WhatsApp is connected" }],
   });
-  await audit(req, "whatsapp.test", "Setting", WA_SETTING_KEY, { provider: result.provider, method: result.method, error: result.error });
+  await audit(req, "whatsapp.test", "BusinessIntegration", "WHATSAPP", { provider: result.provider, method: result.method, error: result.error });
   res.json(result);
 });

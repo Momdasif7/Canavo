@@ -2,16 +2,16 @@
 
 import { PageContainer, PageHeader } from "@/components/layout/PageHeader";
 import { SettingsTabs } from "@/components/settings/SettingsTabs";
-import { WhatsAppSettingsCard } from "@/components/settings/WhatsAppSettingsCard";
+import { WhatsAppTemplates } from "@/components/settings/WhatsAppTemplates";
 
-/** Settings → WhatsApp (settings:outlet; the route guard checks the nav entry). */
-export default function WhatsAppSettingsPage() {
+/** Settings → WhatsApp templates (settings:outlet reads; the owner edits). Provider and keys are under Integrations. */
+export default function WhatsAppTemplatesPage() {
   return (
     <PageContainer>
       <PageHeader title="Settings" />
       <SettingsTabs />
       <div className="max-w-5xl">
-        <WhatsAppSettingsCard />
+        <WhatsAppTemplates />
       </div>
     </PageContainer>
   );

@@ -38,7 +38,7 @@ async function settingsView(outletId: string) {
     outletName: outlet.name,
     deliveryAvailable: moduleEnabled("DELIVERY") && outlet.deliveryEnabled,
     tablesAvailable: moduleEnabled("TABLES"),
-    upiReady: razorpayEnabled() || Boolean(outlet.upiVpa),
+    upiReady: (await razorpayEnabled()) || Boolean(outlet.upiVpa),
   };
 }
 

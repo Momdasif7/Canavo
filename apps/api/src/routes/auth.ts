@@ -121,7 +121,7 @@ authRouter.post("/otp/request", async (req, res) => {
   await prisma.otpCode.create({
     data: { phone, codeHash: sha256(`${phone}:${code}`), expiresAt: new Date(Date.now() + OTP_TTL_MS) },
   });
-  const sent = await sendOtpSms(phone, code);
+  const sent = await sendOtpSms(phone, code, { scope: "platform" });
   if (!sent && !isProd) response.devCode = code;
   res.json(response);
 });

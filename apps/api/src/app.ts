@@ -29,6 +29,7 @@ import { deliveryRouter } from "./routes/delivery";
 import { customersRouter } from "./routes/customers";
 import { offersRouter } from "./routes/offers";
 import { adminRouter } from "./routes/admin";
+import { integrationsRouter } from "./routes/integrations";
 import { uploadsRouter } from "./routes/uploads";
 import { platformRouter } from "./routes/platform";
 import { taxRatesRouter } from "./routes/tax-rates";
@@ -103,6 +104,7 @@ export function createApp() {
   app.use("/customers", customersRouter);
   app.use("/offers", offersRouter);
   app.use("/admin", adminRouter);
+  app.use("/integrations", integrationsRouter);
   app.use("/uploads", uploadsRouter);
   app.use("/platform", platformRouter);
   app.use("/tax-rates", taxRatesRouter);

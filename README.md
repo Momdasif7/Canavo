@@ -155,19 +155,36 @@ Super Admin (platform operator)   — /platform console: onboard businesses, pic
 
 ## Integrations
 
-Everything is optional in development. Configure in `apps/api/.env`:
+**Per store, in the app (Settings → Integrations, owner only).** Each business connects its own accounts — no `.env`
+change and no redeploy per store:
+
+| Integration | What the owner enters | Used for | Without it |
+|---|---|---|---|
+| Razorpay | Key ID, key secret, webhook secret (+ pastes the store's own webhook URL into Razorpay) | Counter / delivery UPI QR, online-order payments, automatic UPI refunds | Platform shared account if `RAZORPAY_SHARED_ACCOUNT=true`, else a plain `upi://pay` QR for the outlet's UPI ID that the cashier confirms |
+| Email (SMTP) | Server, port, user, password, from address / name | Scheduled reports, email notifications | Platform `SMTP_*`, else written to `apps/api/storage/outbox` |
+| SMS (MSG91) | Auth key, DLT sender ID, OTP and alert flow template IDs | Customer OTP on the store's online-ordering page, staff SMS alerts | Platform `MSG91_*`, else logged |
+| WhatsApp | Meta Cloud API (phone number ID + token) or WATI (URL + token), automatic messages | Receipts, khata reminders, wishes, delivery updates, staff alerts | Platform `WATI_*`, else `wa.me` click-to-chat links |
+
+Secrets are encrypted with `DATA_ENCRYPTION_KEY` (AES-256-GCM), write-only (only "configured" and the last 4 characters
+are ever shown), never logged, audited only by field name, left out of the owner's data export, and invisible to the
+Super Admin, platform support and support views. Each integration has a **Test connection** button (rate limited).
+Template names, languages, the variables CANAVO sends, a preview and a test send per message type are in
+**Settings → WhatsApp templates** — template *text* is written and approved in Meta WhatsApp Manager.
+
+**Platform-level, in `apps/api/.env`** (everything optional in development):
 
 | Service | Variables | Without them |
 |---|---|---|
-| MSG91 (OTP, SMS alerts) | `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, `MSG91_ALERT_TEMPLATE_ID` | OTP/SMS logged; OTP returned as `devCode` |
-| Razorpay UPI QR | `RAZORPAY_KEY_ID/SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Plain `upi://pay` QR; cashier confirms, or the dev "simulate" endpoint |
-| WhatsApp (WATI) | `WATI_API_URL`, `WATI_API_TOKEN` | `wa.me` click-to-chat links |
+| Platform SMS (staff login OTP, password links, fallback) | `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, `MSG91_ALERT_TEMPLATE_ID` | OTP/SMS logged; OTP returned as `devCode` |
+| Platform Razorpay account (only with `RAZORPAY_SHARED_ACCOUNT=true`) | `RAZORPAY_KEY_ID/SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Stores without their own keys get a plain UPI QR |
+| Platform WhatsApp fallback (WATI) | `WATI_API_URL`, `WATI_API_TOKEN` | `wa.me` click-to-chat links |
 | Cloudinary | `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET` | Images stored under `apps/api/storage/uploads` |
-| SMTP email | `SMTP_HOST/PORT/USER/PASS/FROM` | Emails written to `apps/api/storage/outbox` |
+| Platform SMTP (password links, platform alerts, fallback) | `SMTP_HOST/PORT/USER/PASS/FROM` | Emails written to `apps/api/storage/outbox` |
 | Expo push | `EXPO_ACCESS_TOKEN` (optional) | Push sent without an access token |
-| PII encryption | `DATA_ENCRYPTION_KEY` | Dev derives a key (warning); **required in production** |
+| Encryption of PII and store secrets | `DATA_ENCRYPTION_KEY` | Dev derives a key (warning); **required in production** |
 
-Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/razorpay`.
+Razorpay webhooks: each store pastes its own URL `POST {PUBLIC_API_URL}/webhooks/razorpay/<store key>` (shown on its
+Integrations page). `POST {PUBLIC_API_URL}/webhooks/razorpay` remains for the platform's own account.
 
 ## Key behaviours
 
@@ -184,9 +201,9 @@ Razorpay webhook: point `qr_code.credited` at `POST {PUBLIC_API_URL}/webhooks/ra
   - A summary strip shows collected money per mode, counting only successful payments. Export to Excel with the same filters.
   - Filters are kept in the URL.
 - **Hotel branding:** for hotel users the sidebar shows the hotel's uploaded logo (Settings → logo) and business name, with initials when there's no logo. The platform console keeps the CANAVO branding.
-- **WhatsApp** (Settings → WhatsApp, per hotel):
+- **WhatsApp** (Settings → Integrations → WhatsApp and Settings → WhatsApp templates, per hotel):
   - Choose the Meta WhatsApp Cloud API, WATI or none. Tokens are stored encrypted, masked when read back, and never logged.
-  - Approved template names are set per message type (receipt, khata reminder, birthday, anniversary, delivery update, staff alert, test), and there's a test-message button.
+  - Per message type (receipt, khata reminder, birthday, anniversary, delivery update, staff alert, test): approved template name and language, the variables CANAVO sends in order with sample values, a rendered preview, and a "Send test" button. The page explains, step by step, how to create / edit the template text in Meta WhatsApp Manager.
   - Optional automatic delivery updates to customers and staff alerts.
   - Every send falls back to a wa.me click-to-chat link when no provider is set or the provider fails.
 - **Menu bulk upload** (Menu → Bulk upload):

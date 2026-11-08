@@ -325,7 +325,7 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
   let fakeBase = "";
   const calls: { method: string; path: string; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
   let refundReply: { status: number; body: object } = { status: 200, body: { id: "rfnd_TEST1", status: "processed" } };
-  const saved = { id: env.RAZORPAY_KEY_ID, secret: env.RAZORPAY_KEY_SECRET, hook: env.RAZORPAY_WEBHOOK_SECRET, base: env.RAZORPAY_BASE_URL };
+  const saved = { id: env.RAZORPAY_KEY_ID, secret: env.RAZORPAY_KEY_SECRET, hook: env.RAZORPAY_WEBHOOK_SECRET, base: env.RAZORPAY_BASE_URL, shared: env.RAZORPAY_SHARED_ACCOUNT };
   let qrSeq = 0;
 
   beforeAll(async () => {
@@ -349,12 +349,13 @@ describe("UPI refunds when an online order is rejected or cancelled", () => {
     await settings({ upiPrepaid: true, onlineNeedsConfirmation: true });
   });
   afterAll(async () => {
-    Object.assign(env, { RAZORPAY_KEY_ID: saved.id, RAZORPAY_KEY_SECRET: saved.secret, RAZORPAY_WEBHOOK_SECRET: saved.hook, RAZORPAY_BASE_URL: saved.base });
+    Object.assign(env, { RAZORPAY_KEY_ID: saved.id, RAZORPAY_KEY_SECRET: saved.secret, RAZORPAY_WEBHOOK_SECRET: saved.hook, RAZORPAY_BASE_URL: saved.base, RAZORPAY_SHARED_ACCOUNT: saved.shared });
     await settings({ upiPrepaid: false, onlineNeedsConfirmation: true });
     await new Promise<void>((r) => fake.close(() => r()));
   });
 
-  const useRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: "rzp_test_fake", RAZORPAY_KEY_SECRET: "fake_secret", RAZORPAY_WEBHOOK_SECRET: "whsec_fake", RAZORPAY_BASE_URL: fakeBase });
+  // The platform's own account, shared with stores that have no keys of their own (RAZORPAY_SHARED_ACCOUNT).
+  const useRazorpay = () => Object.assign(env, { RAZORPAY_SHARED_ACCOUNT: true, RAZORPAY_KEY_ID: "rzp_test_fake", RAZORPAY_KEY_SECRET: "fake_secret", RAZORPAY_WEBHOOK_SECRET: "whsec_fake", RAZORPAY_BASE_URL: fakeBase });
   const noRazorpay = () => Object.assign(env, { RAZORPAY_KEY_ID: undefined, RAZORPAY_KEY_SECRET: undefined, RAZORPAY_BASE_URL: fakeBase });
 
   async function webhook(event: object) {

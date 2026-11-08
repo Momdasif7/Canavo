@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Globe, ShieldWarning, Storefront } from "@phosphor-icons/react";
 import type { SettingKey } from "@canavo/shared";
 import { api } from "@/lib/api";
@@ -14,9 +15,9 @@ import {
   LeadMinutesEditor,
   NotificationPrefsEditor,
   PrinterDefaultsEditor,
-  WhatsappTemplatesEditor,
 } from "@/components/admin/settings/editors";
 import { Segmented } from "@/components/ui/Segmented";
+import { Card, CardHeader } from "@/components/ui/Card";
 import { Alert, ErrorState, LoadingState } from "@/components/ui/States";
 
 export default function SystemSettingsPage() {
@@ -121,14 +122,16 @@ export default function SystemSettingsPage() {
               defaults={def("service.preOrderLeadMinutes")}
               render={(p) => <LeadMinutesEditor {...p} />}
             />
-            <SettingCard
-              settingKey="whatsapp.templates"
-              scope={scope}
-              title="WhatsApp templates"
-              readOnly={readOnly}
-              defaults={def("whatsapp.templates")}
-              render={(p) => <WhatsappTemplatesEditor {...p} />}
-            />
+            {!platformAdmin && (
+              <Card>
+                <CardHeader title="WhatsApp templates" subtitle="Moved: each business sets its template names, languages and previews in Settings → WhatsApp templates." />
+                <div className="p-5">
+                  <Link href="/settings/whatsapp" className="font-semibold text-primary underline">
+                    Open WhatsApp templates
+                  </Link>
+                </div>
+              </Card>
+            )}
           </div>
           {platformAdmin && globalOnly.includes("security.ipWhitelist") && (
             <div className="xl:col-span-2">

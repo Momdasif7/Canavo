@@ -2269,7 +2269,7 @@
           "name": "POST /webhooks/razorpay",
           "request": {
             "method": "POST",
-            "description": "Razorpay qr_code.credited webhook",
+            "description": "Razorpay webhook for the platform's own account (RAZORPAY_WEBHOOK_SECRET); never settles payments of stores with their own Razorpay keys",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/webhooks/razorpay",
@@ -2279,6 +2279,25 @@
               "path": [
                 "webhooks",
                 "razorpay"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /webhooks/razorpay/{businessKey}",
+          "request": {
+            "method": "POST",
+            "description": "Per-store Razorpay webhook (URL shown in Settings → Integrations): signature checked with that store's webhook secret; only that store's payments / refunds",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/razorpay/:businessKey",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "razorpay",
+                ":businessKey"
               ]
             }
           }
@@ -9709,7 +9728,7 @@
           "name": "GET /admin/whatsapp",
           "request": {
             "method": "GET",
-            "description": "Masked view of the business's WhatsApp setup (tokens are never returned).",
+            "description": "Older endpoint (owner): masked view of the business's WhatsApp setup (tokens are never returned). Prefer GET /integrations/whatsapp.",
             "header": [
               {
                 "key": "Authorization",
@@ -9736,7 +9755,7 @@
           "name": "PUT /admin/whatsapp",
           "request": {
             "method": "PUT",
-            "description": "Save the business's WhatsApp provider settings. Body validated by waConfigSchema (route-local)",
+            "description": "Older endpoint (owner): save the WhatsApp provider settings. Prefer PUT /integrations/whatsapp. Body validated by waConfigSchema (route-local)",
             "header": [
               {
                 "key": "Authorization",
@@ -9763,7 +9782,7 @@
           "name": "POST /admin/whatsapp/test",
           "request": {
             "method": "POST",
-            "description": "Send a test message through the saved provider (uses the \"test\" template, default hello_world).",
+            "description": "Older endpoint (owner): send a test message through the saved provider (\"test\" template, default hello_world).",
             "header": [
               {
                 "key": "Authorization",
@@ -11368,6 +11387,260 @@
                 "payments",
                 ":paymentId",
                 "dev-simulate"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "GET /integrations",
+          "request": {
+            "method": "GET",
+            "description": "Store integrations (Razorpay, email, SMS, WhatsApp). Owner: masked settings (secrets only as configured + last-4 hint), last test, Razorpay webhook URL. Manager: status only. Never in a support view.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /integrations/{kind}",
+          "request": {
+            "method": "GET",
+            "description": "One integration (kind: razorpay | email | sms | whatsapp); same masking as the list.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/:kind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                ":kind"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /integrations/{kind}",
+          "request": {
+            "method": "PUT",
+            "description": "Owner: save an integration. Secrets are write-only (empty = keep the stored value), encrypted at rest, audited by field name only. Body validated by razorpaySchema / emailSchema / smsSchema / waConfigSchema (route-local)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/:kind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                ":kind"
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /integrations/{kind}",
+          "request": {
+            "method": "DELETE",
+            "description": "Owner: remove the store's own account (the platform fallback, if any, applies again).",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/:kind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                ":kind"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /integrations/{kind}/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: test the saved connection (Razorpay key check, SMTP login + optional test email `to`, SMS / WhatsApp to `phone`). 10 per 15 minutes; the message never contains secrets.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/:kind/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                ":kind",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /integrations/razorpay/webhook-key",
+          "request": {
+            "method": "POST",
+            "description": "Owner: issue a new per-store Razorpay webhook URL (the old one stops working).",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/razorpay/webhook-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "razorpay",
+                "webhook-key"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /integrations/whatsapp/templates",
+          "request": {
+            "method": "GET",
+            "description": "WhatsApp templates per message type: name, language, the variables CANAVO sends (in order, with samples) and a preview. Managers read; owners edit.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/whatsapp/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "whatsapp",
+                "templates"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /integrations/whatsapp/templates",
+          "request": {
+            "method": "PUT",
+            "description": "Owner: template name / language / preview text per message type. Body validated by templatesPutSchema (route-local)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/whatsapp/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "whatsapp",
+                "templates"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /integrations/whatsapp/templates/{purpose}/test",
+          "request": {
+            "method": "POST",
+            "description": "Owner: send one message type with sample values to `phone` through the store's WhatsApp. 10 per 15 minutes.",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/whatsapp/templates/:purpose/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "whatsapp",
+                "templates",
+                ":purpose",
+                "test"
               ]
             }
           }
