@@ -114,7 +114,7 @@ export function DeliveryAssignment({ order }: { order: Order }) {
 function NewBillButton({ onClick }: { onClick: () => void }) {
   return (
     <Button size="lg" icon={<Plus size={22} />} onClick={onClick} className="min-w-[200px]">
-      New bill <kbd className="ml-1 hidden rounded bg-white/20 px-1.5 text-xs lg:inline">F2</kbd>
+      New bill
     </Button>
   );
 }

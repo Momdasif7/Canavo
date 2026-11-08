@@ -376,7 +376,7 @@ export function CartPanel(p: Props) {
           </Button>
           <Button size="lg" className="flex-1 justify-between" onClick={p.onCharge} disabled={!lines.length || !!p.discountError || !!p.chargeBlocker} loading={p.charging}>
             <span>
-              {p.codOrder ? "Place COD order" : "Charge"} <kbd className="ml-1 hidden rounded bg-white/20 px-1.5 text-xs font-semibold lg:inline">F10</kbd>
+              {p.codOrder ? "Place COD order" : "Charge"}
             </span>
             <span className="tabular text-xl font-extrabold" data-testid="cart-total">
               {formatINR(totals.grandTotal)}

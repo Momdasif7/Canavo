@@ -364,7 +364,6 @@ export function PaymentDialog({
             </Button>
             <Button size="lg" variant="secondary" onClick={confirm} loading={busy} className="min-w-[200px]" data-testid="payment-confirm">
               {tab === "COD" ? "Confirm COD" : offline ? "Save offline" : "Collect"} <span className="tabular">{formatINR(amount)}</span>
-              <kbd className="ml-1 hidden rounded bg-white/20 px-1.5 text-xs lg:inline">F10</kbd>
             </Button>
           </>
         )

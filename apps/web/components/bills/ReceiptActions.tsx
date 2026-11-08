@@ -109,7 +109,7 @@ export function ReceiptActions({
           ]}
         />
         <Button icon={<Printer size={20} />} onClick={print} disabled={!text} autoFocus={autoFocusPrint} data-print-button>
-          Print <kbd className="ml-1 hidden rounded bg-white/20 px-1.5 text-xs lg:inline">F10</kbd>
+          Print
         </Button>
         <Button variant="outline" icon={<DownloadSimple size={20} />} onClick={pdf} loading={pdfBusy}>
           PDF
