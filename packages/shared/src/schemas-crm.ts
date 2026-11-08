@@ -22,10 +22,16 @@ export const customerCreateSchema = z.object({
   /** Max outstanding khata, paise. 0 = no limit */
   khataLimit: paise.optional(),
   notes: z.string().max(500).nullable().optional(),
+  /** DPDP consent, recorded only when the customer agreed: promotional messages / WhatsApp */
+  marketingOptIn: z.boolean().optional(),
+  whatsappOptIn: z.boolean().optional(),
 });
 export type CustomerCreateInput = z.infer<typeof customerCreateSchema>;
 export const customerUpdateSchema = customerCreateSchema.partial();
 export type CustomerUpdateInput = z.infer<typeof customerUpdateSchema>;
+
+/** Owner: erase a customer's personal data (DPDP s.12). Invoices stay, with masked details. */
+export const customerAnonymiseSchema = z.object({ confirm: z.literal("ANONYMISE") });
 
 export const customerListQuerySchema = z.object({
   search: z.string().trim().optional(),

@@ -45,7 +45,7 @@ beforeAll(async () => {
   srv = await startServer();
   h = await createHotel("Recon", { modules: MODULES, gst: true });
   await db.business.update({ where: { id: h.businessId }, data: { features: { GIFT_CARDS: true, OFFLINE_INVOICE_SERIES: true, REQUIRE_CASH_SHIFT: true } } });
-  await db.outlet.update({ where: { id: h.outletId }, data: { gstin: "33ABCDE1234F1Z5", serviceChargeEnabled: true, serviceChargePercent: 5 } }).catch(() => undefined);
+  await db.outlet.update({ where: { id: h.outletId }, data: { gstin: "33ABCDE1234F1Z7", serviceChargeEnabled: true, serviceChargePercent: 5 } }).catch(() => undefined);
   owner = await login(srv.base, h.users.owner.email, h.outletId);
   owner2 = await login(srv.base, h.users.owner.email, h.outlet2Id);
   manager = await login(srv.base, h.users.manager.email, h.outletId);

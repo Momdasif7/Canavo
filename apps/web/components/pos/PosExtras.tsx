@@ -127,7 +127,7 @@ export function PromoFields({
             disabled={!!disabledReason}
             onChange={(on) => onMeta({ redeemPoints: on ? String(Math.max(0, Math.min(lookup!.redeemablePoints ?? 0, maxPoints ?? lookup!.redeemablePoints ?? 0))) : "" })}
             label="Redeem points"
-            description={`${lookup!.redeemablePoints} available · ₹${(pointValue / 100).toFixed(2)} each · min ${lookup!.loyalty.minRedeemPoints}`}
+            description={`${lookup!.redeemablePoints} available · ${formatINR(pointValue)} each · min ${lookup!.loyalty.minRedeemPoints}`}
           />
           {redeeming && (
             <div className="mt-1 flex items-center gap-2">

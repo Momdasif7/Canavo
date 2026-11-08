@@ -42,11 +42,11 @@ describe("GSTR-1 builder", () => {
     expect(splitInvoiceNumber("INV-2026-00012")).toEqual({ series: "INV-2026-", seq: 12 });
   });
 
-  const res = buildGstr1({ gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: fixture });
+  const res = buildGstr1({ gstin: "29ABCDE1234F1ZW", stateCode: "29", month: "2026-09", compositionScheme: false, orders: fixture });
 
   it("has GSTN top-level fields", () => {
     expect(res.excluded).toBe(false);
-    expect(res.payload.gstin).toBe("29ABCDE1234F1Z5");
+    expect(res.payload.gstin).toBe("29ABCDE1234F1ZW");
     expect(res.payload.fp).toBe("092026");
   });
 
@@ -120,7 +120,7 @@ describe("GSTR-1 builder", () => {
     };
     const plain = order("INV-2026-00011", [{ price: 5000, qty: 1, rate: 5 }], { taxEnabled: false });
     expect(plain.documentType).toBe("BILL");
-    const r = buildGstr1({ gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [cessOrder, plain] });
+    const r = buildGstr1({ gstin: "29ABCDE1234F1ZW", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [cessOrder, plain] });
     expect(r.payload.b2cs).toEqual([{ sply_ty: "INTRA", pos: "29", typ: "OE", rt: 28, txval: 100, iamt: 0, camt: 14, samt: 14, csamt: 12 }]);
     expect(r.payload.hsn.data[0].csamt).toBe(12);
     expect(r.totals.paise.cess).toBe(1200);
@@ -136,7 +136,7 @@ describe("GSTR-1 builder", () => {
       invoiceNumber: "INV-2026-00020", status: "PAID", documentType: "TAX_INVOICE", interState: true,
       items: [{ hsnCode: "996331", gstRate: 5, quantity: 1, taxableValue: 10000, serviceCharge: 0, cgst: 0, sgst: 0, igst: bill.igst, cess: bill.cess, taxRates: tax, total: bill.lines[0].total }],
     };
-    const r = buildGstr1({ gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [o] });
+    const r = buildGstr1({ gstin: "29ABCDE1234F1ZW", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [o] });
     expect(r.payload.b2cs[0]).toMatchObject({ sply_ty: "INTER", rt: 5, txval: 100, iamt: 5, csamt: 1 });
   });
 
@@ -145,7 +145,7 @@ describe("GSTR-1 builder", () => {
     const cn = (number: string, o: Gstr1Order) => ({ number, documentType: o.documentType, interState: o.interState, items: neg(o) });
     const plain = order("INV-2026-00011", [{ price: 5000, qty: 1, rate: 5 }], { taxEnabled: false });
     const r = buildGstr1({
-      gstin: "29ABCDE1234F1Z5", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [...fixture, plain],
+      gstin: "29ABCDE1234F1ZW", stateCode: "29", month: "2026-09", compositionScheme: false, orders: [...fixture, plain],
       // CNINV-2026-00002 credits a plain BILL: same CN series but not a GST document, so not a gap.
       creditNotes: [cn("CNINV-2026-00003", fixture[1]), cn("CNINV-2026-00001", fixture[0]), cn("CNINV-2026-00002", plain)],
     });

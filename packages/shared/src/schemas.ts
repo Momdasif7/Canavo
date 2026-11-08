@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { newPasswordSchema } from "./password";
 import { CUSTOM_ROLE_BASES, PERMISSIONS, ROLES } from "./rbac";
+import { gstinSchema, gstStateCode, normalizeIndianMobile } from "./india";
 
 /** An http(s) link only: z.string().url() also accepts javascript:, data: and file: (QA Phase 8). */
 export const httpUrl = z
@@ -9,10 +10,12 @@ export const httpUrl = z
   .url()
   .refine((u) => /^https?:\/\//i.test(u), "Use a link starting with http:// or https://");
 
+/** Indian mobile: +91 / 0 prefixes, spaces and dashes are accepted and stored as the bare 10 digits (6–9 start). */
 export const indianPhone = z
   .string()
   .trim()
-  .regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number");
+  .transform(normalizeIndianMobile)
+  .pipe(z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number"));
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24h)");
 const paise = z.number().int().nonnegative();
@@ -34,12 +37,8 @@ export const refreshSchema = z.object({ refreshToken: z.string().min(10) });
 export const outletSchema = z.object({
   name: z.string().min(2).max(120),
   address: z.string().max(500).default(""),
-  stateCode: z.string().regex(/^\d{2}$/, "Two-digit GST state code, e.g. 29 for Karnataka"),
-  gstin: z
-    .string()
-    .regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Invalid GSTIN")
-    .optional()
-    .or(z.literal("")),
+  stateCode: gstStateCode,
+  gstin: z.literal("").or(gstinSchema).optional(),
   fssai: z.string().regex(/^\d{14}$/, "FSSAI licence is 14 digits").optional().or(z.literal("")),
   phone: z.string().max(20).optional(),
   logoUrl: httpUrl.optional().or(z.literal("")),

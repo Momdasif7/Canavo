@@ -236,7 +236,7 @@ export async function prepareServiceContext(req: Request, input: OrderCreateInpu
       if (zone && zone.minOrder > 0 && !lenient) {
         const sub = await roughSubtotal(outlet.id, input.items);
         if (sub < zone.minOrder) {
-          throw badRequest(`Minimum order for ${zone.name} is ₹${(zone.minOrder / 100).toFixed(2)}`);
+          throw badRequest(`Minimum order for ${zone.name} is ${formatINR(zone.minOrder)}`);
         }
       }
       if (zone && zone.fee > 0 && !aggregator) extraCharges.push({ label: "Delivery fee", amount: zone.fee });

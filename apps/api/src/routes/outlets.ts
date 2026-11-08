@@ -28,10 +28,19 @@ function assertTimezone(tz: string | undefined) {
   }
 }
 
-function gstRules(o: { gstEnabled: boolean; compositionScheme: boolean; gstin: string | null }): string[] {
+function gstRules(
+  o: { gstEnabled: boolean; compositionScheme: boolean; gstin: string | null; stateCode: string; fssai: string | null },
+  checkState = true,
+): string[] {
   if (o.compositionScheme && !o.gstEnabled) throw badRequest("Composition scheme requires GST to be enabled");
+  // QA Phase 14: a GSTIN is registered per state; its first two digits are that state's code (the
+  // outlet's place of supply). A mismatch would print a wrong GSTIN / place of supply on every invoice.
+  if (checkState && o.gstin && o.gstin.slice(0, 2) !== o.stateCode) {
+    throw badRequest("Validation failed", { fieldErrors: { gstin: [`This GSTIN is registered in state ${o.gstin.slice(0, 2)}, but the outlet's state code is ${o.stateCode}`] } });
+  }
   const warnings: string[] = [];
   if (o.gstEnabled && !o.gstin) warnings.push("GST is enabled but no GSTIN is set. Add the GSTIN so it prints on tax invoices.");
+  if (!o.fssai) warnings.push("No FSSAI licence number is set. Food businesses must print it on bills (FSSAI order, 2021).");
   return warnings;
 }
 
@@ -66,7 +75,7 @@ outletsRouter.get("/", async (req, res) => {
 outletsRouter.post("/", requirePermission("outlet:manage"), async (req, res) => {
   const data = parse(outletSchema, req.body);
   assertTimezone(data.timezone);
-  const warnings = gstRules({ gstEnabled: data.gstEnabled, compositionScheme: data.compositionScheme, gstin: data.gstin || null });
+  const warnings = gstRules({ gstEnabled: data.gstEnabled, compositionScheme: data.compositionScheme, gstin: data.gstin || null, stateCode: data.stateCode, fssai: data.fssai || null });
   const outlet = await prisma.outlet.create({
     data: {
       ...data,
@@ -102,7 +111,9 @@ outletsRouter.patch("/current", requireOutlet, requirePermission("settings:outle
     gstEnabled: data.gstEnabled ?? current.gstEnabled,
     compositionScheme: data.compositionScheme ?? current.compositionScheme,
     gstin,
-  });
+    stateCode: data.stateCode ?? current.stateCode,
+    fssai: data.fssai !== undefined ? data.fssai || null : current.fssai,
+  }, data.gstin !== undefined || data.stateCode !== undefined);
   const outlet = await prisma.outlet.update({
     where: { id: req.outletId },
     data: {

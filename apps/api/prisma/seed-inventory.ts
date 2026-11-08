@@ -163,10 +163,10 @@ export async function seedInventory(prisma: PrismaClient): Promise<void> {
 
       const [dairy, grocer, veggies] = await Promise.all([
         tx.vendor.create({
-          data: { businessId, name: "Nandini Milk Distributors", contactPerson: "Suresh Gowda", phone: "9845011111", gstin: "29AAACN1234B1Z2", address: "Koramangala, Bengaluru", notes: "Daily 6 AM delivery" },
+          data: { businessId, name: "Nandini Milk Distributors", contactPerson: "Suresh Gowda", phone: "9845011111", gstin: "29AAACN1234B1Z1", address: "Koramangala, Bengaluru", notes: "Daily 6 AM delivery" },
         }),
         tx.vendor.create({
-          data: { businessId, name: "Sri Lakshmi Traders", contactPerson: "Ramesh Shetty", phone: "9845022222", gstin: "29AAGFS5678C1Z9", address: "KR Market, Bengaluru", notes: "Grocery wholesale, 15-day credit" },
+          data: { businessId, name: "Sri Lakshmi Traders", contactPerson: "Ramesh Shetty", phone: "9845022222", gstin: "29AAGFS5678C1ZU", address: "KR Market, Bengaluru", notes: "Grocery wholesale, 15-day credit" },
         }),
         tx.vendor.create({
           data: { businessId, name: "Green Basket Vegetables", contactPerson: "Mohammed Irfan", phone: "9845033333", address: "Madiwala Market, Bengaluru", notes: "Cash on delivery" },

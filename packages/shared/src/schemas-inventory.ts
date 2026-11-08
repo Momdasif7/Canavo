@@ -1,5 +1,6 @@
 // Zod schemas & types for the inventory module (owned by that module's implementer).
 import { z } from "zod";
+import { gstinSchema } from "./india";
 
 export const STOCK_UNITS = ["KG", "G", "L", "ML", "PIECE", "PACKET", "DOZEN", "BOX"] as const;
 export type StockUnitCode = (typeof STOCK_UNITS)[number];
@@ -86,13 +87,7 @@ export const vendorSchema = z.object({
   contactPerson: optText(120),
   phone: optText(20),
   email: z.string().trim().email().optional().nullable().or(z.literal("")),
-  gstin: z
-    .string()
-    .trim()
-    .regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Invalid GSTIN")
-    .optional()
-    .nullable()
-    .or(z.literal("")),
+  gstin: z.literal("").or(gstinSchema).optional().nullable(),
   address: optText(500),
   notes: optText(500),
 });

@@ -118,7 +118,7 @@ describe("OTP login", () => {
     return { ...u, phone: row.phone };
   };
 
-  it.each([["short", "12345"], ["starts with 5", "5123456789"], ["+91 prefix", "+919876543210"], ["letters", "98765abcde"], ["number type", 9876543210], ["missing", undefined]])(
+  it.each([["short", "12345"], ["starts with 5", "5123456789"], ["foreign +44 prefix", "+447700900123"], ["letters", "98765abcde"], ["number type", 9876543210], ["missing", undefined]])(
     "request: 400 on phone %s",
     async (_n, phone) => {
       expect((await post("/auth/otp/request", { phone })).status).toBe(400);

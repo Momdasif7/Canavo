@@ -88,7 +88,8 @@ export function excelValue(value: unknown, type: ColumnType = "text"): unknown {
 }
 
 const NUM_FMT: Partial<Record<ColumnType, string>> = {
-  money: "#,##0.00",
+  // Indian digit grouping (12,34,567.00): lakh / crore sections, western grouping only below 1 lakh.
+  money: "[>=10000000]##\\,##\\,##\\,##0.00;[>=100000]##\\,##\\,##0.00;##,##0.00",
   percent: '0.0"%"',
   number: "#,##0.##",
   int: "0",

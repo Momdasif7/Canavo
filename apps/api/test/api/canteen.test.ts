@@ -190,9 +190,9 @@ describe("corporate accounts", () => {
 
   it("duplicate name → 409; GSTIN upper-cased; PATCH updates; unknown id → 404", async () => {
     expect((await owner.call("POST", "/canteen/accounts", { name: "Fixture Corp" })).status).toBe(409);
-    const r = await owner.call("POST", "/canteen/accounts", { name: "GST Corp", gstin: "33aaaaa0000a1z5", creditLimit: 500000, dailyMealLimit: 2 });
+    const r = await owner.call("POST", "/canteen/accounts", { name: "GST Corp", gstin: "33aaaaa0000a1z9", creditLimit: 500000, dailyMealLimit: 2 });
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ gstin: "33AAAAA0000A1Z5", creditLimit: 500000, dailyMealLimit: 2, billingCycle: "MONTHLY", active: true });
+    expect(r.body).toMatchObject({ gstin: "33AAAAA0000A1Z9", creditLimit: 500000, dailyMealLimit: 2, billingCycle: "MONTHLY", active: true });
     const p = await owner.call("PATCH", `/canteen/accounts/${r.body.id}`, { active: false, businessId: other.businessId });
     expect(p.status).toBe(200);
     expect(p.body).toMatchObject({ active: false, businessId: h.businessId });

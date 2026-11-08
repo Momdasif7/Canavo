@@ -172,7 +172,7 @@ describe("D4 birthday coupons are capped at 100 %", () => {
       data: { value: { ...current, birthdayCouponEnabled: true, birthdayCouponType: "PERCENT", birthdayCouponValue: 150 } },
     });
     const today = zonedParts(new Date(), TZ).date;
-    const c = await db.customer.create({ data: { businessId: h.businessId, phone: phone(), name: "Bday", birthday: today.slice(5) } });
+    const c = await db.customer.create({ data: { businessId: h.businessId, phone: phone(), name: "Bday", birthday: today.slice(5), marketingOptIn: true, whatsappOptIn: true } });
     await runForBusiness(h.businessId, () => runCrmDailyForBusiness(new Date(), { force: true }));
     const coupon = await db.coupon.findFirstOrThrow({ where: { businessId: h.businessId, customerId: c.id } });
     expect(coupon.discountType).toBe("PERCENT");

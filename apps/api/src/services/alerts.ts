@@ -1,6 +1,7 @@
 import { formatINR } from "@canavo/shared";
 import { prisma } from "../db";
 import { notify, outletManagers, outletStaff } from "./notify";
+import { zonedParts } from "../lib/time";
 
 /**
  * Operational alerts (in-app bell + push + live socket). Each helper decides
@@ -101,7 +102,8 @@ export function alertPartnerCash(outletId: string, agentId: string, balance: num
     const limitRow = await prisma.setting.findUnique({ where: { scope_key: { scope: outletId, key: "delivery.cashAlertLimit" } } });
     const limit = typeof limitRow?.value === "number" ? limitRow.value : 200_000; // ₹2,000
     if (balance < limit) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // India business day (a UTC date would roll over at 05:30 IST).
+    const today = zonedParts(new Date(), "Asia/Kolkata").date;
     const key = { scope: outletId, key: `delivery.cashAlert.${agentId}` };
     const sent = await prisma.setting.findUnique({ where: { scope_key: key } });
     if (sent?.value === today) return;

@@ -21,6 +21,7 @@ import {
   billDiscountConfigSchema,
   buyXGetYConfigSchema,
   comboConfigSchema,
+  formatINR,
   itemDiscountConfigSchema,
   type BillDiscount,
   type LoyaltyConfig,
@@ -436,7 +437,7 @@ export function couponError(
     if (ctx.customerUses >= coupon.perCustomerLimit) return `Coupon ${coupon.code} already used by this customer`;
   }
   if (ctx.subtotal < coupon.minOrder) {
-    return `Coupon ${coupon.code} needs a minimum order of ₹${(coupon.minOrder / 100).toFixed(2)}`;
+    return `Coupon ${coupon.code} needs a minimum order of ${formatINR(coupon.minOrder)}`;
   }
   return null;
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
 import { BellRinging, CheckCircle, ForkKnife, Receipt, ShoppingCartSimple } from "@phosphor-icons/react";
-import { formatINR } from "@canavo/shared";
+import { formatINR, isValidIndianMobile } from "@canavo/shared";
 import { errorMessage } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { publicCall, STAGE_LABEL, type TableOrder } from "@/lib/storefront";
@@ -130,7 +130,7 @@ export default function TableOrderPage() {
   if (!page) return <MenuSkeleton />;
   if (page.theatre) return <SeatOrderView token={token} page={page} onReload={load} />;
 
-  const phoneBad = phone.trim() !== "" && !/^[6-9]\d{9}$/.test(phone.trim());
+  const phoneBad = phone.trim() !== "" && !isValidIndianMobile(phone);
   const checkout = (c: Cart) => (
     <div className="space-y-4">
       <CartLines cart={c} menu={page} />

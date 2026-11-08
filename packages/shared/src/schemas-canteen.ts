@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { gstinSchema } from "./india";
 import { indianPhone } from "./schemas";
 
 /**
@@ -18,12 +19,7 @@ export const corporateAccountSchema = z.object({
   contactName: optText(100),
   contactPhone: indianPhone.optional(),
   contactEmail: z.string().trim().email().optional(),
-  gstin: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Enter a valid 15-character GSTIN")
-    .optional(),
+  gstin: gstinSchema.optional(),
   billingCycle: z.enum(BILLING_CYCLES).default("MONTHLY"),
   /** Max unpaid employer share, paise; 0 = no limit */
   creditLimit: paise.default(0),

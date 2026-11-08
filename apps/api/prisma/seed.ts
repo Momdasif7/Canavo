@@ -108,7 +108,7 @@ async function seedBase() {
       name: "CANAVO Canteen",
       address: "80 Feet Road, Koramangala 4th Block, Bengaluru 560034",
       stateCode: "29",
-      gstin: "29ABCDE1234F1Z5",
+      gstin: "29ABCDE1234F1ZW",
       fssai: "11224999000123",
       phone: "080-40001234",
       latitude: 12.9352,

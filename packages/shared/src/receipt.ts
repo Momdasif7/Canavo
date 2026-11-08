@@ -61,6 +61,8 @@ export interface ReceiptData {
   grandTotal: Paise;
   taxBreakup: ReceiptTaxBreakup[];
   interState?: boolean;
+  /** Rule 46(n) / 49: place of supply with the state name, e.g. "29-Karnataka" (tax documents only) */
+  placeOfSupply?: string | null;
   /** false = the outlet is not GST registered (plain BILL) */
   gstEnabled?: boolean;
   legalName?: string | null;
@@ -127,6 +129,12 @@ export function receiptTaxLines(r: ReceiptData): { label: string; amount: Paise 
   return out;
 }
 
+/** Distinct HSN / SAC codes on a GST document (none on a plain BILL). */
+export function hsnCodesOf(r: ReceiptData): string[] {
+  if (r.documentType === "BILL") return [];
+  return [...new Set(r.items.map((i) => i.hsnCode).filter(Boolean))].sort();
+}
+
 export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): string[] {
   const w = charsPerLine(paper);
   const rule = "-".repeat(w);
@@ -153,6 +161,7 @@ export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): strin
   if (r.tableLabel) lines.push(`Table: ${r.tableLabel}`);
   lines.push(`Cashier: ${r.cashierName}`);
   if (r.customerName) lines.push(`Customer: ${r.customerName}`);
+  if (r.placeOfSupply && !plainBill) wrap(`Place of supply: ${r.placeOfSupply}`, w).forEach((l) => lines.push(l));
   lines.push(rule);
   lines.push(leftRight("Item", "Qty    Amount", w));
   lines.push(rule);
@@ -167,6 +176,9 @@ export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): strin
       else lines.push(leftRight(last, right, w));
     } else lines.push(leftRight(it.name, right, w));
   }
+  // Rule 46(g) / 49: HSN / SAC on GST documents (one code per line would not fit 58 mm paper).
+  const hsn = hsnCodesOf(r);
+  if (hsn.length) wrap(`HSN/SAC: ${hsn.join(", ")}`, w).forEach((l) => lines.push(l));
   lines.push(rule);
   lines.push(leftRight("Subtotal", money(r.subtotal), w));
   if (r.discount) lines.push(leftRight("Discount", `-${money(r.discount)}`, w));
@@ -186,6 +198,7 @@ export function formatReceiptText(r: ReceiptData, paper: PaperWidth = 58): strin
     lines.push("Composition taxable person,");
     lines.push("not eligible to collect tax.");
   }
+  if (!plainBill) lines.push(center("Computer-generated document", w));
   lines.push("");
   lines.push(center(r.footer ?? "Thank you! Visit again.", w));
   lines.push(center("Powered by CANAVO", w));
