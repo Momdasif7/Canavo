@@ -364,6 +364,9 @@ export async function queueChannelStatus(tx: Prisma.TransactionClient, orderId: 
 /** Kitchen marked a KOT ready: once every KOT of the order is ready, the food is ready for the rider. */
 export async function onKotReady(tx: Prisma.TransactionClient, orderId: string) {
   if (!moduleEnabled("CHANNELS")) return;
+  // Lock the bill: two stations marking their KOTs ready at the same moment each saw the other's
+  // as not ready yet, and "food ready" was never sent (QA Phase 9). Now the second sees the first.
+  await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR NO KEY UPDATE`;
   const kots = await tx.kotTicket.findMany({ where: { orderId }, select: { status: true } });
   if (kots.length && kots.every((k) => k.status === "READY" || k.status === "SERVED")) await queueChannelStatus(tx, orderId, "FOOD_READY");
 }

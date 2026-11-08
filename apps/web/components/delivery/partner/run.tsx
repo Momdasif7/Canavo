@@ -68,6 +68,8 @@ export function RunStatusProvider({ children }: { children: React.ReactNode }) {
     void reload();
   }, [reload, clockedIn]);
   useSocketEvent("delivery:updated", () => void reload());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => void reload());
 
   const onDuty = status?.onDuty ?? clockedIn ?? false;
 

@@ -122,6 +122,11 @@ export default function PosPage() {
     return () => window.clearInterval(id);
   }, [fetchOffers]);
   useSocketEvent("offers:changed", () => void fetchOffers());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => {
+    void fetchMenu();
+    void fetchOffers();
+  });
 
   // ----- Cart -----
   const [picker, setPicker] = useState<MenuItem | null>(null);

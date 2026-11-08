@@ -74,6 +74,8 @@ export function DeliveryBoard({ agents, onAgentsChanged }: { agents: DeliveryAge
 
   // The page refreshes the partner list on the same event.
   useSocketEvent("delivery:updated", () => void load());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => void load());
   useSocketEvent<AgentLocation & { agentId: string; remainingKm?: number | null }>("delivery:location", (l) => setLocations((m) => ({ ...m, [l.agentId]: l })));
 
   const update = (d: Delivery) => setList((l) => l?.map((x) => (x.id === d.id ? { ...x, ...d } : x)) ?? l);

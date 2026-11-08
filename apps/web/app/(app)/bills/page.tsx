@@ -135,6 +135,8 @@ export default function BillsPage() {
   useSocketEvent("order:paid", reloadAll);
   // COD switched / partner collected or handed over the cash
   useSocketEvent("delivery:updated", reloadAll);
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", reloadAll);
 
   const all = bills.data ?? [];
   const list = filters.cod ? all.filter(isCodPending) : all;

@@ -82,6 +82,8 @@ export function MyDeliveries() {
   }, [load]);
   useSocketEvent("delivery:updated", () => void load());
   useSocketEvent("order:paid", () => void load());
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => void load());
 
   const outForDelivery = (list ?? []).filter((d) => d.status === "OUT_FOR_DELIVERY");
 

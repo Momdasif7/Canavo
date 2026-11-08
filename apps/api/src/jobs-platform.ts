@@ -24,7 +24,17 @@ export async function runDueSchedules(now = new Date()) {
       // Reports must only see the schedule's own business.
       const delivered = await runForOutlet(s.outletId, async () => {
         if (!moduleEnabled("REPORTS")) return false;
-        await sendSchedule(s, now);
+        // Claim today's email first (QA Phase 9): pg-boss re-runs a job whose runner died or hung past
+        // its expiry, and that run overlapped the first — both found the schedule due and emailed twice.
+        // Only the run that moves lastSentAt from the value it read sends; a failed send gives it back.
+        const { count } = await prisma.reportSchedule.updateMany({ where: { id: s.id, lastSentAt: s.lastSentAt }, data: { lastSentAt: now } });
+        if (!count) return false;
+        try {
+          await sendSchedule(s, now);
+        } catch (e) {
+          await prisma.reportSchedule.updateMany({ where: { id: s.id, lastSentAt: now }, data: { lastSentAt: s.lastSentAt } });
+          throw e;
+        }
         return true;
       });
       if (delivered) sent++;

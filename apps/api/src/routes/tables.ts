@@ -30,7 +30,8 @@ import { createOrder } from "../services/billing";
 import { lastKotNumberToday } from "../services/kot-number";
 import { equalSplit, groupBillItems, runWithSessionBill } from "../services/service-context";
 import { resolveItemTax, taxConfigForOutlet } from "../services/tax";
-import { alertKitchenNewKots, alertTableAttention } from "../services/alerts";
+import { alertTableAttention } from "../services/alerts";
+import { kickOutbox, outboxEmitOutlet, outboxTask } from "../lib/outbox";
 
 export const tablesRouter = Router();
 tablesRouter.use(authenticate, requireOutlet, requireModule("TABLES"));
@@ -122,6 +123,20 @@ export async function sessionLabel(session: { tableId: string; mergedTableIds: s
   return ids.map((id) => byId.get(id) ?? "?").join("+");
 }
 
+/**
+ * The "tab lock" (QA Phase 9): adding a round, voiding, billing and closing a tab each lock its
+ * row first and re-check it is still open, so they run one after the other. Without it a round
+ * added while the tab was being closed (or its last bill paid) landed on a CLOSED tab — fired to
+ * the kitchen, never billed.
+ */
+export async function lockOpenSession(tx: Tx, id: string) {
+  await tx.$queryRaw`SELECT id FROM "TableSession" WHERE id = ${id} FOR NO KEY UPDATE`;
+  const s = await tx.tableSession.findUnique({ where: { id } });
+  if (!s) throw notFound("Table session");
+  if (s.status !== "OPEN") throw conflict("Table session is closed");
+  return s;
+}
+
 async function loadOpenSession(id: string, outletId: string) {
   const s = await prisma.tableSession.findFirst({ where: { id, outletId } });
   if (!s) throw notFound("Table session");
@@ -182,7 +197,9 @@ export async function addItemsToSession(
   const priced = items.map((i) => ({ input: i, line: priceLine(menu, i, true) }));
   const label = await sessionLabel(session);
 
+  const sessionInfo = { id: session.id, tableLabel: label, table: { label } };
   const kots = await retryTransaction(async (tx) => {
+    await lockOpenSession(tx, session.id);
     let kotNumber = await lastKotNumberToday(tx, outletId, outlet.timezone);
     const byStation = new Map<string, typeof priced>();
     for (const p of priced) byStation.set(p.line.station, [...(byStation.get(p.line.station) ?? []), p]);
@@ -223,12 +240,14 @@ export async function addItemsToSession(
       created.push(kot);
     }
     await audit(req, "table.session.items", "TableSession", session.id, { count: items.length, kots: created.map((k) => k.kotNumber) }, tx);
+    // Through the outbox like a bill's KOTs: sent only once the round commits, and a crash right
+    // after commit can't lose the kitchen ticket (QA Phase 9).
+    await outboxEmitOutlet(tx, outletId, "kot:new", created.map((k) => ({ ...k, order: null, session: sessionInfo })));
+    await outboxTask(tx, "kitchen.alert", { outletId, kotIds: created.map((k) => k.id), label: `Table ${sessionInfo.tableLabel}` });
     return created;
   });
 
-  const sessionInfo = { id: session.id, tableLabel: label, table: { label } };
-  emitToOutlet(outletId, "kot:new", kots.map((k) => ({ ...k, order: null, session: sessionInfo })));
-  void alertKitchenNewKots(outletId, kots, `Table ${sessionInfo.tableLabel}`);
+  kickOutbox();
   emitTables(outletId, { tableIds: [session.tableId, ...session.mergedTableIds], sessionId: session.id, action: "items" });
   return kots;
 }
@@ -561,7 +580,9 @@ tablesRouter.delete("/sessions/:id/items/:itemId", requirePermission("order:canc
   if (item.billedOrderId) throw conflict("Item is already billed — cancel the bill first");
 
   const kot = await retryTransaction(async (tx) => {
-    await tx.tableSessionItem.delete({ where: { id: item.id } });
+    await lockOpenSession(tx, session.id);
+    const { count } = await tx.tableSessionItem.deleteMany({ where: { id: item.id, billedOrderId: null } });
+    if (!count) throw conflict("Item is already billed or removed — refresh the table");
     let updatedKot = null;
     if (item.kotId) {
       const k = await tx.kotTicket.findUnique({ where: { id: item.kotId } });
@@ -671,6 +692,7 @@ tablesRouter.post("/sessions/:id/bill", requirePermission("table:serve", "order:
   const orders = await retryTransaction(
     async (tx) => {
       effects.length = 0; // a retried attempt starts again
+      await lockOpenSession(tx, session.id);
       const created = [];
       for (const g of groups) {
         const groupItems = g.itemIds.map((id) => byId.get(id)!);
@@ -728,6 +750,14 @@ tablesRouter.post("/sessions/:id/close", requirePermission("table:serve"), async
   if (openOrders) throw conflict(`${openOrders} bill(s) not paid yet`);
   const tableIds = [session.tableId, ...session.mergedTableIds];
   await retryTransaction(async (tx) => {
+    // Re-check under the tab lock: a round added or a bill cancelled since the counts above.
+    await lockOpenSession(tx, session.id);
+    const [stillUnbilled, stillOpen] = await Promise.all([
+      tx.tableSessionItem.count({ where: { sessionId: session.id, billedOrderId: null } }),
+      tx.order.count({ where: { tableSessionId: session.id, status: "OPEN" } }),
+    ]);
+    if (stillUnbilled) throw conflict(`${stillUnbilled} item(s) not billed yet`);
+    if (stillOpen) throw conflict(`${stillOpen} bill(s) not paid yet`);
     await tx.tableSession.update({ where: { id: session.id }, data: { status: "CLOSED", closedAt: new Date() } });
     await tx.diningTable.updateMany({ where: { id: { in: tableIds } }, data: { status: "AVAILABLE" } });
     await tx.reservation.updateMany({ where: { sessionId: session.id, status: "SEATED" }, data: { status: "COMPLETED" } });

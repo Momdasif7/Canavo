@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { kotStatusSchema } from "@canavo/shared";
 import { prisma } from "../db";
 import { audit } from "../lib/audit";
+import { retryTransaction } from "../lib/tx-retry";
 import { notFound, param, parse } from "../lib/http";
 import { authenticate, requireOutlet, requirePermission, requireModule } from "../middleware/auth";
 import { emitToOutlet } from "../realtime";
@@ -97,13 +98,17 @@ function kotStageTimes(found: { preparingAt: Date | null; readyAt: Date | null; 
 
 kotRouter.patch("/:id", requirePermission("kot:update"), async (req, res) => {
   const { status } = parse(kotStatusSchema, req.body);
-  const found = await prisma.kotTicket.findFirst({ where: { id: param(req, "id"), outletId: req.outletId } });
-  if (!found) throw notFound("KOT");
-  const kot = await prisma.$transaction(async (tx) => {
-    const k = await tx.kotTicket.update({ where: { id: found.id }, data: { status, ...kotStageTimes(found, status) }, include: kotInclude });
+  const id = param(req, "id");
+  if (!(await prisma.kotTicket.findFirst({ where: { id, outletId: req.outletId }, select: { id: true } }))) throw notFound("KOT");
+  // Two kitchen screens tapping at once: lock the ticket and read it fresh, so stage times and the
+  // "was it already ready?" check see the other tap's result — one "ready" alert, sane timestamps (QA Phase 9).
+  const { kot, found } = await retryTransaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "KotTicket" WHERE id = ${id} FOR NO KEY UPDATE`;
+    const found = await tx.kotTicket.findUniqueOrThrow({ where: { id } });
+    const k = await tx.kotTicket.update({ where: { id }, data: { status, ...kotStageTimes(found, status) }, include: kotInclude });
     // Phase 6.1: an aggregator order whose food is all ready → tell the channel (outbox, retried).
     if (status === "READY" && found.status !== "READY" && k.orderId) await onKotReady(tx, k.orderId);
-    return k;
+    return { kot: k, found };
   });
   const [shaped] = await present([kot]);
   emitToOutlet(req.outletId!, "kot:updated", shaped);

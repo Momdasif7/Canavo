@@ -89,6 +89,8 @@ export function TabPanel({
     if (!s) return;
     if (e.sessionId === s.id || e.tableIds.some((id) => id === s.tableId || s.mergedTableIds.includes(id))) void load();
   });
+  // Events sent while the socket was down are not replayed: reload on (re)connect (QA Phase 9).
+  useSocketEvent("connect", () => s && void load());
 
   const tableIds = useMemo(() => (s ? [s.tableId, ...s.mergedTableIds] : []), [s]);
   const primaryTable = floorTables.find((t) => t.id === s?.tableId);
