@@ -184,6 +184,21 @@ export async function publicMenu(outletId: string, timezone: string) {
  * (paid orders; at least 5 sold). Call inside the tenant context.
  */
 export async function bestsellerIds(outletId: string, limit = 6): Promise<string[]> {
+  // QA Phase 13 perf-3: a 30-day sum over every paid line ran on each customer page view (~140 ms on a busy
+  // outlet, the slowest part of the online menu). A ranking that moves slowly: cached per outlet for 10 minutes.
+  const key = `${outletId}|${limit}`;
+  const hit = bestsellerCache.get(key);
+  if (hit && hit.until > Date.now()) return hit.ids;
+  const ids = await computeBestsellers(outletId, limit);
+  if (process.env.NODE_ENV !== "test") {
+    if (bestsellerCache.size > 5000) bestsellerCache.clear();
+    bestsellerCache.set(key, { ids, until: Date.now() + 10 * 60_000 });
+  }
+  return ids;
+}
+const bestsellerCache = new Map<string, { ids: string[]; until: number }>();
+
+async function computeBestsellers(outletId: string, limit: number): Promise<string[]> {
   const rows = await prisma.orderItem.groupBy({
     by: ["menuItemId"],
     where: { order: { outletId, status: "PAID", createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } },

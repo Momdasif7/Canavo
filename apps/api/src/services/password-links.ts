@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import bcrypt from "bcryptjs";
+import { bcrypt } from "../lib/bcrypt-pool";
 import { passwordProblems } from "@canavo/shared";
 import { platformPrisma } from "../db";
 import { env, isProd } from "../env";

@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+import { bcrypt } from "./bcrypt-pool";
 import { platformPrisma } from "../db";
 import { HttpError } from "./http";
 

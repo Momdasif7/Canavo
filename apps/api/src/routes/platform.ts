@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { superAdminIpWhitelist } from "../middleware/ip-whitelist";
-import bcrypt from "bcryptjs";
+import { bcrypt } from "../lib/bcrypt-pool";
 import {
   businessCreateSchema,
   FEATURES,

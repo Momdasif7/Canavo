@@ -36,7 +36,8 @@ const FILTERED_OPS = new Set([
   "upsert",
 ]);
 
-const base = new PrismaClient();
+// PRISMA_QUERY_LOG=1: emit every statement as a "query" event (N+1 hunting, perf/n1-scan.ts). Off by default.
+const base = new PrismaClient(process.env.PRISMA_QUERY_LOG === "1" ? { log: [{ emit: "event", level: "query" }] } : undefined);
 
 // ---------------------------------------------------------------------------
 // Layer 1 — application tenant filter (unchanged): inside a business context
