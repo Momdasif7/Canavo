@@ -188,7 +188,7 @@ describe("staff side: settings, tables, requests", () => {
 
 describe("public QR table ordering", () => {
   it("unknown / malformed / enumerated tokens → 404 with the same answer", async () => {
-    const tokens = [crypto.randomBytes(18).toString("base64url"), "short", "x".repeat(65), "' OR 1=1 --", `${qr.qrToken.slice(0, -1)}A`, qr.qrToken.toUpperCase()];
+    const tokens = [crypto.randomBytes(18).toString("base64url"), "short", "x".repeat(65), "' OR 1=1 --", `${qr.qrToken.slice(0, -1)}${qr.qrToken.endsWith("A") ? "B" : "A"}`, qr.qrToken.toUpperCase()];
     for (const t of tokens) {
       for (const [m, p, b] of [["GET", ""], ["GET", "/orders"], ["POST", "/orders", { items: [{ menuItemId: h.items.chai, quantity: 1 }] }], ["POST", "/call", { kind: "WAITER" }]] as const) {
         const r = await pub(m, `/public/t/${encodeURIComponent(t)}${p}`, b);

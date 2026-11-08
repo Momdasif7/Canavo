@@ -15,7 +15,7 @@ export interface ServerEvents {
   "order:created": (p: { id: string; invoiceNumber: string }) => void;
   notification: (n: NotificationEvent) => void;
   /** Read state changed on another device: one notification or all of them */
-  "notification:read": (p: { id?: string; all?: boolean }) => void;
+  "notification:read": (p: { id?: string; all?: boolean; read?: boolean; cleared?: boolean }) => void;
   /** Menu edited (`id`), imported, or items ran out / came back in stock (`ids`, `stock: true`) */
   "menu:changed": (p: { id?: string; ids?: string[]; stock?: boolean; import?: boolean }) => void;
   /** GST / pricing settings of the outlet changed (e.g. GST switched off) */

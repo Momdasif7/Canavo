@@ -4,6 +4,7 @@ import type { Role } from "@canavo/shared";
 import { env } from "../env";
 import { platformPrisma, prisma } from "../db";
 import { unauthorized } from "./http";
+import { disconnectSockets } from "../realtime";
 
 export const ACCESS_TTL_SECONDS = 15 * 60;
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -76,6 +77,7 @@ export async function rotateRefresh(raw: string) {
       where: { familyId: row.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    disconnectSockets({ sid: row.familyId });
     return unauthorized("Refresh token reuse detected; please log in again");
   };
   if (row.revokedAt) throw await reuse();
@@ -109,6 +111,8 @@ export async function forceLogout(userId: string) {
     await tx.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
     await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
   });
+  // Live sockets keep receiving events until they reconnect otherwise (rt-2).
+  disconnectSockets({ userId });
 }
 
 /** Is the session still live (its newest refresh token unrevoked and unexpired)? */
@@ -142,14 +146,15 @@ export async function listSessions(userId: string) {
 /** End one session of a user (no-op if it isn't theirs). */
 export async function revokeSession(userId: string, sid: string) {
   const r = await prisma.refreshToken.updateMany({ where: { userId, familyId: sid, revokedAt: null }, data: { revokedAt: new Date() } });
+  if (r.count > 0) disconnectSockets({ sid });
   return r.count > 0;
 }
 
 /** End every session of a user except one. */
 export async function revokeOtherSessions(userId: string, keepSid?: string) {
-  const r = await prisma.refreshToken.updateMany({
-    where: { userId, revokedAt: null, ...(keepSid && { familyId: { not: keepSid } }) },
-    data: { revokedAt: new Date() },
-  });
+  const where = { userId, revokedAt: null, ...(keepSid && { familyId: { not: keepSid } }) };
+  const families = await prisma.refreshToken.findMany({ where, select: { familyId: true }, distinct: ["familyId"] });
+  const r = await prisma.refreshToken.updateMany({ where, data: { revokedAt: new Date() } });
+  for (const f of families) disconnectSockets({ sid: f.familyId });
   return r.count;
 }
