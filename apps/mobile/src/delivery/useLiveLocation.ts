@@ -18,10 +18,9 @@ interface LiveLocation {
  * location and POST /delivery/:id/location every ~30 s (and once at start).
  *
  * Foreground only: updates pause when the app is backgrounded or the screen
- * is locked. Background tracking needs expo-task-manager +
- * startLocationUpdatesAsync and "Allow all the time" permission — see
- * STORE_RELEASE.md before adding it (Play policy requires a prominent
- * disclosure).
+ * is locked. Where the outlet allows it and the partner granted "Allow all the
+ * time", the background task in backgroundLocation.ts covers that gap (gap 3);
+ * otherwise this hook is the fallback.
  */
 export function useLiveLocation(deliveryIds: string[]): LiveLocation {
   const [state, setState] = useState<LiveLocation>({ sharing: false, lastSentAt: null, error: null, remainingKm: {} });
