@@ -15,6 +15,7 @@ import {
   deliveryLocationSchema,
   deliveryQuoteQuerySchema,
   deliveryStatusSchema,
+  partnerLocationBatchSchema,
   partnerLocationSchema,
   deliveryZoneSchema,
   deliveryZoneUpdateSchema,
@@ -39,6 +40,7 @@ import { canTransitionDelivery, selectZone } from "../services/service-context";
 import { amountPaid, assertConfirmable, lockOrder, settleIfPaid } from "../services/billing";
 import { createUpiQr } from "../services/razorpay";
 import { cashBalance, cashCollected, cashHandedOver, pendingCollections, reallocateHandovers } from "../services/delivery-cash";
+import { lastAcceptedPoint, liveLocations, rememberAccepted, thinPoints } from "../services/delivery-track";
 import { assignWaitingDeliveries, lockAndCheckPartner, markBackAtOutlet, partnerAvailability, reportPartnerLocation, startRun } from "../services/delivery-assign";
 import { alertPartnerCash } from "../services/alerts";
 
@@ -69,7 +71,7 @@ const include = {
 } satisfies Prisma.DeliveryInclude;
 
 /** Last known agent positions (in memory: live tracking only, not history). */
-const lastLocation = new Map<string, { lat: number; lng: number; at: string; deliveryId: string; outletId: string }>();
+const lastLocation = liveLocations;
 
 function withExtras<T extends { agentId: string | null; order: { grandTotal: number; payments: { amount: number; status: string }[] } }>(d: T) {
   const paid = d.order.payments.filter((p) => p.status === "SUCCESS").reduce((s, p) => s + p.amount, 0);
@@ -279,7 +281,48 @@ deliveryRouter.post("/agents/:id/back", requirePermission("delivery:manage"), as
 /** Partner app: GPS while on duty. Detects the return to the outlet after a run. */
 deliveryRouter.post("/me/location", requirePermission("delivery:own"), async (req, res) => {
   const fix = parse(partnerLocationSchema, req.body);
+  rememberAccepted(req.user!.id, { ...fix, t: Date.now() });
   res.json(await reportPartnerLocation(req.outletId!, req.user!.id, fix));
+});
+
+/**
+ * Gap 3: batched points from the partner app's background task / offline queue. Validated and thinned server-side
+ * (services/delivery-track.ts); only the newest accepted point is applied. `stop: true` tells the app to end its
+ * background task (off duty, outlet turned background tracking off, or the run is over).
+ */
+deliveryRouter.post("/me/location/batch", requirePermission("delivery:own"), async (req, res) => {
+  const { points, background } = parse(partnerLocationBatchSchema, req.body);
+  const outletId = req.outletId!;
+  const agentId = req.user!.id;
+  const stop = (code: string, message: string) => {
+    throw new HttpError(409, message, { code, stop: true });
+  };
+  const onDuty = await prisma.staffAttendance.findFirst({ where: { userId: agentId, outletId, clockOutAt: null }, select: { id: true } });
+  if (!onDuty) return stop("OFF_DUTY", "You are not clocked in: location is only shared while you are on duty");
+  const [outlet, me, out] = await Promise.all([
+    prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { backgroundTracking: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: agentId }, select: { deliveryAtOutlet: true } }),
+    prisma.delivery.findMany({ where: { agentId, outletId, status: "OUT_FOR_DELIVERY" }, select: { id: true, latitude: true, longitude: true } }),
+  ]);
+  if (background && !outlet.backgroundTracking) return stop("BACKGROUND_OFF", "This outlet does not use background location");
+  if (background && me.deliveryAtOutlet && !out.length) return stop("NOT_ON_RUN", "You are back at the outlet: background location has stopped");
+
+  const { accepted, dropped, reasons } = thinPoints(points, lastAcceptedPoint(agentId));
+  const latest = accepted.at(-1);
+  if (!latest) return res.json({ accepted: 0, dropped, reasons, stop: false });
+  rememberAccepted(agentId, latest);
+  const at = new Date(latest.t);
+  for (const d of out) {
+    const loc = { lat: latest.lat, lng: latest.lng, at: at.toISOString(), deliveryId: d.id, outletId };
+    liveLocations.set(agentId, loc);
+    const remainingKm =
+      d.latitude != null && d.longitude != null
+        ? Math.round((distanceMeters({ latitude: latest.lat, longitude: latest.lng }, { latitude: d.latitude, longitude: d.longitude }) / 1000) * 100) / 100
+        : null;
+    emitToOutlet(outletId, "delivery:location", { agentId, ...loc, remainingKm });
+  }
+  const presence = await reportPartnerLocation(outletId, agentId, { lat: latest.lat, lng: latest.lng, accuracy: latest.accuracy }, at);
+  res.json({ accepted: accepted.length, dropped, reasons, ...presence, stop: Boolean(background && presence.atOutlet && !out.length) });
 });
 
 /** Partner: my dispatch state (at the outlet / on a run, orders held vs the limit). */

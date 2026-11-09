@@ -26,7 +26,12 @@ export const FEATURES = {
   },
   CLOCK_IN_SELFIE: {
     label: "Selfie at clock-in",
-    description: "Staff take a selfie when they clock in on the app. Managers can see it with the attendance record. (No face matching.)",
+    description: "Staff take a selfie when they clock in on the app. Managers can see it with the attendance record.",
+    requires: ["ATTENDANCE"],
+  },
+  CLOCK_IN_FACE_MATCH: {
+    label: "Face check at clock-in",
+    description: "Staff who agree enrol a reference photo; each clock-in selfie (with a short liveness prompt) goes to a manager review queue next to it. A doubtful match never blocks clock-in, it is flagged. Staff who don't agree clock in with PIN and selfie as before. No face template is stored; selfies are deleted after 90 days.",
     requires: ["ATTENDANCE"],
   },
   APPROVAL_PINS: {

@@ -67,6 +67,8 @@ export const outletSchema = z.object({
   flatDiscountsIncludeTax: z.boolean().optional(),
   /** Manual discount above this % of the bill needs a manager PIN (APPROVAL_PINS); owner only */
   approvalDiscountPercent: z.number().int().min(0).max(100).optional(),
+  /** Gap 3: delivery partners keep sharing GPS in the background between pickup and the return to the outlet */
+  backgroundTracking: z.boolean().optional(),
 });
 export type OutletInput = z.infer<typeof outletSchema>;
 
@@ -120,6 +122,40 @@ export const clockSchema = z.object({
   mocked: z.boolean().optional(),
   /** Selfie uploaded via POST /uploads/image just before clocking in (feature CLOCK_IN_SELFIE) */
   selfieUrl: httpUrl.pipe(z.string().max(500)).optional(),
+  /** CLOCK_IN_FACE_MATCH: the liveness-lite prompt the app showed before the selfie */
+  livenessPrompt: z.string().trim().max(60).optional(),
+  /**
+   * CLOCK_IN_FACE_MATCH: result of an on-device matcher, when the app has one. Only the verdict and score
+   * ever leave the phone, never a face embedding / template.
+   */
+  faceMatch: z.object({ matched: z.boolean(), score: z.number().min(0).max(1) }).strict().optional(),
+});
+
+// ---------- Clock-in face check (gap 7, DPDP Act 2023) ----------
+/** Bump when the notice text changes: staff must consent again to the new version. */
+export const FACE_CONSENT_VERSION = "2026-11-10";
+export const FACE_CONSENT_NOTICE =
+  "Your employer uses face checks at clock-in to stop someone else clocking in for you. If you agree, the photo you take now " +
+  "is kept as your reference photo, and each clock-in selfie is compared with it: a manager looks at both photos side by side " +
+  "(and, where the app can, your phone compares them on the device; only a match yes/no and a score are sent). No face template " +
+  "is stored. Selfies are deleted after 90 days. The photos are used only for attendance. You can say no or withdraw at any time: " +
+  "you can still clock in with your PIN and selfie, and withdrawing deletes your reference photo.";
+/** Liveness-lite: the app shows one at random before the selfie; the reviewer checks the selfie follows it. */
+export const LIVENESS_PROMPTS = ["Blink twice", "Turn your head slightly left", "Turn your head slightly right", "Smile", "Look up, then at the camera"] as const;
+/** Days a clock-in selfie is kept before the retention job removes it. */
+export const SELFIE_RETENTION_DAYS = 90;
+export const FACE_CHECK_STATES = ["PENDING_REVIEW", "MATCHED", "MISMATCH", "APPROVED", "REJECTED"] as const;
+export type FaceCheckState = (typeof FACE_CHECK_STATES)[number];
+
+/** POST /attendance/face/consent — staff member agrees to the current notice and enrols a reference photo */
+export const faceConsentSchema = z.object({
+  version: z.string().max(20),
+  refPhotoUrl: httpUrl.pipe(z.string().max(500)),
+});
+/** POST /attendance/:id/face-review — manager decides after comparing the photos */
+export const faceReviewSchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"]),
+  note: z.string().trim().max(300).optional(),
 });
 
 /** Manager / owner attendance entry for one employee on one day. Times are HH:MM in outlet time. */

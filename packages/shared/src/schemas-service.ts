@@ -305,3 +305,26 @@ export const partnerLocationSchema = z.object({
   lng: z.number().min(-180).max(180),
   accuracy: z.number().nonnegative().optional(),
 });
+
+/** Gap 3: most points one background batch may carry (≈25 min at the 30 s interval). */
+export const LOCATION_BATCH_MAX = 50;
+/**
+ * POST /delivery/me/location/batch — background task (and offline queue) uploads the fixes it collected.
+ * `at` is when the phone took the fix; the server validates and thins them (see delivery-track.ts).
+ */
+export const partnerLocationBatchSchema = z.object({
+  points: z
+    .array(
+      z.object({
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        accuracy: z.number().nonnegative().optional(),
+        at: z.string().datetime({ offset: true }),
+      }),
+    )
+    .min(1)
+    .max(LOCATION_BATCH_MAX),
+  /** true = sent by the background task (the outlet must allow background tracking) */
+  background: z.boolean().optional(),
+});
+export type PartnerLocationBatch = z.infer<typeof partnerLocationBatchSchema>;

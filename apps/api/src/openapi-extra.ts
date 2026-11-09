@@ -52,6 +52,7 @@ export const ops: Op[] = [
   ["delete", "/notifications/read", "Clear notifications already read (synced to the user's other tabs / devices).", "Notifications"],
   ["post", "/delivery/agents/{id}/back", "Manager: partner is back (e.g. their phone isn't sharing GPS) — makes them available again.", "Delivery"],
   ["post", "/delivery/me/location", "Partner app: GPS while on duty. Body: partnerLocationSchema", "Delivery"],
+  ["post", "/delivery/me/location/batch", "Gap 3: batched GPS points from the background task / offline queue (validated + thinned server-side; 409 {code, stop:true} = end the background task). Body: partnerLocationBatchSchema", "Delivery"],
   ["get", "/delivery/me/status", "Partner: my dispatch state (at the outlet / on a run, orders held vs the limit).", "Delivery"],
   ["get", "/delivery/mine/summary", "Delivery partner dashboard: deliveries done, money collected by mode, cash still in hand (not yet handed to the outlet), average delivery time, per-day trend. Query: deliverySummaryQuerySchema", "Delivery"],
   ["get", "/delivery/mine/cash", "Delivery partner: cash to hand over (separate from deliveries) — balance, today's movement, pending orders, recent handovers.", "Delivery"],

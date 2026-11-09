@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { distanceMeters } from "@canavo/shared";
+import { distanceMeters, LIVENESS_PROMPTS } from "@canavo/shared";
 import type { z } from "zod";
 import type { clockSchema } from "@canavo/shared";
 import { prisma } from "../db";
@@ -11,6 +11,8 @@ import { assignWaitingDeliveries, markBackAtOutlet } from "./delivery-assign";
 import { alertAttendanceMarked } from "./alerts";
 import { featureOn } from "../lib/tenant";
 import { PIN_MAX_FAILED, verifyPin } from "../lib/pin";
+import { forgetPartnerLocation } from "./delivery-track";
+import { faceCheckApplies, initialFaceCheck } from "./face-check";
 
 type ClockInput = z.infer<typeof clockSchema>;
 
@@ -22,7 +24,7 @@ const STRICT_MAX_ACCURACY = 50;
 /** Accuracy worse than this is flagged for the manager (always recorded). */
 const LOW_ACCURACY_FLAG = 100;
 /** Selfies must come from our own upload endpoint (local storage or Cloudinary), not any URL. */
-function isOwnUpload(url: string) {
+export function isOwnUpload(url: string) {
   try {
     const u = new URL(url);
     // http(s) only: "javascript://res.cloudinary.com/%0a…" has that host too (QA Phase 8, sec1-1).
@@ -72,8 +74,10 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
     }
   }
 
-  // CLOCK_IN_SELFIE: a selfie (uploaded just before) is required to clock in.
-  if (action === "in" && featureOn("CLOCK_IN_SELFIE") && !input.selfieUrl) {
+  // CLOCK_IN_SELFIE: a selfie (uploaded just before) is required to clock in. Staff who consented to the
+  // face check (CLOCK_IN_FACE_MATCH) also need one: it is what the manager compares with the reference photo.
+  const faceCheck = action === "in" && faceCheckApplies(user);
+  if (action === "in" && (featureOn("CLOCK_IN_SELFIE") || faceCheck) && !input.selfieUrl) {
     throw new HttpError(400, "Take a selfie to clock in", { code: "SELFIE_REQUIRED" });
   }
   if (input.selfieUrl && !isOwnUpload(input.selfieUrl)) throw badRequest("The selfie must be uploaded through CANAVO");
@@ -95,7 +99,12 @@ async function loadContext(req: Request, input: ClockInput, action: "in" | "out"
       );
     }
   }
-  return { user, outlet, distance, flags };
+  return { user, outlet, distance, flags, faceCheck };
+}
+
+/** Keep only prompts the app can actually show (free text from a client is not evidence). */
+function livenessPromptOf(p: string | undefined): string | null {
+  return p && (LIVENESS_PROMPTS as readonly string[]).includes(p) ? p : null;
 }
 
 function shiftWindow(shift: { startTime: string; endTime: string } | null) {
@@ -107,7 +116,7 @@ function shiftWindow(shift: { startTime: string; endTime: string } | null) {
 }
 
 export async function clockIn(req: Request, input: ClockInput) {
-  const { user, outlet, distance, flags } = await loadContext(req, input);
+  const { user, outlet, distance, flags, faceCheck } = await loadContext(req, input);
   const open = await prisma.staffAttendance.findFirst({ where: { userId: user.id, clockOutAt: null } });
   if (open) throw new HttpError(409, "You are already clocked in", { code: "ALREADY_CLOCKED_IN" });
 
@@ -123,6 +132,9 @@ export async function clockIn(req: Request, input: ClockInput) {
     minutes += 24 * 60;
   }
   const lateBy = win && minutes > win.start + grace ? minutes - win.start : 0;
+  // Gap 7: a doubtful face match never blocks clock-in — it is flagged for the manager like a fake GPS fix.
+  const face = faceCheck ? initialFaceCheck(input.faceMatch) : null;
+  if (face === "MISMATCH") flags.push("FACE_MISMATCH");
 
   const record = await prisma.staffAttendance.create({
     data: {
@@ -137,10 +149,14 @@ export async function clockIn(req: Request, input: ClockInput) {
       clockInMocked: Boolean(input.mocked),
       clockInSelfieUrl: input.selfieUrl,
       clockInFlags: flags,
+      ...(face && { faceCheck: face, faceScore: input.faceMatch?.score ?? null, livenessPrompt: livenessPromptOf(input.livenessPrompt) }),
       lateByMinutes: lateBy,
     },
   });
-  await audit(req, "attendance.clock_in", "StaffAttendance", record.id, { distance, lateBy, ...(flags.length && { flags }) });
+  await audit(req, "attendance.clock_in", "StaffAttendance", record.id, { distance, lateBy, ...(flags.length && { flags }), ...(face && { faceCheck: face }) });
+  if (face === "MISMATCH") {
+    await notify(await outletManagers(outlet.id), "Clock-in face check", `${user.name}'s clock-in selfie at ${outlet.name} may not match their reference photo. Review it under Attendance → Face checks.`, "attendance.suspicious");
+  }
   if (flags.includes("MOCK_LOCATION")) {
     await notify(await outletManagers(outlet.id), "Fake location at clock-in", `${user.name}'s phone reported a fake GPS location when clocking in at ${outlet.name}.`, "attendance.suspicious");
   }
@@ -195,6 +211,8 @@ export async function clockOut(req: Request, input: ClockInput) {
     },
   });
   await audit(req, "attendance.clock_out", "StaffAttendance", record.id, { worked, overtime, earlyBy });
+  // Gap 3 privacy: location is only kept while on duty.
+  if (user.role === "DELIVERY") await forgetPartnerLocation(user.id);
 
   const alerts: string[] = [];
   if (earlyBy > 15) alerts.push(`left ${earlyBy} min early`);

@@ -76,6 +76,8 @@ model Outlet {
   deliveryAreas           String[]            @default([])
   /// ADDRESS mode: promised delivery time, minutes
   deliveryEtaMinutes      Int                 @default(30)
+  /// Gap 3 (P2): partner app keeps sharing GPS in the background between pickup and the return to the outlet (off by default)
+  backgroundTracking      Boolean             @default(false)
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
@@ -151,6 +153,11 @@ model User {
   lastLat               Float?
   lastLng               Float?
   lastLocationAt        DateTime?
+  /// Gap 7 (CLOCK_IN_FACE_MATCH): reference photo the staff member enrolled for clock-in face checks (an image, never a face template)
+  faceRefPhotoUrl       String?
+  /// Explicit DPDP consent to clock-in face checks: when and which notice version; withdrawing clears all three
+  faceConsentAt         DateTime?
+  faceConsentVersion    String?
   /// Custom role (Phase 4.2): narrows the base `role`'s permissions; null = the full base role
   customRoleId          String?
   /// Own appearance (light/dark, text size, density, personal accent) — see userPreferencesSchema in @canavo/shared
@@ -277,9 +284,17 @@ model StaffAttendance {
   clockInAccuracy  Int?
   /// The phone reported a fake (mock) location at clock-in
   clockInMocked    Boolean          @default(false)
-  /// Selfie taken at clock-in (feature CLOCK_IN_SELFIE); stored for the manager to review, no face matching
+  /// Selfie taken at clock-in (feature CLOCK_IN_SELFIE / CLOCK_IN_FACE_MATCH); manager review; purged after 90 days
   clockInSelfieUrl String?
-  /// Things the manager should look at: MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY
+  /// CLOCK_IN_FACE_MATCH: PENDING_REVIEW | MATCHED | MISMATCH (on-device result) → APPROVED | REJECTED (manager). Null = no face check
+  faceCheck        String?
+  /// On-device similarity score 0..1 when the app ran a matcher (no embedding is ever sent or stored)
+  faceScore        Float?
+  /// Liveness-lite prompt shown before the selfie (e.g. "Blink twice"), for the reviewer
+  livenessPrompt   String?
+  faceReviewedById String?
+  faceReviewedAt   DateTime?
+  /// Things the manager should look at: MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY, FACE_MISMATCH, FACE_REJECTED
   clockInFlags     String[]         @default([])
   clockOutLat      Float?
   clockOutLng      Float?

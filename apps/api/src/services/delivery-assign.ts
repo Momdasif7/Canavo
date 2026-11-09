@@ -146,8 +146,8 @@ export async function markBackAtOutlet(outletId: string, agentId: string, how: "
  * GPS from the partner app. Saves the fix; if the partner finished every
  * picked-up order and is now within the outlet radius, they're back.
  */
-export async function reportPartnerLocation(outletId: string, agentId: string, fix: { lat: number; lng: number; accuracy?: number }) {
-  await prisma.user.update({ where: { id: agentId }, data: { lastLat: fix.lat, lastLng: fix.lng, lastLocationAt: new Date() } });
+export async function reportPartnerLocation(outletId: string, agentId: string, fix: { lat: number; lng: number; accuracy?: number }, at = new Date()) {
+  await prisma.user.update({ where: { id: agentId }, data: { lastLat: fix.lat, lastLng: fix.lng, lastLocationAt: at } });
   const outlet = await prisma.outlet.findUniqueOrThrow({ where: { id: outletId }, select: { latitude: true, longitude: true, geofenceMeters: true } });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: agentId }, select: { deliveryAtOutlet: true } });
   const distance =
@@ -160,7 +160,7 @@ export async function reportPartnerLocation(outletId: string, agentId: string, f
     const stillOut = await prisma.delivery.count({ where: { agentId, status: "OUT_FOR_DELIVERY" } });
     if (!stillOut) back = await markBackAtOutlet(outletId, agentId, "gps");
   }
-  emitToOutlet(outletId, "delivery:location", { agentId, lat: fix.lat, lng: fix.lng, at: new Date().toISOString(), distanceToOutlet: distance });
+  emitToOutlet(outletId, "delivery:location", { agentId, lat: fix.lat, lng: fix.lng, at: at.toISOString(), distanceToOutlet: distance });
   return { distanceToOutlet: distance, atOutlet: user.deliveryAtOutlet || back, backNow: back };
 }
 
