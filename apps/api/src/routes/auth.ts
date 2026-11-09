@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { reportError } from "../lib/observability";
 import { Router } from "express";
 import { bcrypt } from "../lib/bcrypt-pool";
 import rateLimit from "express-rate-limit";
@@ -276,8 +277,13 @@ authRouter.post("/password/forgot", async (req, res) => {
   const where = identifier.includes("@") ? { email: identifier.toLowerCase() } : { phone: digits.slice(-10) };
   const user = await platformPrisma.user.findFirst({ where, select: { id: true, name: true, email: true, phone: true, status: true, businessId: true } });
   if (user?.status === "ACTIVE") {
-    const delivery = await sendPasswordLink(user, "RESET");
-    await securityAudit(req, user, "auth.password.link_requested", { channel: delivery.channel });
+    try {
+      const delivery = await sendPasswordLink(user, "RESET");
+      await securityAudit(req, user, "auth.password.link_requested", { channel: delivery.channel });
+    } catch (e) {
+      // Same answer either way (no account probing); the failure is reported for the operator.
+      reportError(e, { kind: "request", requestId: req.id, method: req.method, route: "/auth/password/forgot" });
+    }
   }
   res.json({ ok: true, message: "If an account matches, a reset link has been sent by email or SMS." });
 });
