@@ -23,15 +23,17 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { DailyRegister } from "@/components/attendance/DailyRegister";
+import { FaceReviews } from "@/components/attendance/FaceReviews";
 import { AddAttendanceDialog } from "@/components/attendance/AddAttendanceDialog";
 import { EditAttendanceDialog } from "@/components/attendance/EditAttendanceDialog";
 import { CAL_STYLE, STATUS_META, hasTimes, sourceLabel } from "@/components/attendance/shared";
 
-type Tab = "register" | "records" | "calendar" | "leaves" | "salary";
+type Tab = "register" | "records" | "calendar" | "leaves" | "salary" | "face";
 
 export default function AttendancePage() {
-  const { can } = useSession();
+  const { can, me } = useSession();
   const manage = can("attendance:manage");
+  const faceChecks = manage && Boolean(me?.features?.CLOCK_IN_FACE_MATCH);
   const [tab, setTab] = useState<Tab>(manage ? "register" : "records");
   /** Bumped after register / dialog saves so other tabs refetch. */
   const [version, setVersion] = useState(0);
@@ -51,6 +53,7 @@ export default function AttendancePage() {
                 { value: "calendar", label: "Calendar" },
                 { value: "leaves", label: "Leave requests" },
                 { value: "salary", label: "Salary" },
+                ...(faceChecks ? [{ value: "face" as const, label: "Face checks" }] : []),
               ]}
             />
           </div>
@@ -66,6 +69,7 @@ export default function AttendancePage() {
       {tab === "calendar" && <CalendarView version={version} />}
       {tab === "leaves" && <Leaves />}
       {tab === "salary" && <Salary version={version} />}
+      {tab === "face" && faceChecks && <FaceReviews />}
     </PageContainer>
   );
 }

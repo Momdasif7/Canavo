@@ -161,6 +161,8 @@ export interface Outlet {
   maxDeliveriesPerPartner?: number;
   /** POS item cards show menu photos (default true; off = text-only cards) */
   posShowImages?: boolean;
+  /** Gap 3: partner app shares GPS in the background between pickup and return */
+  backgroundTracking?: boolean;
 }
 
 export interface MenuCategory {
@@ -504,8 +506,10 @@ export interface AttendanceRecord {
   clockInAccuracy?: number | null;
   clockInMocked?: boolean;
   clockInSelfieUrl?: string | null;
-  /** MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY — for the manager to review */
+  /** MOCK_LOCATION, LOW_ACCURACY, NO_ACCURACY, FACE_MISMATCH, FACE_REJECTED — for the manager to review */
   clockInFlags?: string[];
+  /** Gap 7 face check: PENDING_REVIEW | MATCHED | MISMATCH | APPROVED | REJECTED */
+  faceCheck?: string | null;
   workedMinutes: number | null;
   overtimeMinutes: number;
   lateByMinutes: number;
@@ -645,4 +649,19 @@ export interface CreditNote {
   amount: number;
   restocked: boolean;
   createdAt: string;
+}
+
+/** GET /attendance/face/reviews (gap 7) */
+export interface FaceReview {
+  id: string;
+  workDate: string;
+  clockInAt: string;
+  user: { id: string; name: string; role: string };
+  refPhotoUrl: string | null;
+  selfieUrl: string | null;
+  livenessPrompt: string | null;
+  faceCheck: "PENDING_REVIEW" | "MATCHED" | "MISMATCH" | "APPROVED" | "REJECTED";
+  faceScore: number | null;
+  flags: string[];
+  reviewedAt: string | null;
 }

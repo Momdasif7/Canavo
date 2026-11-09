@@ -21,7 +21,7 @@ import { DEFAULT_SHIFT, STATUS_META, STATUS_ORDER, StatusPicker, TimeField, need
 import { mediaUrl } from "@/lib/media";
 
 /** Clock-in evidence the manager should look at (Phase 2.6). */
-const CLOCK_FLAG_LABELS: Record<string, string> = { MOCK_LOCATION: "Fake GPS", LOW_ACCURACY: "Weak GPS", NO_ACCURACY: "GPS accuracy unknown" };
+const CLOCK_FLAG_LABELS: Record<string, string> = { MOCK_LOCATION: "Fake GPS", LOW_ACCURACY: "Weak GPS", NO_ACCURACY: "GPS accuracy unknown", FACE_MISMATCH: "Face doubtful", FACE_REJECTED: "Face rejected" };
 
 interface Draft {
   status: AttendanceStatus | null;
@@ -413,7 +413,7 @@ function RegisterRowItem({
                   </Badge>
                 )}
                 {(r.clockInFlags ?? []).map((f) => (
-                  <Badge key={f} tone={f === "MOCK_LOCATION" ? "danger" : "warning"}>
+                  <Badge key={f} tone={f === "MOCK_LOCATION" || f === "FACE_REJECTED" ? "danger" : "warning"}>
                     <WarningCircle size={12} weight="bold" />
                     {CLOCK_FLAG_LABELS[f] ?? f}
                     {f === "LOW_ACCURACY" && r.clockInAccuracy != null && ` (±${r.clockInAccuracy} m)`}

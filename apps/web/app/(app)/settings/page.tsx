@@ -57,6 +57,7 @@ type OutletForm = {
   upiVpa: string;
   logoUrl: string;
   posShowImages: boolean;
+  backgroundTracking: boolean;
 };
 
 const toForm = (o: Outlet): OutletForm => ({
@@ -75,6 +76,7 @@ const toForm = (o: Outlet): OutletForm => ({
   upiVpa: o.upiVpa ?? "",
   logoUrl: o.logoUrl ?? "",
   posShowImages: o.posShowImages !== false,
+  backgroundTracking: Boolean(o.backgroundTracking),
 });
 
 const optNum = (s: string) => (s.trim() === "" ? undefined : Number(s));
@@ -129,6 +131,7 @@ function OutletSettings() {
       upiVpa: form.upiVpa.trim() || undefined,
       logoUrl: form.logoUrl,
       posShowImages: form.posShowImages,
+      backgroundTracking: form.backgroundTracking,
     };
     const maxOrders = payload.maxDeliveriesPerPartner;
     if (!Number.isInteger(maxOrders) || maxOrders < 1 || maxOrders > 10) return setError("Max orders per delivery partner must be between 1 and 10");
@@ -258,6 +261,15 @@ function OutletSettings() {
             onChange={(e) => set("maxDeliveriesPerPartner", e.target.value.replace(/\D/g, ""))}
             hint="A partner can't get new orders until they deliver and come back to the outlet."
           />
+          <div className="mt-4 max-w-md">
+            <Toggle
+              label="Track partners in the background while on a run"
+              description="The partner app keeps sharing GPS with the screen locked, only between pickup and the return to the outlet, and only for partners who allow it. Off: tracking pauses when the app is closed."
+              checked={form.backgroundTracking}
+              onChange={(v) => set("backgroundTracking", v)}
+              disabled={!editable}
+            />
+          </div>
         </section>
 
         <section>
