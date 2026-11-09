@@ -12,7 +12,7 @@
 -- Owner paths: ApprovalLog.outletId, AuditLog.businessId, BusinessIntegration.businessId, CashMovement.outletId, CashShift.outletId, ChannelConnection.outletId, ChannelItemMap.outletId, ChannelOrder.outletId, ChannelRequest.outletId, CorporateAccount.businessId, CorporateStatement.businessId, CorporateSubsidyRule.corporateAccountId, Coupon.businessId, CouponRedemption.couponId, CreditNote.outletId, CreditNoteCounter.outletId, CustomRole.businessId, Customer.businessId, CustomerOtp.outletId, Delivery.outletId, DeliveryCashHandover.outletId, DeliveryZone.outletId, DeviceToken.userId, DiningArea.outletId, DiningTable.outletId, GiftCard.businessId, GiftCardTxn.giftCardId, IdempotencyKey.userId, InventoryItem.businessId, InventoryStock.outletId, InventoryTransaction.outletId, InvoiceCounter.outletId, ItemAddon.menuItemId, ItemVariant.menuItemId, KhataTransaction.outletId, KotTicket.outletId, LeaveRequest.userId, LoyaltyTransaction.customerId, MealSlot.outletId, MealSlotItem.slotId, MealSubscription.outletId, MealSubscriptionMeal.subscriptionId, MealSubscriptionSkip.subscriptionId, MealTokenAccount.customerId, MealTokenTxn.accountId, MenuCategory.businessId, MenuItem.businessId, Notification.userId, Offer.businessId, OfflineSeries.outletId, Order.outletId, OrderHandover.outletId, OrderItem.orderId, OutboxEvent.businessId, Outlet.businessId, OutletItemOverride.outletId, PasswordResetToken.userId, Payment.orderId, Purchase.outletId, PurchaseItem.purchaseId, PurchasePayment.purchaseId, Recipe.menuItemId, RecoveryCode.userId, RefreshToken.userId, ReportSchedule.outletId, Reservation.outletId, Shift.outletId, ShowTime.outletId, StaffAttendance.outletId, StockAudit.outletId, StockAuditLine.auditId, StockTransfer.fromOutletId, StockTransferItem.transferId, SupportGrant.businessId, TableSession.outletId, TableSessionItem.sessionId, TaxRate.businessId, User.businessId, UserOutlet.outletId, Vendor.businessId, WalletTxn.customerId
 -- Tables without an owner path (not checked): none
 -- *Id columns with no known target (not checked): none
--- 349 checks.
+-- 351 checks.
 SELECT "check", violations FROM (
   SELECT 'chain:ApprovalLog.outletId'::text AS "check", count(*) AS violations FROM "ApprovalLog" t WHERE t."outletId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Business" b WHERE b.id = (SELECT o1."businessId" FROM "Outlet" o1 WHERE o1.id = t."outletId"))
 UNION ALL
@@ -593,6 +593,10 @@ UNION ALL
   SELECT 'orphan:StaffAttendance.markedById->User'::text AS "check", count(*) AS violations FROM "StaffAttendance" t WHERE t."markedById" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "User" p WHERE p.id = t."markedById")
 UNION ALL
   SELECT 'cross-business:StaffAttendance.markedById->User'::text AS "check", count(*) AS violations FROM "StaffAttendance" t JOIN "User" p ON p.id = t."markedById" WHERE p."businessId" IS NOT NULL AND (SELECT o1."businessId" FROM "Outlet" o1 WHERE o1.id = t."outletId") IS NOT NULL AND p."businessId" <> (SELECT o1."businessId" FROM "Outlet" o1 WHERE o1.id = t."outletId")
+UNION ALL
+  SELECT 'orphan:StaffAttendance.faceReviewedById->User'::text AS "check", count(*) AS violations FROM "StaffAttendance" t WHERE t."faceReviewedById" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "User" p WHERE p.id = t."faceReviewedById")
+UNION ALL
+  SELECT 'cross-business:StaffAttendance.faceReviewedById->User'::text AS "check", count(*) AS violations FROM "StaffAttendance" t JOIN "User" p ON p.id = t."faceReviewedById" WHERE p."businessId" IS NOT NULL AND (SELECT o1."businessId" FROM "Outlet" o1 WHERE o1.id = t."outletId") IS NOT NULL AND p."businessId" <> (SELECT o1."businessId" FROM "Outlet" o1 WHERE o1.id = t."outletId")
 UNION ALL
   SELECT 'orphan:StockAudit.outletId->Outlet'::text AS "check", count(*) AS violations FROM "StockAudit" t WHERE t."outletId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Outlet" p WHERE p.id = t."outletId")
 UNION ALL
