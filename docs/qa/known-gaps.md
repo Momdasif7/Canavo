@@ -3,18 +3,18 @@
 Each gap has a test (passing, or `it.skip` with the reason), a priority with a reason, and a status:
 **Done** (fixed by an earlier phase, verified), **Implemented now** (built in 16b), or **Proposed P2 awaiting approval**.
 
-Tests: `apps/api/test/integration/known-gaps.test.ts` (12 pass, 4 skipped P2 tests), `apps/api/src/services/gstr1.test.ts` (+1 unit test).
+Tests: `apps/api/test/integration/known-gaps.test.ts` (12 pass + 13 for the approved P2 gaps 3 and 7; 2 skipped P2 tests), `apps/api/src/services/gstr1.test.ts` (+1 unit test).
 Migration: `20261109200000_b2b_buyer_business_archive`. It adds 4 nullable `Order` columns and 3 nullable `Business` columns, plus the `BusinessStatus.ARCHIVED` value. Every step is additive and needs no backfill.
 
 | # | Gap | Priority | Status |
 |---|-----|----------|--------|
 | 1 | Scheduler single-instance (pg-boss, many API instances) | P1 | Done (Phase 1.2) |
 | 2 | GSTR-1 B2B / B2CL / CDNR / CDNUR | P1 | Implemented now |
-| 3 | Delivery-partner GPS in the background | P2 | Proposed P2 awaiting approval |
+| 3 | Delivery-partner GPS in the background | P2 | Implemented (approved P2) |
 | 4 | One offer per bill / optional stacking | P2 | Done (rule tested), coupon stacking is Proposed P2 |
 | 5 | Coupon GST treatment and gift cards | P0 check | Done (verified, no defect) |
 | 6 | Tab split atomicity | P1 | Done (Phase 9) |
-| 7 | Clock-in face match | P2 | Proposed P2 awaiting approval |
+| 7 | Clock-in face match | P2 | Implemented (approved P2): manager-review fallback, no on-device matcher |
 | 8 | Business archive / delete after retention | P1 archive, P2 delete | Archive implemented now. Delete is Proposed P2 |
 
 ---
@@ -66,23 +66,41 @@ limit for invoice-wise reporting of inter-state supplies to unregistered persons
 - The HSN B2B/B2C split of table 12 (GSTN phase III).
 - Upload of the JSON through the GSTN offline tool (not verified, no portal access).
 
-## 3. Delivery-partner GPS in the background: Proposed P2 awaiting approval
-**Today:** live location is foreground only (`apps/mobile/src/delivery/useLiveLocation.ts`). `ACCESS_BACKGROUND_LOCATION` is
-blocked in `app.config.ts`, and STORE_RELEASE.md documents this. When the screen locks, the outlet's map shows the last point,
-and "back at outlet" is detected when the app reopens, at clock-in, or by a manager.
+## 3. Delivery-partner GPS in the background: Implemented (approved P2)
+**Before:** live location was foreground only (`useLiveLocation.ts`) and `ACCESS_BACKGROUND_LOCATION` was blocked.
 
-**Why P2:** dispatch still works. The outlet loses live tracking only while the partner's phone is locked, and the partner can
-be marked back by GPS on reopen, clock-in or a manager. Background location also brings Play / App Store review risk and a privacy cost.
+**Built (migration `20261110090000_background_gps_face_check`):**
+- **Per-outlet setting `Outlet.backgroundTracking`**, off by default (web: Settings → Delivery dispatch). `GET /delivery/me/status` returns it.
+- **Mobile:** `src/delivery/backgroundLocation.ts` defines an `expo-task-manager` task at startup (imported from `app/_layout.tsx`) and calls
+  `Location.startLocationUpdatesAsync` with Balanced accuracy, 30 s / 50 m, `pausesUpdatesAutomatically`. On low battery (< 20 %) or in
+  low-power mode (`expo-battery`) it uses Low accuracy, 2 min / 200 m. Android runs it as a foreground service with the notification
+  "Delivering N orders". iOS uses `UIBackgroundModes: location` and shows the blue indicator.
+- **When it runs** (`useBackgroundLocation`, mounted in `PartnerPresenceProvider`): only when the outlet allows it, the partner is clocked in
+  and on a run (from pickup until back at the outlet). It stops when the run ends, at clock-out, at sign-out, or when the server answers `stop`.
+- **Permission flow:** a prominent in-app disclosure comes first (`BackgroundDisclosure`). Then the app asks for foreground and then background
+  permission. If the partner refuses, or iOS grants only "While using", the app falls back to foreground-only (the existing hooks). "Not now"
+  is remembered, and the presence card has an "Allow background sharing" button to change it later.
+- **Offline batching:** fixes go into a SQLite queue (capped at 120) and are posted to the new `POST /delivery/me/location/batch`
+  (at most 50 points, each with its own timestamp). The design said to reuse the single-point endpoints. That doesn't work for a batch whose
+  points carry timestamps, so the new endpoint shares their logic (`reportPartnerLocation`, live map, `delivery:location` event).
+- **Server validation / throttling** (`services/delivery-track.ts`):
+  - **Refused (409 `{code, stop: true}`):** points from a partner who is not clocked in (`OFF_DUTY`), background points when the outlet
+    setting is off (`BACKGROUND_OFF`), and background points when the partner is not on a run (`NOT_ON_RUN`).
+  - **Dropped:** future points (more than 2 min ahead), stale points (more than 30 min old), fixes worse than 1 km, points less than 10 s
+    after the last accepted one (also across batches), and jumps faster than 180 km/h.
+  - Only the newest accepted point is applied. When it brings the partner back to the outlet, the reply is `backNow` + `stop`.
+- **Retention / privacy:** no location history is stored, as in the design. The server keeps only the latest point (in memory for the live
+  map, and `User.lastLat/lastLng/lastLocationAt` for dispatch) and **clears both at clock-out**.
 
-**Proposal:**
-- Add `expo-task-manager` and `Location.startLocationUpdatesAsync` (Balanced accuracy, every 30 s / 50 m, `pausesUpdatesAutomatically`).
-- Run it **only between pickup and the partner's return to the outlet**, with a foreground-service notification on Android ("Delivering order #…").
-- Show a prominent in-app disclosure before asking for "Allow all the time", and fall back to foreground-only if refused.
-- Add a per-outlet setting (off by default).
-- Points post to the existing `POST /delivery/me/location` / `POST /delivery/:id/location` endpoints, with offline batching.
-- Store work: Play background-location declaration and review video, iOS `UIBackgroundModes: location`, and a privacy-policy update.
+Tests: `known-gaps.test.ts` "gap 3" (6 tests). Mobile: `test/backgroundLocation.test.tsx` (13 tests).
+**Needs a real device (dev-client / store build, not Expo Go):**
+- the task keeps running with the screen locked or the app swiped away (Android foreground service; iOS background mode);
+- the Android 11+ "Allow all the time" Settings round-trip;
+- the iOS "Always" upgrade prompt;
+- battery drain over a run;
+- an iOS headless relaunch reading the session from the keychain while the phone is locked.
 
-Test: `it.skip("gap 3 …")`.
+Store work is still needed: the Play background-location declaration with a review video, and a privacy-policy update (see `apps/mobile/STORE_RELEASE.md`).
 
 ## 4. One offer per bill: Done, optional coupon stacking Proposed P2
 **Rule:** only the best-saving offer *or* coupon applies (`bestOffer` in `offer-engine.ts`). Loyalty points and the manual
@@ -121,28 +139,41 @@ New tests:
 
 Also covered by `test/db/concurrency.test.ts`. Green in this run.
 
-## 7. Clock-in face match: Proposed P2 awaiting approval
-**Today:** `CLOCK_IN_SELFIE` requires a selfie uploaded through CANAVO and stores it for the manager to review. There is no
-face matching (schema comment on `Attendance.clockInSelfieUrl`). Buddy punching is deterred by the selfie plus geofence, PIN
-lockout and fake-GPS flags.
+## 7. Clock-in face match: Implemented (approved P2): manager-review fallback
+**Design detail that is infeasible on Expo SDK 51:** the design asked for on-device matching (ML Kit face detection plus a MobileFaceNet-class
+TFLite model). Managed Expo SDK 51 has no face-recognition module:
+- `expo-face-detector` only detects faces, is deprecated, and is removed in SDK 52.
+- TFLite or ML Kit needs third-party native modules (`react-native-fast-tflite`, vision-camera frame processors) plus a bundled model.
+  Neither can be verified here.
 
-**Why P2:** this is a new kind of processing of biometric-like personal data. It needs consent and policy decisions before any
-code, and the review deterrent already exists.
+So the design's own fallback is built: **a manager review queue with the photos side by side, plus a liveness-lite prompt.** The API already
+accepts the on-device verdict `faceMatch: {matched, score}` (strict schema, so an embedding is refused with 400), so a later native build can
+plug in a matcher without server changes.
 
-**Proposal:**
-- **On-device matching, never server-side biometric templates.** Run a small face-embedding model in the mobile app
-  (ML Kit face detection + a MobileFaceNet-class TFLite model) and compare with the profile photo's embedding, computed on the
-  device. The embedding stays on the device. Only `{matched: boolean, score}` is sent and stored with the attendance.
-- **DPDP Act 2023:**
-  - Explicit, specific consent per staff member, recorded with its version.
-  - Clock-in without matching must stay possible (PIN + selfie review), so consent is free.
-  - The purpose is limited to attendance, with a retention limit (selfies purged after 90 days).
-  - A notice in the privacy policy.
-  - Erasure is covered by the existing staff-erasure flow.
-- **Behaviour:** a mismatch never blocks clock-in. It flags the record for the manager, as fake GPS does today.
-- The feature flag stays off by default.
+**Built (same migration):**
+- **Opt-in per business:** feature `CLOCK_IN_FACE_MATCH`, off by default, switched on by the platform admin like the other flags.
+- **DPDP consent per staff member:** `GET /attendance/face/me` returns the notice (`FACE_CONSENT_NOTICE`) and its version.
+  `POST /attendance/face/consent {version, refPhotoUrl}` records explicit consent to the **current** version (`User.faceConsentAt/Version`)
+  and enrols the reference photo, which must be uploaded through CANAVO. An old version gets `409 CONSENT_OUTDATED`. Consent is audited
+  (`attendance.face_consent`). `DELETE /attendance/face/consent` withdraws consent and deletes the reference photo.
+- **Mobile:** the Attendance screen has a `FaceCheckCard` (notice → "I agree · take reference photo", retake, withdraw). The selfie screen shows
+  a random liveness prompt ("Blink twice", "Turn your head slightly left", and so on). The capture button unlocks after 1.5 s, and the prompt
+  is sent as `livenessPrompt`. The server stores it only if it is one of the known prompts.
+- **Clock-in:** consented staff need a selfie even when `CLOCK_IN_SELFIE` is off. The record gets `faceCheck = PENDING_REVIEW`, or
+  `MATCHED` / `MISMATCH` when the app sends a verdict (threshold 0.75). **It never blocks clock-in.** A mismatch adds the `FACE_MISMATCH`
+  flag and notifies the managers. Staff who did not consent clock in as before (PIN + optional selfie), so consent is free.
+- **Manager review:** web Attendance → "Face checks" tab (`GET /attendance/face/reviews`) shows the reference photo and the selfie side by
+  side with the prompt. "Same person" / "Not them" calls `POST /attendance/:id/face-review`. A rejection adds the `FACE_REJECTED` flag;
+  the record is never deleted. Each decision is audited.
+- **No biometric template** is computed, sent or stored anywhere. Only the two photos the person took are kept.
+- **Retention:** the hourly job `attendance-selfies:purge` clears clock-in selfies older than 90 days and deletes the locally stored files
+  (Cloudinary files follow Cloudinary's own retention rules).
+- **Erasure:** no staff-erasure flow existed, so face data (consent and reference photo) is erased on withdrawal and when a staff member
+  is deactivated (`PATCH /staff/:id` with status other than ACTIVE).
 
-Test: `it.skip("gap 7 …")`.
+Tests: `known-gaps.test.ts` "gap 7" (7 tests). Mobile: `test/faceCheck.test.tsx` (7 tests).
+**Needs a real device:** the front camera capture and the prompt timing, and reference-photo upload on a slow network. The privacy-policy
+notice text needs legal review before the feature is switched on for a business.
 
 ## 8. Business archive: Implemented now (P1). Delete after retention: Proposed P2
 **Why P1 (archive):** without it, a hotel that leaves can only be "suspended", which looks temporary. Its logins and storefront

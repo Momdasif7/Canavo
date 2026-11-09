@@ -60,14 +60,14 @@ The Android submit profile uploads to the **internal** track as a **draft**. Pro
 5. **Target audience:** 18+ (staff tool). Not designed for children.
 6. **Data safety** (see the data table below):
    - Data is collected, encrypted in transit (HTTPS), and the user can request deletion through their employer or admin.
-   - **Location (precise):** collected for app functionality (attendance geofence, delivery tracking). It is not shared with third parties and is not used for ads. Only collected while the app is in use.
+   - **Location (precise):** collected for app functionality (attendance geofence, delivery tracking). It is not shared with third parties and is not used for ads. In the background only for delivery partners, during a delivery run, where the outlet turned it on (gap 3); otherwise only while the app is in use.
    - **Personal info → Name, Phone number:** collected for account management and app functionality. This covers staff and the customers entered at the POS.
-   - **Photos/videos:** none. The camera is used only to scan barcodes and no images are stored or sent.
+   - **Photos/videos:** clock-in selfies and the optional face-check reference photo (attendance only; selfies deleted after 90 days; no face template). Declare "Photos" collected for app functionality.
    - **App activity / device IDs:** a push token and an install id (device attribution for sessions). Used for app functionality.
    - **Financial info:** purchase/bill amounts are business records. No card numbers are stored, and UPI payments go through the payment gateway.
 7. **Permissions declarations:**
-   - **Location:** foreground only. `ACCESS_BACKGROUND_LOCATION` is explicitly blocked in `app.config.ts`, so no background-location declaration is needed.
-   - **Camera:** barcode scanning.
+   - **Location:** foreground, plus **background** for delivery runs (`ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`). Fill the Play background-location declaration: core feature "outlet follows the delivery and detects the partner's return"; upload a review video showing the in-app disclosure → "Allow all the time" → foreground-service notification → it stopping when back at the outlet. Demo account: a delivery partner at an outlet with background tracking on.
+   - **Camera:** barcode scanning, clock-in selfie, face-check reference photo.
    - **Bluetooth:** thermal printers.
    - **Notifications:** `POST_NOTIFICATIONS` on Android 13+.
 8. **Privacy policy URL:** required. Host it, for example at `https://canavo.in/privacy`. It must cover everything in section 6.
@@ -134,5 +134,6 @@ Use a seeded demo outlet, light mode, and a 1080×2400-class Android phone plus 
 
 ## Known limits
 
-- **Live delivery location is foreground-only.** It pauses when the app is backgrounded or the screen locks. Adding background tracking needs three things: `expo-task-manager` + `Location.startLocationUpdatesAsync`, removing `ACCESS_BACKGROUND_LOCATION` from `blockedPermissions`, and the Play "background location" declaration with a prominent in-app disclosure and a review video.
+- **Background delivery location** (gap 3, `src/delivery/backgroundLocation.ts`) needs a development / store build (not Expo Go) and runs only where the outlet turned it on, while the partner is on a run and allowed "Always". Otherwise live location is foreground-only and pauses when the screen locks. iOS: `UIBackgroundModes: location` is set; App Review needs the purpose explained in review notes.
+- **Clock-in face check** (gap 7) is a manager review of photos with a liveness prompt. There is no on-device face matching (no face-recognition module in managed Expo SDK 51).
 - **Bluetooth thermal printing** needs a development or production build. It is not available in Expo Go.

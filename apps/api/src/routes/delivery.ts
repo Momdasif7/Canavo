@@ -328,7 +328,10 @@ deliveryRouter.post("/me/location/batch", requirePermission("delivery:own"), asy
 /** Partner: my dispatch state (at the outlet / on a run, orders held vs the limit). */
 deliveryRouter.get("/me/status", requirePermission("delivery:own"), async (req, res) => {
   const [p] = await partnerAvailability(req.outletId!, prisma, [req.user!.id]);
-  res.json(p ?? null);
+  if (!p) return res.json(null);
+  // Gap 3: the app starts its background task only where the outlet allows it.
+  const { backgroundTracking } = await prisma.outlet.findUniqueOrThrow({ where: { id: req.outletId! }, select: { backgroundTracking: true } });
+  res.json({ ...p, backgroundTracking });
 });
 
 /** Last known positions of agents on active deliveries (live map). */

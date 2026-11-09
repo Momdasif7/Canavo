@@ -1176,6 +1176,172 @@
           }
         },
         {
+          "name": "GET /attendance/face/me",
+          "request": {
+            "method": "GET",
+            "description": "Gap 7: my clock-in face-check state, DPDP notice + version, liveness prompts",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/face/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "face",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /attendance/face/consent",
+          "request": {
+            "method": "POST",
+            "description": "Gap 7: consent to the current notice and enrol a reference photo. Body: faceConsentSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/face/consent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "face",
+                "consent"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"string\",\n  \"refPhotoUrl\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /attendance/face/consent",
+          "request": {
+            "method": "DELETE",
+            "description": "Gap 7: withdraw consent (deletes the reference photo)",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/face/consent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "face",
+                "consent"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /attendance/face/reviews",
+          "request": {
+            "method": "GET",
+            "description": "Gap 7: manager review queue (reference photo + selfie side by side). Query: status=open|all",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/face/reviews",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "face",
+                "reviews"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /attendance/{id}/face-review",
+          "request": {
+            "method": "POST",
+            "description": "Gap 7: manager decision APPROVED | REJECTED. Body: faceReviewSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/:id/face-review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                ":id",
+                "face-review"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "POST /attendance/clock-out",
           "request": {
             "method": "POST",
@@ -6322,6 +6488,48 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"lat\": -90,\n  \"lng\": -180\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /delivery/me/location/batch",
+          "request": {
+            "method": "POST",
+            "description": "Gap 3: batched GPS points from the background task / offline queue (validated + thinned server-side; 409 {code, stop:true} = end the background task). Body: partnerLocationBatchSchema",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Outlet-Id",
+                "value": "{{outletId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/me/location/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "me",
+                "location",
+                "batch"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"points\": [\n    {\n      \"lat\": -90,\n      \"lng\": -180,\n      \"at\": \"2026-11-03T10:00:00+05:30\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
