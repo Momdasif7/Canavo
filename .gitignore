@@ -25,3 +25,4 @@ apps/mobile/.env
 # Generated test reports (Stryker mutation reports, etc.)
 packages/*/reports/
 **/.stryker-tmp/
+docs/build/screens/
