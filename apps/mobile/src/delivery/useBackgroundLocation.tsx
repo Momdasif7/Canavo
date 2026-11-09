@@ -24,6 +24,8 @@ export interface BackgroundInput {
   onRun: boolean;
   /** Foreground-service notification title, e.g. "Delivering order INV-12" */
   label: string;
+  /** false while the partner's status is unknown (loading / offline at launch): leave a running task alone */
+  ready?: boolean;
 }
 
 export interface BackgroundLocation {
@@ -40,7 +42,7 @@ export interface BackgroundLocation {
  * to foreground-only when refused. Stops the task the moment the run ends, the partner clocks out or the outlet turns
  * the setting off. Re-checks when the app comes back to the foreground (battery mode, permission changed in Settings).
  */
-export function useBackgroundLocation({ allowed, onDuty, onRun, label }: BackgroundInput): BackgroundLocation {
+export function useBackgroundLocation({ allowed, onDuty, onRun, label, ready = true }: BackgroundInput): BackgroundLocation {
   const [mode, setMode] = useState<BackgroundMode>("off");
   const [battery, setBattery] = useState<BatteryMode | null>(null);
   const [wake, setWake] = useState(0);
@@ -62,6 +64,7 @@ export function useBackgroundLocation({ allowed, onDuty, onRun, label }: Backgro
 
   useEffect(() => {
     let cancelled = false;
+    if (!ready) return;
     (async () => {
       if (!active) {
         setMode("off");
@@ -81,7 +84,7 @@ export function useBackgroundLocation({ allowed, onDuty, onRun, label }: Backgro
     return () => {
       cancelled = true;
     };
-  }, [active, start, wake]);
+  }, [active, ready, start, wake]);
 
   const accept = useCallback(async () => {
     await writeChoice("accepted");

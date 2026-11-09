@@ -82,6 +82,8 @@ export function PartnerPresenceProvider({ enabled, children }: { enabled: boolea
   }, [atOutlet, reload]);
 
   const background = useBackgroundLocation({
+    // Not a partner here → stop at once; partner whose status hasn't loaded (offline at launch) → leave the task running.
+    ready: !enabled || status !== null,
     allowed: enabled && !!status?.backgroundTracking,
     onDuty: !!status?.onDuty,
     onRun: !!status && (status.outForDelivery > 0 || (!!status.onRunSince && !status.atOutlet)),

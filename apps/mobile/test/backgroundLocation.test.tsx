@@ -165,6 +165,15 @@ describe("useBackgroundLocation (when it runs, disclosure, fallback)", () => {
     expect(again.result.current.mode).toBe("asking");
   });
 
+  it("status not known yet (offline at launch) → a running task is left alone", async () => {
+    mockLoc.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
+    const { result } = renderHook(() => useBackgroundLocation({ ...onRun, onDuty: false, onRun: false, ready: false }));
+    await flush();
+    expect(result.current.mode).toBe("off");
+    expect(mockLoc.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+    mockLoc.hasStartedLocationUpdatesAsync.mockResolvedValue(false);
+  });
+
   it("run ends (back at the outlet) or clock-out → the task is stopped", async () => {
     await bgl.writeChoice("accepted");
     const { result, rerender } = renderHook((p: typeof onRun) => useBackgroundLocation(p), { initialProps: onRun });

@@ -92,7 +92,7 @@ limit for invoice-wise reporting of inter-state supplies to unregistered persons
 - **Retention / privacy:** no location history is stored, as in the design. The server keeps only the latest point (in memory for the live
   map, and `User.lastLat/lastLng/lastLocationAt` for dispatch) and **clears both at clock-out**.
 
-Tests: `known-gaps.test.ts` "gap 3" (6 tests). Mobile: `test/backgroundLocation.test.tsx` (13 tests).
+Tests: `known-gaps.test.ts` "gap 3" (6 tests). Mobile: `test/backgroundLocation.test.tsx` (14 tests).
 **Needs a real device (dev-client / store build, not Expo Go):**
 - the task keeps running with the screen locked or the app swiped away (Android foreground service; iOS background mode);
 - the Android 11+ "Allow all the time" Settings round-trip;
