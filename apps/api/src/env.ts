@@ -17,6 +17,11 @@ const schema = z.object({
   JOBS_MODE: z.enum(["embedded", "worker"]).default("embedded"),
   /** Express "trust proxy": which proxies may set X-Forwarded-For (rate limits and audit IPs depend on it) */
   TRUST_PROXY: z.string().default("loopback, linklocal, uniquelocal"),
+  /** Demo deployments only: start in production without email / SMS (password links are not delivered). */
+  ALLOW_NO_MESSAGING: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   PUBLIC_API_URL: z.string().default("http://localhost:4000"),
   /** Cookie domain for web sessions shared by app.<domain> and api.<domain>, e.g. ".example.in" (Phase 2.7) */
   AUTH_COOKIE_DOMAIN: z.string().optional(),
@@ -113,13 +118,16 @@ export function productionConfigProblems(e = env): string[] {
   }
   if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");
   // D13: password setup/reset links must reach people by email or SMS.
-  if (!e.SMTP_HOST && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID)) {
+  if (!e.SMTP_HOST && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID) && !e.ALLOW_NO_MESSAGING) {
     problems.push("Configure email (SMTP_HOST) or SMS (MSG91_AUTH_KEY + MSG91_ALERT_TEMPLATE_ID): password setup and reset links are sent through them");
   }
   return problems;
 }
 
 const problems = productionConfigProblems();
+if (isProd && env.ALLOW_NO_MESSAGING && !env.SMTP_HOST && !env.MSG91_AUTH_KEY) {
+  console.warn("ALLOW_NO_MESSAGING=true: demo deployment without email/SMS — password setup and reset links are NOT delivered");
+}
 if (problems.length && process.env.SKIP_PROD_CONFIG_CHECK !== "1") {
   console.error(`Refusing to start in production:\n - ${problems.join("\n - ")}`);
   process.exit(1);
