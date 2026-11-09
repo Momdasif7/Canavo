@@ -4,9 +4,7 @@
  *  - gap 4: combinable coupons stack on the best offer (approved P2)
  *  - gap 5: coupons are pre-tax discounts per line; gift cards are a payment, not a discount
  *  - gap 8: platform archive / restore of a business
- *  - gap 3 (P2, built): background location batches — duty / outlet-setting / run gating, validation + throttling, no history
- *  - gap 7 (P2, built): clock-in face check — DPDP consent + version, reference photo, review queue, never blocks, retention
- *  - P2 gaps awaiting approval: it.skip with the reason
+ *  - gaps 3 and 7: background GPS and clock-in face check (approved P2)
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gstinCheckChar } from "@canavo/shared";
@@ -265,8 +263,197 @@ describe("gap 8 — archive a business", () => {
   });
 });
 
-describe("P2 gaps awaiting approval", () => {
+// =====================================================================
+describe("gap 3 — delivery partner location in the background (approved P2)", () => {
+  let partner: Client;
+  let deliveryId: string;
+  const agent = () => h.users.delivery.id;
+  const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const pt = (lat: number, lng: number, agoS: number, accuracy = 15) => ({ lat, lng, accuracy, at: new Date(Date.now() - agoS * 1000).toISOString() });
+  const batch = (points: object[], background = true) => partner.call("POST", "/delivery/me/location/batch", { points, background });
+
+  beforeAll(async () => {
+    resetTracking();
+    partner = await login(srv.base, h.users.delivery.email, h.outletId);
+    const o = await order({});
+    expect(o.status).toBe(201);
+    deliveryId = (
+      await db.delivery.create({
+        data: { orderId: o.body.id, outletId: h.outletId, agentId: agent(), status: "OUT_FOR_DELIVERY", customerName: "Ravi", customerPhone: "9876543210", address: "Anna Nagar", latitude: 13.08, longitude: 80.21, pickedAt: new Date() },
+      })
+    ).id;
+  });
+
+  it("only while on duty: off duty → 409 OFF_DUTY with stop:true (the app ends its background task)", async () => {
+    const r = await batch([pt(13.01, 80.2, 5)]);
+    expect(r.status).toBe(409);
+    expect(r.body.details).toMatchObject({ code: "OFF_DUTY", stop: true });
+  });
+
+  it("per-outlet setting, off by default: background points are refused until the owner turns it on", async () => {
+    await db.staffAttendance.create({ data: { userId: agent(), outletId: h.outletId, workDate: today(), clockInAt: new Date(), clockInDistance: 0 } });
+    expect((await db.outlet.findUniqueOrThrow({ where: { id: h.outletId } })).backgroundTracking).toBe(false);
+    const r = await batch([pt(13.01, 80.2, 5)]);
+    expect(r.status).toBe(409);
+    expect(r.body.details.code).toBe("BACKGROUND_OFF");
+    const on = await owner.call("PATCH", "/outlets/current", { backgroundTracking: true });
+    expect(on.status).toBe(200);
+    expect(on.body.backgroundTracking).toBe(true);
+  });
+
+  it("only between pickup and the return: a partner at the outlet with nothing out → NOT_ON_RUN", async () => {
+    await db.delivery.update({ where: { id: deliveryId }, data: { status: "PREPARING" } });
+    await db.user.update({ where: { id: agent() }, data: { deliveryAtOutlet: true } });
+    const r = await batch([pt(13.01, 80.2, 5)]);
+    expect(r.status).toBe(409);
+    expect(r.body.details.code).toBe("NOT_ON_RUN");
+    await db.delivery.update({ where: { id: deliveryId }, data: { status: "OUT_FOR_DELIVERY" } });
+    await db.user.update({ where: { id: agent() }, data: { deliveryAtOutlet: false, deliveryRunStartedAt: new Date() } });
+  });
+
+  it("validates and thins an offline batch server-side; only the newest valid point is applied; no history kept", async () => {
+    const r = await batch([
+      pt(13.02, 80.2, 300), // valid (oldest)
+      pt(13.0201, 80.2, 297), // 3 s later → throttled
+      pt(13.03, 80.2, 200), // valid
+      pt(13.5, 80.2, 190), // 52 km in 10 s → jump
+      pt(13.04, 80.2, 60, 5000), // vague fix
+      pt(13.04, 80.2, 3600), // older than 30 min
+      pt(13.04, 80.2, -600), // 10 min in the future
+      pt(13.035, 80.2, 150), // valid (newest)
+    ]);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ accepted: 3, dropped: 5, stop: false, backNow: false });
+    expect(r.body.reasons).toEqual({ throttled: 1, jump: 1, inaccurate: 1, stale: 1, future: 1 });
+    const u = await db.user.findUniqueOrThrow({ where: { id: agent() } });
+    expect(u.lastLat).toBe(13.035);
+    expect(Date.now() - u.lastLocationAt!.getTime()).toBeGreaterThan(25_000); // the fix's own time, not the upload time
+    const manager = await login(srv.base, h.users.manager.email, h.outletId);
+    const live = await manager.call("GET", "/delivery/locations");
+    expect(live.body).toEqual([expect.objectContaining({ agentId: agent(), lat: 13.035, deliveryId })]);
+  });
+
+  it("throttles across batches (≥ 10 s between accepted points) and rejects bad payloads", async () => {
+    const r = await batch([pt(13.036, 80.2, 145)]);
+    expect(r.body).toMatchObject({ accepted: 0, dropped: 1, reasons: { throttled: 1 } });
+    expect((await batch([])).status).toBe(400);
+    expect((await batch(Array.from({ length: 51 }, (_, i) => pt(13, 80.2, i)))).status).toBe(400);
+    expect((await batch([{ lat: 13, lng: 80.2 }])).status).toBe(400); // no timestamp
+    const cashier = await login(srv.base, h.users.cashier.email, h.outletId);
+    expect((await cashier.call("POST", "/delivery/me/location/batch", { points: [pt(13, 80.2, 1)] })).status).toBe(403);
+  });
+
+  it("back at the outlet after the run → backNow and stop:true; clock-out forgets the location", async () => {
+    await db.delivery.update({ where: { id: deliveryId }, data: { status: "DELIVERED", deliveredAt: new Date() } });
+    const r = await batch([pt(13.0, 80.2, 0)]);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ accepted: 1, backNow: true, atOutlet: true, stop: true });
+    const out = await partner.call("POST", "/attendance/clock-out", { outletId: h.outletId, latitude: 13.0, longitude: 80.2, accuracy: 10 });
+    expect(out.status).toBe(200);
+    const u = await db.user.findUniqueOrThrow({ where: { id: agent() } });
+    expect(u).toMatchObject({ lastLat: null, lastLng: null, lastLocationAt: null });
+    expect((await batch([pt(13.01, 80.2, 0)], false)).body.details.code).toBe("OFF_DUTY");
+  });
 });
 
-// ==============================================================  });
+// =====================================================================
+describe("gap 7 — clock-in face check (approved P2; manager review fallback, DPDP consent)", () => {
+  let staff: Client;
+  let other: Client;
+  const AT = { outletId: "", latitude: 13.0, longitude: 80.2, accuracy: 10 };
+  const upload = (name: string) => `${srv.base}/uploads/files/${name}.jpg`;
+  const reset = (id: string) => db.staffAttendance.deleteMany({ where: { userId: id } });
+
+  beforeAll(async () => {
+    AT.outletId = h.outletId;
+    staff = await login(srv.base, h.users.kitchen.email, h.outletId);
+    other = await login(srv.base, h.users.inventory.email, h.outletId);
+  });
+  afterAll(async () => {
+    await db.business.update({ where: { id: h.businessId }, data: { features: {} } });
+  });
+
+  it("opt-in per business: off by default, consent is refused while the feature is off", async () => {
+    const me = await staff.call("GET", "/attendance/face/me");
+    expect(me.body).toMatchObject({ enabled: false, consented: false, version: FACE_CONSENT_VERSION });
+    expect(me.body.notice).toMatch(/withdraw/);
+    expect((await staff.call("POST", "/attendance/face/consent", { version: FACE_CONSENT_VERSION, refPhotoUrl: upload("ref-kitchen01") })).status).toBe(409);
+  });
+
+  it("explicit consent to the current notice version + reference photo enrolment through CANAVO only", async () => {
+    await db.business.update({ where: { id: h.businessId }, data: { features: { CLOCK_IN_FACE_MATCH: true } } });
+    const old = await staff.call("POST", "/attendance/face/consent", { version: "2020-01-01", refPhotoUrl: upload("ref-kitchen01") });
+    expect(old.status).toBe(409);
+    expect(old.body.details.code).toBe("CONSENT_OUTDATED");
+    expect((await staff.call("POST", "/attendance/face/consent", { version: FACE_CONSENT_VERSION, refPhotoUrl: "https://evil.example/x.jpg" })).status).toBe(400);
+    const ok = await staff.call("POST", "/attendance/face/consent", { version: FACE_CONSENT_VERSION, refPhotoUrl: upload("ref-kitchen01") });
+    expect(ok.status).toBe(200);
+    const u = await db.user.findUniqueOrThrow({ where: { id: h.users.kitchen.id } });
+    expect(u.faceConsentVersion).toBe(FACE_CONSENT_VERSION);
+    expect(u.faceConsentAt).toBeTruthy();
+    expect((await db.auditLog.findFirst({ where: { action: "attendance.face_consent", entityId: h.users.kitchen.id } }))?.meta).toMatchObject({ version: FACE_CONSENT_VERSION });
+    expect((await staff.call("GET", "/attendance/face/me")).body).toMatchObject({ enabled: true, consented: true });
+  });
+
+  it("consented staff need a selfie; it goes to the manager review queue with the liveness prompt and both photos", async () => {
+    await reset(h.users.kitchen.id);
+    const none = await staff.call("POST", "/attendance/clock-in", AT);
+    expect(none.status).toBe(400);
+    expect(none.body.details.code).toBe("SELFIE_REQUIRED");
+    const r = await staff.call("POST", "/attendance/clock-in", { ...AT, selfieUrl: upload("selfie-k-0001"), livenessPrompt: "Blink twice" });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ faceCheck: "PENDING_REVIEW", livenessPrompt: "Blink twice", faceScore: null });
+    const manager = await login(srv.base, h.users.manager.email, h.outletId);
+    const q = await manager.call("GET", "/attendance/face/reviews");
+    expect(q.status).toBe(200);
+    expect(q.body).toEqual([expect.objectContaining({ id: r.body.id, refPhotoUrl: upload("ref-kitchen01"), selfieUrl: upload("selfie-k-0001"), livenessPrompt: "Blink twice", faceCheck: "PENDING_REVIEW" })]);
+    expect((await staff.call("GET", "/attendance/face/reviews")).status).toBe(403);
+    const rev = await manager.call("POST", `/attendance/${r.body.id}/face-review`, { decision: "REJECTED", note: "Different person" });
+    expect(rev.status).toBe(200);
+    expect(rev.body.faceCheck).toBe("REJECTED");
+    expect(rev.body.clockInFlags).toContain("FACE_REJECTED");
+    expect((await manager.call("GET", "/attendance/face/reviews")).body).toEqual([]);
+    expect((await manager.call("GET", "/attendance/face/reviews?status=all")).body).toHaveLength(1);
+  });
+
+  it("an on-device mismatch never blocks clock-in: flagged + managers told; a face template is refused", async () => {
+    await reset(h.users.kitchen.id);
+    const tpl = await staff.call("POST", "/attendance/clock-in", { ...AT, selfieUrl: upload("selfie-k-0002"), faceMatch: { matched: true, score: 0.9, embedding: [0.1, 0.2] } });
+    expect(tpl.status).toBe(400);
+    const r = await staff.call("POST", "/attendance/clock-in", { ...AT, selfieUrl: upload("selfie-k-0002"), livenessPrompt: "made up", faceMatch: { matched: false, score: 0.31 } });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ faceCheck: "MISMATCH", faceScore: 0.31, livenessPrompt: null });
+    expect(r.body.clockInFlags).toContain("FACE_MISMATCH");
+    const n = await db.notification.findFirst({ where: { userId: h.users.manager.id, title: "Clock-in face check" } });
+    expect(n).toBeTruthy();
+  });
+
+  it("consent is free: staff who did not agree clock in without a selfie or face check", async () => {
+    await reset(h.users.inventory.id);
+    const r = await other.call("POST", "/attendance/clock-in", AT);
+    expect(r.status).toBe(201);
+    expect(r.body.faceCheck).toBeNull();
+  });
+
+  it("withdrawing consent deletes the reference photo; deactivating a staff member erases it too", async () => {
+    expect((await staff.call("DELETE", "/attendance/face/consent")).status).toBe(204);
+    expect(await db.user.findUniqueOrThrow({ where: { id: h.users.kitchen.id } })).toMatchObject({ faceRefPhotoUrl: null, faceConsentAt: null, faceConsentVersion: null });
+    await reset(h.users.kitchen.id);
+    expect((await staff.call("POST", "/attendance/clock-in", AT)).status).toBe(201);
+
+    await db.user.update({ where: { id: h.users.inventory.id }, data: { faceRefPhotoUrl: upload("ref-inv-0001"), faceConsentAt: new Date(), faceConsentVersion: FACE_CONSENT_VERSION } });
+    expect((await owner.call("PATCH", `/staff/${h.users.inventory.id}`, { status: "INACTIVE" })).status).toBe(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: h.users.inventory.id } })).faceRefPhotoUrl).toBeNull();
+  });
+
+  it("retention: selfies older than 90 days are purged, newer ones kept", async () => {
+    const mk = (days: number, name: string) =>
+      db.staffAttendance.create({
+        data: { userId: h.users.cashier.id, outletId: h.outletId, workDate: "2026-01-01", clockInAt: new Date(Date.now() - days * 86_400_000), clockOutAt: new Date(Date.now() - days * 86_400_000), clockInDistance: 0, clockInSelfieUrl: upload(name) },
+      });
+    const [old, recent] = [await mk(91, "selfie-old-001"), await mk(89, "selfie-new-001")];
+    expect(await purgeOldSelfies()).toBeGreaterThanOrEqual(1);
+    expect((await db.staffAttendance.findUniqueOrThrow({ where: { id: old.id } })).clockInSelfieUrl).toBeNull();
+    expect((await db.staffAttendance.findUniqueOrThrow({ where: { id: recent.id } })).clockInSelfieUrl).toBe(upload("selfie-new-001"));
+  });
 });
