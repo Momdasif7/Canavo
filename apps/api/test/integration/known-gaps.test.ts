@@ -249,9 +249,14 @@ describe("gap 8 — archive a business", () => {
     expect((await o.call("POST", `/platform/businesses/${biz.businessId}/archive`, { confirmName: "x", reason: "xxx" })).status).toBe(403);
   });
 
-  it.skip("P2 awaiting approval (known-gaps.md gap 8b): a retention job exports then hard-deletes a business once deleteAfter has passed", () => {
-    // Needs: approved retention policy, an owner-downloadable final export, a purge job over every business table
-    // (FK order, RLS bypass, audit tombstone) and a dry-run report. Not built: deleting tax records is irreversible.
+  it("gap 8b (approved P2; full cases in business-purge.test.ts): deleting an archived business is refused before its retention date", async () => {
+    const leaving = await createHotel("Retained");
+    const name = (await db.business.findUniqueOrThrow({ where: { id: leaving.businessId } })).name;
+    expect((await admin.call("POST", `/platform/businesses/${leaving.businessId}/archive`, { confirmName: name, reason: "Contract ended" })).status).toBe(200);
+    const r = await admin.call("POST", `/platform/businesses/${leaving.businessId}/purge`, { confirmName: name, confirmText: "DELETE" });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/retention period runs until 20\d\d-04-01|retention period runs until 20\d\d-03-31/);
+    expect(await db.menuItem.count({ where: { businessId: leaving.businessId } })).toBe(3);
   });
 });
 

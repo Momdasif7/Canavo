@@ -7,6 +7,7 @@ import { moduleEnabled, runForOutlet } from "./lib/tenant";
 import { localParts } from "./routes/reports";
 import { createBackup, listBackups, pruneBackups } from "./services/backup";
 import { isDue, sendSchedule } from "./services/report-schedules";
+import { runBusinessRetention } from "./services/business-purge";
 
 const HOUR = 60 * 60_000;
 const BACKUP_TZ = "Asia/Kolkata";
@@ -67,5 +68,9 @@ export function registerJobs(): void {
   });
   registerJob("daily-backup", HOUR, async () => {
     await runDailyBackup();
+  });
+  // P2 gap 8b: final-export notices and resuming approved purges (never deletes without a super admin's approval).
+  registerJob("business-retention", 24 * HOUR, async () => {
+    await runBusinessRetention();
   });
 }

@@ -11,6 +11,7 @@ import { runForBusiness, runForOutlet } from "../lib/tenant";
 import { decrypt } from "../lib/crypto";
 import { alertPaymentReceived } from "../services/alerts";
 import { notify, outletManagers } from "../services/notify";
+import { finalExportByToken } from "../services/business-purge";
 
 export const publicRouter = Router();
 
@@ -28,6 +29,15 @@ publicRouter.get("/public/receipts/:token", async (req, res) => {
   const pdf = await renderReceiptPdf(await buildReceipt(order));
   res.type("application/pdf").setHeader("content-disposition", `inline; filename="${order.invoiceNumber}.pdf"`);
   res.send(pdf);
+});
+
+/** P2 gap 8b: an archived business's final export, from the one-time-token link emailed to its owners. */
+publicRouter.get("/public/business-export/:token", async (req, res) => {
+  const found = await finalExportByToken(param(req, "token"));
+  if (!found) throw notFound("Export");
+  const slug = found.name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "business";
+  res.setHeader("cache-control", "no-store");
+  res.download(found.file, `canavo-final-export-${slug}.zip`);
 });
 
 interface RazorpayQrWebhook {

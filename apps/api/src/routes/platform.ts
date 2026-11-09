@@ -3,6 +3,7 @@ import { superAdminIpWhitelist } from "../middleware/ip-whitelist";
 import { bcrypt } from "../lib/bcrypt-pool";
 import {
   businessArchiveSchema,
+  businessPurgeSchema,
   businessCreateSchema,
   FEATURES,
   normalizeFeatures,
@@ -22,6 +23,7 @@ import { alertModulesChanged } from "../services/alerts";
 import { onFeaturesChanged } from "../services/features";
 import { sendPasswordLink } from "../services/password-links";
 import { disableTwoFactor } from "../services/two-factor";
+import { approvePurge, nameHash, offerFinalExport, purgePreview } from "../services/business-purge";
 
 /**
  * Platform console (CANAVO operator / super admin): onboard client businesses,
@@ -204,6 +206,43 @@ platformRouter.post("/businesses/:id/restore", async (req, res) => {
   });
   await audit(req, "platform.business.restore", "Business", id, { archivedAt: before.archivedAt });
   res.json(business);
+});
+
+/**
+ * P2 gap 8b — delete after retention. Dry run: row counts per table and what still blocks the purge
+ * (retention date, the owner's 30-day final-export notice). Readable by support users too; no hotel data.
+ */
+platformRouter.get("/businesses/:id/purge-preview", async (req, res) => {
+  res.json(await purgePreview(param(req, "id")));
+});
+
+/** Email the owners their final data export now (the retention job does this 30 days before deleteAfter). */
+platformRouter.post("/businesses/:id/final-export", async (req, res) => {
+  const id = param(req, "id");
+  const r = await offerFinalExport(id);
+  await audit(req, "platform.business.final_export", "Business", id, { sentTo: r.sentTo, finalExportAt: r.finalExportAt });
+  // The link goes to the owners only; the operator never gets it (privacy rule).
+  res.json({ finalExportAt: r.finalExportAt, sentTo: r.sentTo });
+});
+
+/** Permanently delete an archived business past its retention date (typed confirmation). Leaves a tombstone. */
+platformRouter.post("/businesses/:id/purge", async (req, res) => {
+  const id = param(req, "id");
+  const data = parse(businessPurgeSchema, req.body);
+  const tomb = await db.businessTombstone.findUnique({ where: { id } });
+  if (!tomb) {
+    const b = await db.business.findUnique({ where: { id }, select: { name: true } });
+    if (!b) throw notFound("Business");
+    if (data.confirmName.toLowerCase() !== b.name.trim().toLowerCase()) throw badRequest("Type the business name exactly to confirm");
+  } else if (nameHash(data.confirmName) !== tomb.nameHash) throw badRequest("Type the business name exactly to confirm");
+  const result = await approvePurge(id, req.user!.id);
+  await audit(req, "platform.business.purge", "Business", id, { rowCounts: result.rowCounts, filesDeleted: result.filesDeleted, filesFailed: result.filesFailed, completedAt: result.completedAt });
+  res.json(result);
+});
+
+/** Deleted businesses: the tombstones (id, name hash, dates, counts). */
+platformRouter.get("/business-tombstones", async (_req, res) => {
+  res.json(await db.businessTombstone.findMany({ orderBy: { approvedAt: "desc" }, take: 200 }));
 });
 
 /** Add an owner account to a business (owners then create their managers and staff). */
