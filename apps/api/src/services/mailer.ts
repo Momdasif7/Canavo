@@ -9,6 +9,7 @@ import { isInternalHost } from "../lib/safe-url";
 import { currentBusinessId } from "../lib/tenant";
 import { isUsable, loadIntegration, redactor, type LoadedIntegration } from "./integrations";
 import { storageDir } from "./storage";
+import { mailApiConfigured, sendViaMailApi } from "./mail-api";
 
 export interface MailAttachment {
   filename: string;
@@ -38,7 +39,8 @@ let platformTransporter: Transporter | undefined;
 /** One transporter per store, rebuilt when its settings change. */
 const storeTransporters = new Map<string, { version: string; t: Transporter }>();
 
-export const smtpConfigured = () => Boolean(env.SMTP_HOST);
+/** Platform email is set up: SMTP, or an HTTPS email API (Brevo / Resend). */
+export const smtpConfigured = () => Boolean(env.SMTP_HOST) || mailApiConfigured();
 
 /** Ports a store may point its SMTP at in production (no probing other services through "Test"). */
 export const SMTP_PORTS = [25, 465, 587, 2525];
@@ -119,7 +121,12 @@ export async function sendMail(mail: Mail, opts: MailOptions = {}): Promise<{ de
     }
   }
   const from = env.SMTP_FROM ?? "CANAVO Reports <reports@canavo.local>";
-  if (smtpConfigured()) {
+  if (mailApiConfigured()) {
+    const { messageId } = await sendViaMailApi(mail, from);
+    console.info(`[mail] sent "${mail.subject}" to ${[mail.to].flat().join(", ")} via ${env.MAIL_API_PROVIDER} (${messageId ?? "no id"})`);
+    return { delivered: true, messageId, via: "platform" };
+  }
+  if (env.SMTP_HOST) {
     platformTransporter ??= nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,

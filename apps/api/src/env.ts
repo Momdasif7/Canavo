@@ -55,6 +55,11 @@ const schema = z.object({
   // --- Platform: SMS alerts, email, uploads, push, encryption, storage ---
   MSG91_ALERT_TEMPLATE_ID: z.string().optional(),
   SMTP_HOST: z.string().optional(),
+  /** Platform email over HTTPS instead of SMTP (hosts that block SMTP ports, e.g. Render free) */
+  MAIL_API_PROVIDER: z.enum(["brevo", "resend"]).optional(),
+  MAIL_API_KEY: z.string().optional(),
+  /** Tests only: point the email API at a local stand-in */
+  MAIL_API_BASE_URL: z.string().url().optional(),
   SMTP_PORT: optNum(587),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
@@ -118,14 +123,14 @@ export function productionConfigProblems(e = env): string[] {
   }
   if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");
   // D13: password setup/reset links must reach people by email or SMS.
-  if (!e.SMTP_HOST && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID) && !e.ALLOW_NO_MESSAGING) {
-    problems.push("Configure email (SMTP_HOST) or SMS (MSG91_AUTH_KEY + MSG91_ALERT_TEMPLATE_ID): password setup and reset links are sent through them");
+  if (!e.SMTP_HOST && !(e.MAIL_API_PROVIDER && e.MAIL_API_KEY) && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID) && !e.ALLOW_NO_MESSAGING) {
+    problems.push("Configure email (SMTP_HOST, or MAIL_API_PROVIDER + MAIL_API_KEY) or SMS (MSG91_AUTH_KEY + MSG91_ALERT_TEMPLATE_ID): password setup and reset links are sent through them");
   }
   return problems;
 }
 
 const problems = productionConfigProblems();
-if (isProd && env.ALLOW_NO_MESSAGING && !env.SMTP_HOST && !env.MSG91_AUTH_KEY) {
+if (isProd && env.ALLOW_NO_MESSAGING && !env.SMTP_HOST && !env.MAIL_API_KEY && !env.MSG91_AUTH_KEY) {
   console.warn("ALLOW_NO_MESSAGING=true: demo deployment without email/SMS — password setup and reset links are NOT delivered");
 }
 if (problems.length && process.env.SKIP_PROD_CONFIG_CHECK !== "1") {

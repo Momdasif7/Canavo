@@ -43,7 +43,7 @@ describe("production config fail-fast", () => {
   });
   it("D13: refuses production without email or SMS for password links; either one is enough", () => {
     const none = productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: undefined } as never);
-    expect(none.join()).toMatch(/SMTP_HOST.*MSG91_AUTH_KEY/);
+    expect(none.join()).toMatch(/SMTP_HOST.*MAIL_API_PROVIDER.*MSG91_AUTH_KEY/);
     expect(productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: "k" } as never).join()).toMatch(/MSG91_ALERT_TEMPLATE_ID/);
     expect(productionConfigProblems({ ...(base as object), SMTP_HOST: undefined, MSG91_AUTH_KEY: "k", MSG91_ALERT_TEMPLATE_ID: "t" } as never)).toEqual([]);
     expect(productionConfigProblems({ ...(base as object), WEB_APP_URL: "http://localhost:3000" } as never).join()).toMatch(/WEB_APP_URL/);
