@@ -25,6 +25,7 @@ interface FormState {
   pointValue: string;
   minRedeemPoints: string;
   maxRedeemPercent: string;
+  maxStackedDiscountPercent: string;
   thresholds: Record<PaidTier, string>;
   multipliers: Record<LoyaltyTierName, string>;
   pointsExpiryMonths: string;
@@ -41,6 +42,7 @@ function toForm(c: LoyaltyConfig): FormState {
     pointValue: rupeesInput(c.pointValuePaise),
     minRedeemPoints: String(c.minRedeemPoints),
     maxRedeemPercent: String(c.maxRedeemPercent),
+    maxStackedDiscountPercent: String(c.maxStackedDiscountPercent ?? 30),
     thresholds: {
       SILVER: rupeesInput(c.tierThresholds.SILVER),
       GOLD: rupeesInput(c.tierThresholds.GOLD),
@@ -103,6 +105,7 @@ export default function LoyaltySettingsPage() {
       pointValuePaise: rupees(form.pointValue),
       minRedeemPoints: num(form.minRedeemPoints),
       maxRedeemPercent: num(form.maxRedeemPercent),
+      maxStackedDiscountPercent: num(form.maxStackedDiscountPercent),
       tierThresholds: {
         SILVER: rupees(form.thresholds.SILVER),
         GOLD: rupees(form.thresholds.GOLD),
@@ -212,6 +215,14 @@ export default function LoyaltySettingsPage() {
                 value={form.maxRedeemPercent}
                 error={errors.maxRedeemPercent}
                 onChange={(e) => set("maxRedeemPercent", decimalOnly(e.target.value))}
+              />
+              <Input
+                label="Max total discount when a coupon stacks (%)"
+                inputMode="numeric"
+                hint="Combinable coupons are cut so offers + coupon stay within this share of the bill"
+                value={form.maxStackedDiscountPercent}
+                error={errors.maxStackedDiscountPercent}
+                onChange={(e) => set("maxStackedDiscountPercent", digitsOnly(e.target.value))}
               />
               <Input
                 label="Points expire after (months)"

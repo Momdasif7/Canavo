@@ -25,6 +25,7 @@ interface FormState {
   startsAt: string;
   expiresAt: string;
   active: boolean;
+  combinable: boolean;
 }
 
 const toForm = (c: Coupon | undefined): FormState => ({
@@ -39,6 +40,7 @@ const toForm = (c: Coupon | undefined): FormState => ({
   startsAt: isoToLocalInput(c?.startsAt),
   expiresAt: isoToLocalInput(c?.expiresAt),
   active: c?.active ?? true,
+  combinable: c?.combinable ?? false,
 });
 
 /** `coupon` undefined = create, object = edit, null = closed. */
@@ -75,6 +77,7 @@ export function CouponForm({ coupon, onClose, onSaved }: { coupon: Coupon | null
       startsAt: localInputToIso(form.startsAt),
       expiresAt: localInputToIso(form.expiresAt),
       active: form.active,
+      combinable: form.combinable,
     };
     const parsed = couponCreateSchema.safeParse(payload);
     const errs = parsed.success ? {} : issuesToErrors(parsed.error.issues);
@@ -205,6 +208,14 @@ export function CouponForm({ coupon, onClose, onSaved }: { coupon: Coupon | null
             error={errors.perCustomerLimit}
             onChange={(e) => set("perCustomerLimit", digitsOnly(e.target.value))}
           />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Toggle checked={form.combinable} onChange={(v) => set("combinable", v)} label="Combine with offers" />
+          <p className="text-xs text-muted">
+            Off (default): one offer or coupon per bill, whichever saves more. On: the coupon applies after the bill&apos;s offers, on the remaining
+            amount, up to the stacking limit in Loyalty settings.
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

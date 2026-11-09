@@ -94,6 +94,8 @@ export const onlineOrderSchema = z.object({
   /** Pickup / delivery time; empty = as soon as possible */
   pickupAt: z.string().datetime().optional(),
   payment: z.enum(PUBLIC_PAYMENT_OPTIONS),
+  /** Optional coupon; the same one-offer-per-bill / combinable rules as the POS apply */
+  couponCode: z.string().trim().toUpperCase().max(30).optional(),
   delivery: z
     .object({
       address: z.string().trim().min(5).max(500),

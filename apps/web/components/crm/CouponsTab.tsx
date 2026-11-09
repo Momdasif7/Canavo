@@ -107,6 +107,7 @@ export function CouponsTab() {
                       {c.usedCount}
                       <span className="text-muted"> / {c.usageLimit ?? "∞"}</span>
                       {c.perCustomerLimit && <span className="text-xs text-muted"> · {c.perCustomerLimit}/customer</span>}
+                      {c.combinable && <span className="text-xs text-muted"> · combines with offers</span>}
                     </p>
                     {c.usageLimit && (
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">

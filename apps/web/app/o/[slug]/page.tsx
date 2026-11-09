@@ -70,6 +70,7 @@ export default function OnlineOrderPage() {
   const [zoneId, setZoneId] = useState("");
   const [payment, setPayment] = useState<Pay | "">("");
   const [notes, setNotes] = useState("");
+  const [coupon, setCoupon] = useState("");
   const [placing, setPlacing] = useState(false);
   const [phoneToken, setPhoneToken] = useState<string | null>(null);
   const [pin, setPin] = useState<LatLng | null>(null);
@@ -195,6 +196,7 @@ export default function OnlineOrderPage() {
         pickupAt: when || undefined,
         payment,
         notes: notes.trim() || undefined,
+        couponCode: coupon.trim() || undefined,
         items: cart.lines.map((l) => ({ menuItemId: l.menuItemId, variantId: l.variantId, addonIds: l.addonIds, quantity: l.quantity, notes: l.notes?.trim() || undefined })),
         delivery: !delivery
           ? undefined
@@ -378,6 +380,14 @@ export default function OnlineOrderPage() {
             </div>
             <CartLines cart={cart} menu={page} />
             <Textarea label="Note for the restaurant (optional)" rows={2} maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. less spicy, no onion" />
+            <Input
+              label="Coupon code (optional)"
+              maxLength={30}
+              autoCapitalize="characters"
+              value={coupon}
+              onChange={(e) => setCoupon(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))}
+              hint="Applied when you place the order: one offer per bill unless the coupon combines with offers"
+            />
             <BillDetails
               rows={billRows}
               total={estTotal}

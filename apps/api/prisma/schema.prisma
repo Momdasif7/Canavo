@@ -1131,6 +1131,9 @@ model Coupon {
   startsAt         DateTime?
   expiresAt        DateTime?
   active           Boolean            @default(true)
+  /// P2 gap 4: owner opt-in — applies on top of the bill's offers (item offers → bill offer → coupon on the remaining
+  /// pre-tax value), the coupon part capped by the business's maxStackedDiscountPercent. Default: one offer per bill.
+  combinable       Boolean            @default(false)
   /// Personal coupons (e.g. birthday) can only be used by this customer
   customerId       String?
   createdAt        DateTime           @default(now())
@@ -1411,6 +1414,25 @@ enum BusinessStatus {
   ARCHIVED
 }
 
+/// P2 gap 8b: the minimal platform record left after an archived business was hard-deleted past its retention date.
+/// No hotel data: the business id, a SHA-256 of its name, dates and per-table row counts. Platform-only (RLS).
+model BusinessTombstone {
+  /// The deleted Business.id
+  id                String    @id
+  nameHash          String
+  businessCreatedAt DateTime
+  archivedAt        DateTime?
+  deleteAfter       DateTime
+  finalExportAt     DateTime?
+  approvedById      String?
+  approvedAt        DateTime  @default(now())
+  /// Set when every row and file is gone; null = purge in progress (the retention job resumes it)
+  completedAt       DateTime?
+  rowCounts         Json      @default("{}")
+  filesDeleted      Int       @default(0)
+  filesFailed       Int       @default(0)
+}
+
 /// A client business (hotel / restaurant / shop). All its data is isolated from other businesses.
 model Business {
   id             String                @id @default(cuid())
@@ -1424,6 +1446,11 @@ model Business {
   archivedAt     DateTime?
   archiveReason  String?
   deleteAfter    DateTime?
+  /// P2 gap 8b: the owner's final data export (zip in storage/exports, emailed as a one-time-token link) offered before
+  /// deletion; only the token's SHA-256 is kept. Purge is refused until it was offered 30 days earlier.
+  finalExportAt        DateTime?
+  finalExportFile      String?
+  finalExportTokenHash String?
   /// Enabled feature modules (see MODULES in @canavo/shared)
   modules        String[]
   /// Per-hotel feature flags { FLAG: true } (see FEATURES in @canavo/shared); absent = off
