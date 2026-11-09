@@ -628,6 +628,8 @@ export interface PartnerAvailability {
   outForDelivery: number;
   /** Outlet.maxDeliveriesPerPartner */
   max: number;
+  /** Gap 3: Outlet.backgroundTracking — the app may share GPS in the background while on a run */
+  backgroundTracking?: boolean;
   available: boolean;
   /** Why not available: "Not clocked in" | "Out for delivery" | "Returning to the outlet" | "Has 2 of 2 orders" */
   reason: string | null;

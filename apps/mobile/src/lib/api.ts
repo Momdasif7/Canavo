@@ -363,6 +363,21 @@ export interface ClockInput {
   mocked?: boolean;
   /** Selfie uploaded just before clocking in (when the hotel requires it) */
   selfieUrl?: string;
+  /** Gap 7: liveness-lite prompt shown on the selfie screen (for the manager's review) */
+  livenessPrompt?: string;
+}
+
+/** GET /attendance/face/me (gap 7) */
+export interface FaceStatus {
+  enabled: boolean;
+  version: string;
+  notice: string;
+  livenessPrompts: string[];
+  retentionDays: number;
+  consented: boolean;
+  consentAt: string | null;
+  consentVersion: string | null;
+  refPhotoUrl: string | null;
 }
 
 export const endpoints = {
@@ -384,6 +399,9 @@ export const endpoints = {
   attendanceStatus: () => api.get<AttendanceStatus>("/attendance/me/status"),
   clockIn: (input: ClockInput) => api.post<AttendanceRecord>("/attendance/clock-in", input),
   clockOut: (input: ClockInput) => api.post<AttendanceRecord>("/attendance/clock-out", input),
+  faceStatus: () => api.get<FaceStatus>("/attendance/face/me"),
+  faceConsent: (version: string, refPhotoUrl: string) => api.post<{ consented: true }>("/attendance/face/consent", { version, refPhotoUrl }),
+  faceWithdraw: () => api.delete<void>("/attendance/face/consent"),
   calendar: (month: string) => api.get<AttendanceCalendar>("/attendance/calendar", { query: { month } }),
   myLeaves: () => api.get<LeaveRequest[]>("/attendance/leaves"),
   applyLeave: (input: { fromDate: string; toDate: string; type: LeaveType; reason: string }) =>

@@ -241,6 +241,9 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 100
+          },
+          "backgroundTracking": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -379,11 +382,69 @@
           "selfieUrl": {
             "type": "string",
             "format": "uri"
+          },
+          "livenessPrompt": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "faceMatch": {
+            "type": "object",
+            "properties": {
+              "matched": {
+                "type": "boolean"
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "matched",
+              "score"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "latitude",
           "longitude"
+        ]
+      },
+      "faceConsentSchema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "refPhotoUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "version",
+          "refPhotoUrl"
+        ]
+      },
+      "faceReviewSchema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "decision"
         ]
       },
       "leaveRequestSchema": {
@@ -4129,6 +4190,50 @@
           "lng"
         ]
       },
+      "partnerLocationBatchSchema": {
+        "type": "object",
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lat": {
+                  "type": "number",
+                  "minimum": -90,
+                  "maximum": 90
+                },
+                "lng": {
+                  "type": "number",
+                  "minimum": -180,
+                  "maximum": 180
+                },
+                "accuracy": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "lat",
+                "lng",
+                "at"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "background": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "points"
+        ]
+      },
       "deliverySummaryQuerySchema": {
         "type": "object",
         "properties": {
@@ -5874,6 +5979,195 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/clockSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/attendance/face/me": {
+      "get": {
+        "summary": "Gap 7: my clock-in face-check state, DPDP notice + version, liveness prompts",
+        "tags": [
+          "Attendance"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/attendance/face/consent": {
+      "post": {
+        "summary": "Gap 7: consent to the current notice and enrol a reference photo. Body: faceConsentSchema",
+        "tags": [
+          "Attendance"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/faceConsentSchema"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Gap 7: withdraw consent (deletes the reference photo)",
+        "tags": [
+          "Attendance"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/attendance/face/reviews": {
+      "get": {
+        "summary": "Gap 7: manager review queue (reference photo + selfie side by side). Query: status=open|all",
+        "tags": [
+          "Attendance"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/attendance/{id}/face-review": {
+      "post": {
+        "summary": "Gap 7: manager decision APPROVED | REJECTED. Body: faceReviewSchema",
+        "tags": [
+          "Attendance"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/faceReviewSchema"
               }
             }
           }
@@ -17691,6 +17985,48 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/partnerLocationSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/delivery/me/location/batch": {
+      "post": {
+        "summary": "Gap 3: batched GPS points from the background task / offline queue (validated + thinned server-side; 409 {code, stop:true} = end the background task). Body: partnerLocationBatchSchema",
+        "tags": [
+          "Delivery"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/partnerLocationBatchSchema"
               }
             }
           }

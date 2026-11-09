@@ -275,7 +275,7 @@ function StaffHome() {
         onSubmit={c.submitPin}
         onClose={c.cancelPin}
       />
-      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
+      <SelfieCapture visible={c.selfieRequired} busy={c.phase === "submitting" || c.phase === "locating"} prompt={c.livenessPrompt} onCapture={(uri) => void c.submitSelfie(uri)} onCancel={c.cancelSelfie} />
     </Screen>
   );
 }

@@ -5,6 +5,7 @@ import { prisma } from "./db";
 import { registerJob } from "./jobs";
 import { moduleEnabled, runForOutlet } from "./lib/tenant";
 import { localParts } from "./routes/reports";
+import { purgeOldSelfies } from "./services/face-check";
 import { createBackup, listBackups, pruneBackups } from "./services/backup";
 import { isDue, sendSchedule } from "./services/report-schedules";
 
@@ -64,6 +65,10 @@ export function registerJobs(): void {
   });
   registerJob("outbox:purge", HOUR, async () => {
     await purgeDeliveredOutbox();
+  });
+  // Gap 7 / DPDP retention: clock-in selfies are deleted after SELFIE_RETENTION_DAYS.
+  registerJob("attendance-selfies:purge", HOUR, async () => {
+    await purgeOldSelfies();
   });
   registerJob("daily-backup", HOUR, async () => {
     await runDailyBackup();

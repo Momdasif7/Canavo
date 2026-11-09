@@ -1,13 +1,28 @@
 import { Router } from "express";
 import ExcelJS from "exceljs";
 import { z } from "zod";
-import { attendanceManualSchema, attendanceRegisterSchema, attendanceUpdateSchema, clockSchema, leaveRequestSchema, ROLE_LABELS } from "@canavo/shared";
+import {
+  attendanceManualSchema,
+  attendanceRegisterSchema,
+  attendanceUpdateSchema,
+  clockSchema,
+  FACE_CONSENT_NOTICE,
+  FACE_CONSENT_VERSION,
+  faceConsentSchema,
+  faceReviewSchema,
+  leaveRequestSchema,
+  LIVENESS_PROMPTS,
+  ROLE_LABELS,
+  SELFIE_RETENTION_DAYS,
+} from "@canavo/shared";
 import { prisma } from "../db";
-import { badRequest, forbidden, notFound, param, parse } from "../lib/http";
+import { badRequest, conflict, forbidden, HttpError, notFound, param, parse } from "../lib/http";
+import { featureOn } from "../lib/tenant";
+import { FACE_ERASE, removeLocalUpload } from "../services/face-check";
 import { audit } from "../lib/audit";
 import { addDays, isValidYmd as isRealDate } from "../lib/time";
 import { authenticate, requireOutlet, requirePermission, requireModule, userCan } from "../middleware/auth";
-import { canManageAttendanceOf, clockIn, clockOut, dayOutcome, manualRecordFields, upsertManualAttendance } from "../services/attendance";
+import { canManageAttendanceOf, clockIn, clockOut, dayOutcome, isOwnUpload, manualRecordFields, upsertManualAttendance } from "../services/attendance";
 import { notify, outletManagers } from "../services/notify";
 import { safeCellText } from "../services/report-export";
 import { alertAttendanceMarked } from "../services/alerts";
@@ -54,6 +69,75 @@ attendanceRouter.get("/me/status", async (req, res) => {
     take: 10,
   });
   res.json({ clockedIn: Boolean(open), current: open, recent });
+});
+
+// ---------- Clock-in face check (gap 7, CLOCK_IN_FACE_MATCH; DPDP consent) ----------
+/** My face-check state: is it on for the business, the notice to show, and whether I consented to the current version. */
+attendanceRouter.get("/face/me", requirePermission("attendance:self"), async (req, res) => {
+  const u = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { faceRefPhotoUrl: true, faceConsentAt: true, faceConsentVersion: true } });
+  res.json({
+    enabled: featureOn("CLOCK_IN_FACE_MATCH"),
+    version: FACE_CONSENT_VERSION,
+    notice: FACE_CONSENT_NOTICE,
+    livenessPrompts: LIVENESS_PROMPTS,
+    retentionDays: SELFIE_RETENTION_DAYS,
+    consented: Boolean(u.faceConsentAt && u.faceRefPhotoUrl) && u.faceConsentVersion === FACE_CONSENT_VERSION,
+    consentAt: u.faceConsentAt,
+    consentVersion: u.faceConsentVersion,
+    refPhotoUrl: u.faceRefPhotoUrl,
+  });
+});
+
+/** Explicit consent to the current notice + reference photo enrolment (the photo is an image, never a face template). */
+attendanceRouter.post("/face/consent", requirePermission("attendance:self"), async (req, res) => {
+  const { version, refPhotoUrl } = parse(faceConsentSchema, req.body);
+  if (!featureOn("CLOCK_IN_FACE_MATCH")) throw conflict("Face check at clock-in is not turned on for your business");
+  if (version !== FACE_CONSENT_VERSION) throw new HttpError(409, "The notice has changed. Read it again and agree to the new version.", { code: "CONSENT_OUTDATED", version: FACE_CONSENT_VERSION });
+  if (!isOwnUpload(refPhotoUrl)) throw badRequest("The photo must be uploaded through CANAVO");
+  const before = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { faceRefPhotoUrl: true } });
+  const at = new Date();
+  await prisma.user.update({ where: { id: req.user!.id }, data: { faceRefPhotoUrl: refPhotoUrl, faceConsentAt: at, faceConsentVersion: version } });
+  if (before.faceRefPhotoUrl && before.faceRefPhotoUrl !== refPhotoUrl) await removeLocalUpload(before.faceRefPhotoUrl);
+  await audit(req, "attendance.face_consent", "User", req.user!.id, { version, reenrolled: Boolean(before.faceRefPhotoUrl) });
+  res.json({ consented: true, consentAt: at, consentVersion: version, refPhotoUrl });
+});
+
+/** Withdraw consent: deletes the reference photo. Clock-in keeps working with PIN + selfie. */
+attendanceRouter.delete("/face/consent", requirePermission("attendance:self"), async (req, res) => {
+  const before = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { faceRefPhotoUrl: true, faceConsentAt: true } });
+  await prisma.user.update({ where: { id: req.user!.id }, data: FACE_ERASE });
+  await removeLocalUpload(before.faceRefPhotoUrl);
+  if (before.faceConsentAt) await audit(req, "attendance.face_consent_withdrawn", "User", req.user!.id);
+  res.status(204).end();
+});
+
+/** Manager review queue: face-checked clock-ins with the reference photo and the selfie side by side. */
+attendanceRouter.get("/face/reviews", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
+  const q = parse(z.object({ status: z.enum(["open", "all"]).default("open") }), req.query);
+  const rows = await prisma.staffAttendance.findMany({
+    where: { outletId: req.outletId!, ...(q.status === "open" ? { faceCheck: { in: ["PENDING_REVIEW", "MISMATCH"] } } : { faceCheck: { not: null } }) },
+    include: { user: { select: { id: true, name: true, role: true, faceRefPhotoUrl: true } } },
+    orderBy: { clockInAt: "desc" },
+    take: 200,
+  });
+  res.json(
+    rows
+      .filter((r) => canManageAttendanceOf(req.user!, r.user))
+      .map((r) => ({
+        id: r.id,
+        workDate: r.workDate,
+        clockInAt: r.clockInAt,
+        user: { id: r.user.id, name: r.user.name, role: r.user.role },
+        refPhotoUrl: r.user.faceRefPhotoUrl,
+        selfieUrl: r.clockInSelfieUrl,
+        livenessPrompt: r.livenessPrompt,
+        faceCheck: r.faceCheck,
+        faceScore: r.faceScore,
+        flags: r.clockInFlags,
+        reviewedAt: r.faceReviewedAt,
+        reviewedById: r.faceReviewedById,
+      })),
+  );
 });
 
 /** Calendar for one staff member: one entry per day with present/half-day/leave/absent. */
@@ -411,6 +495,20 @@ attendanceRouter.patch("/:id", requireOutlet, requirePermission("attendance:mana
     before: { status: rec.status, clockInAt: rec.clockInAt, clockOutAt: rec.clockOutAt },
     after: { status, clockIn: entry.clockIn, clockOut: entry.clockOut },
   });
+  res.json(updated);
+});
+
+/** Manager decision on a face-checked clock-in. Rejecting flags the record (FACE_REJECTED); it never deletes it. */
+attendanceRouter.post("/:id/face-review", requireOutlet, requirePermission("attendance:manage"), async (req, res) => {
+  const { decision, note } = parse(faceReviewSchema, req.body);
+  const rec = await loadRecord(req, param(req, "id"));
+  if (!rec.faceCheck) throw conflict("This clock-in has no face check");
+  const flags = decision === "REJECTED" ? [...new Set([...rec.clockInFlags, "FACE_REJECTED"])] : rec.clockInFlags;
+  const updated = await prisma.staffAttendance.update({
+    where: { id: rec.id },
+    data: { faceCheck: decision, faceReviewedById: req.user!.id, faceReviewedAt: new Date(), clockInFlags: flags },
+  });
+  await audit(req, "attendance.face_review", "StaffAttendance", rec.id, { userId: rec.userId, before: rec.faceCheck, decision, note: note ?? null });
   res.json(updated);
 });
 

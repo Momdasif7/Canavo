@@ -8,6 +8,7 @@ import { endpoints, errorMessage } from "../src/lib/api";
 import { formatMinutes, formatTime, humanize, ym, ymd } from "../src/lib/format";
 import type { AttendanceCalendar, AttendanceRecord, CalendarDay, LeaveRequest, LeaveType } from "../src/lib/types";
 import { radius, space, useTheme, type Palette } from "../src/theme";
+import { FaceCheckCard } from "../src/attendance/FaceCheck";
 import { withAccess } from "../src/auth/RequireAccess";
 
 type Tab = "calendar" | "leave";
@@ -51,6 +52,7 @@ function Attendance() {
   const [tab, setTab] = useState<Tab>("calendar");
   return (
     <Screen edges={[]}>
+      <FaceCheckCard />
       <Segmented
         options={[
           { value: "calendar", label: "Calendar" },

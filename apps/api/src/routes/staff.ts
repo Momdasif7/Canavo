@@ -10,6 +10,7 @@ import { disableTwoFactor } from "../services/two-factor";
 import { sendPasswordLink } from "../services/password-links";
 import { authenticate, requireAnyPermission, requireOutlet, requirePermission } from "../middleware/auth";
 import { startOfLocalDay, addDays } from "../lib/time";
+import { FACE_ERASE, removeLocalUpload } from "../services/face-check";
 import { revalidateSockets } from "../realtime";
 
 export const staffRouter = Router();
@@ -228,6 +229,14 @@ staffRouter.patch("/:id", requirePermission("staff:manage"), async (req, res) =>
   const passwordReset = Boolean(data.password);
   const forcedLogout = Boolean(roleChanged || deactivated || passwordReset);
   if (forcedLogout) await forceLogout(id);
+  // Gap 7 (DPDP purpose limitation): a staff member who leaves keeps no face-check reference photo.
+  if (deactivated) {
+    const face = await prisma.user.findUniqueOrThrow({ where: { id }, select: { faceRefPhotoUrl: true, faceConsentAt: true } });
+    if (face.faceConsentAt || face.faceRefPhotoUrl) {
+      await prisma.user.update({ where: { id }, data: FACE_ERASE });
+      await removeLocalUpload(face.faceRefPhotoUrl);
+    }
+  }
   // Moved to other outlets: live sockets leave the outlet rooms they lost (rt-3).
   else if (outletIds) await revalidateSockets(id);
   await audit(req, "staff.update", "User", id, { fields: Object.keys(data), forcedLogout });

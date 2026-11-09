@@ -33,6 +33,13 @@ function db(): Promise<SQLite.SQLiteDatabase> {
           last_error TEXT,
           created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS location_queue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lat REAL NOT NULL,
+          lng REAL NOT NULL,
+          accuracy REAL,
+          at TEXT NOT NULL
+        );
       `);
       return d;
     })();
@@ -195,4 +202,33 @@ export async function requeueFailed(): Promise<void> {
 export async function pruneQueue() {
   const cutoff = new Date(Date.now() - 86_400_000).toISOString();
   await (await db()).runAsync("DELETE FROM pending_orders WHERE state = 'done' AND created_at < ?", cutoff);
+}
+
+// ---------- Background location queue (gap 3) ----------
+export interface QueuedPoint {
+  id: number;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  at: string;
+}
+/** Most points kept while offline: the server ignores points older than 30 min anyway. */
+export const LOCATION_QUEUE_MAX = 120;
+
+export async function enqueueLocations(points: Omit<QueuedPoint, "id">[]): Promise<void> {
+  const d = await db();
+  for (const p of points) await d.runAsync("INSERT INTO location_queue (lat, lng, accuracy, at) VALUES (?, ?, ?, ?)", p.lat, p.lng, p.accuracy, p.at);
+  await d.runAsync("DELETE FROM location_queue WHERE id NOT IN (SELECT id FROM location_queue ORDER BY id DESC LIMIT ?)", LOCATION_QUEUE_MAX);
+}
+
+export async function peekLocations(limit: number): Promise<QueuedPoint[]> {
+  return (await db()).getAllAsync<QueuedPoint>("SELECT id, lat, lng, accuracy, at FROM location_queue ORDER BY id ASC LIMIT ?", limit);
+}
+
+export async function deleteLocationsUpTo(id: number): Promise<void> {
+  await (await db()).runAsync("DELETE FROM location_queue WHERE id <= ?", id);
+}
+
+export async function clearLocations(): Promise<void> {
+  await (await db()).runAsync("DELETE FROM location_queue");
 }

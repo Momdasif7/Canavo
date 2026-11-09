@@ -8,6 +8,8 @@ import { NotificationsProvider } from "../src/notifications/NotificationsContext
 import { OfflineProvider } from "../src/offline/OfflineContext";
 import { CartProvider } from "../src/pos/CartContext";
 import { useTheme } from "../src/theme";
+// Gap 3: defines the background location task at startup (the OS may wake the app headless to run it).
+import "../src/delivery/backgroundLocation";
 
 function RootStack() {
   const t = useTheme();

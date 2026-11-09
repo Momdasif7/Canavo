@@ -10,6 +10,7 @@ import type { PartnerAvailability } from "../lib/types";
 import { radius, space, useTheme } from "../theme";
 import { metresText, partnerState } from "./portal";
 import { usePresenceLocation, type PresenceLocation } from "./useLiveLocation";
+import { BackgroundDisclosure, useBackgroundLocation, type BackgroundLocation } from "./useBackgroundLocation";
 
 const STATUS_POLL_MS = 60_000;
 /** Don't say "You're back" twice for one return (GPS + socket). */
@@ -19,6 +20,8 @@ interface PartnerPresence {
   /** GET /delivery/me/status; null until loaded / not a partner here */
   status: PartnerAvailability | null;
   location: PresenceLocation & { retry: () => void };
+  /** Gap 3: background sharing while on a run */
+  background: BackgroundLocation;
   reload: () => Promise<void>;
 }
 
@@ -78,8 +81,22 @@ export function PartnerPresenceProvider({ enabled, children }: { enabled: boolea
     if (atOutlet !== undefined) void reload();
   }, [atOutlet, reload]);
 
-  const value = useMemo(() => ({ status, location, reload }), [status, location, reload]);
-  return <Ctx.Provider value={enabled ? value : null}>{children}</Ctx.Provider>;
+  const background = useBackgroundLocation({
+    // Not a partner here → stop at once; partner whose status hasn't loaded (offline at launch) → leave the task running.
+    ready: !enabled || status !== null,
+    allowed: enabled && !!status?.backgroundTracking,
+    onDuty: !!status?.onDuty,
+    onRun: !!status && (status.outForDelivery > 0 || (!!status.onRunSince && !status.atOutlet)),
+    label: status?.outForDelivery ? `Delivering ${status.outForDelivery} order${status.outForDelivery === 1 ? "" : "s"}` : "Returning to the outlet",
+  });
+
+  const value = useMemo(() => ({ status, location, background, reload }), [status, location, background, reload]);
+  return (
+    <Ctx.Provider value={enabled ? value : null}>
+      {children}
+      {enabled ? <BackgroundDisclosure bg={background} /> : null}
+    </Ctx.Provider>
+  );
 }
 
 /** null outside a delivery partner session. */
@@ -146,6 +163,18 @@ export function PresenceCard() {
         </View>
       ) : location.error ? (
         <Notice kind="warning" message={`Location: ${location.error}`} />
+      ) : null}
+      {p.background.mode === "background" ? (
+        <Notice
+          kind="success"
+          title="Sharing location in the background"
+          message={`Until you're back at the outlet, even with the screen locked${p.background.battery === "saver" ? " · battery saver: every 2 min" : ""}.`}
+        />
+      ) : p.background.mode === "foreground-only" ? (
+        <View style={{ gap: space.sm }}>
+          <Notice kind="info" message="Location is shared only while the app is open. Keep it open on the run, or allow background sharing." />
+          <Button title="Allow background sharing" icon="navigate-outline" variant="secondary" size="md" onPress={() => void p.background.enable()} />
+        </View>
       ) : null}
     </View>
   );

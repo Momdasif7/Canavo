@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Location from "expo-location";
+import { LIVENESS_PROMPTS } from "@canavo/shared";
 import { api, ApiError, endpoints, errorMessage } from "../lib/api";
 import type { AttendanceStatus } from "../lib/types";
 
@@ -19,6 +20,11 @@ export interface ClockError {
   kind: ClockErrorKind;
   title: string;
   message: string;
+}
+
+/** Gap 7 liveness-lite: a random instruction for the selfie, so a photo of a photo is easy to spot in review. */
+export function pickLivenessPrompt(rand: () => number = Math.random): string {
+  return LIVENESS_PROMPTS[Math.min(LIVENESS_PROMPTS.length - 1, Math.floor(rand() * LIVENESS_PROMPTS.length))];
 }
 
 type Phase = "idle" | "locating" | "verifying" | "submitting";
@@ -53,6 +59,7 @@ export function useClock(outletId: string | null, enabled = true) {
   const [lastAction, setLastAction] = useState<string | null>(null);
   // The hotel requires a selfie at clock-in (CLOCK_IN_SELFIE): the screen shows the camera.
   const [selfieRequired, setSelfieRequired] = useState(false);
+  const [livenessPrompt, setLivenessPrompt] = useState<string | null>(null);
   const fixRef = useRef<Fix | null>(null);
   const pinRef = useRef<string | undefined>(undefined);
 
@@ -136,7 +143,7 @@ export function useClock(outletId: string | null, enabled = true) {
   }, []);
 
   const submit = useCallback(
-    async (f: Fix, pin?: string, selfieUrl?: string) => {
+    async (f: Fix, pin?: string, selfieUrl?: string, prompt?: string) => {
       const clockingIn = !status?.clockedIn;
       pinRef.current = pin;
       setPhase("submitting");
@@ -149,6 +156,7 @@ export function useClock(outletId: string | null, enabled = true) {
           pin,
           outletId: outletId ?? undefined,
           selfieUrl,
+          livenessPrompt: selfieUrl ? prompt : undefined,
         };
         if (clockingIn) await endpoints.clockIn(body);
         else await endpoints.clockOut(body);
@@ -163,6 +171,7 @@ export function useClock(outletId: string | null, enabled = true) {
         const code = e instanceof ApiError ? (e.details as { code?: string } | undefined)?.code : undefined;
         if (code === "SELFIE_REQUIRED") {
           setPinRequired(false);
+          setLivenessPrompt(pickLivenessPrompt());
           setSelfieRequired(true);
         } else if (e instanceof ApiError && e.status === 400 && /PIN is required/i.test(msg)) {
           setPinRequired(true);
@@ -231,14 +240,14 @@ export function useClock(outletId: string | null, enabled = true) {
           setSelfieRequired(false);
           return setPhase("idle");
         }
-        await submit(f, pinRef.current, url);
+        await submit(f, pinRef.current, url, livenessPrompt ?? undefined);
       } catch (e) {
         setSelfieRequired(false);
         setError({ kind: "other", title: "Selfie not uploaded", message: errorMessage(e) });
         setPhase("idle");
       }
     },
-    [locate, submit],
+    [locate, submit, livenessPrompt],
   );
 
   return {
@@ -255,6 +264,7 @@ export function useClock(outletId: string | null, enabled = true) {
     submitPin,
     cancelPin: () => setPinRequired(false),
     selfieRequired,
+    livenessPrompt,
     submitSelfie,
     cancelSelfie: () => setSelfieRequired(false),
     reload,
