@@ -3,8 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": false,
-    "ignoreDeprecations": "6.0"
+    "declaration": false
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
