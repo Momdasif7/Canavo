@@ -7,6 +7,7 @@ import { getDeviceId, readSession } from "../lib/secure";
 import { connectSocket, disconnectSocket } from "../lib/socket";
 import { unregisterPush } from "../notifications/push";
 import type { Me, MfaChallenge, OutletRef, Tokens } from "../lib/types";
+import { stopBackgroundLocation } from "../delivery/backgroundLocation";
 import { hasModule as profileHasModule, type AccessProfile } from "./access";
 
 type Status = "loading" | "signedOut" | "signedIn";
@@ -59,6 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOutLocal = useCallback(async (reason: string | null = null) => {
     setSignOutReason(reason);
     disconnectSocket();
+    // Gap 3: never keep sharing location after sign-out.
+    await stopBackgroundLocation().catch(() => undefined);
     await api.clear();
     setMe(null);
     setOutlet(null);

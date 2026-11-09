@@ -15,6 +15,9 @@ const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID;
 
 const LOCATION_WHY =
   "CANAVO uses your location to confirm you are at the outlet when you clock in or out, to pin delivery addresses, and to share your position with the outlet while you are out on a delivery.";
+/** iOS "Always" prompt + Android background disclosure wording (gap 3). Only used during a delivery run. */
+const LOCATION_ALWAYS_WHY =
+  "While you are on a delivery run (from pickup until you are back at the outlet), CANAVO shares your location with your outlet even when the app is closed, so they can follow the delivery and know when you are back. It stops when you are back or clock out.";
 const CAMERA_WHY = "CANAVO uses the camera to scan barcodes on stock items and QR codes, and to take a selfie when you clock in if your employer requires it.";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
@@ -46,6 +49,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     config: { usesNonExemptEncryption: false },
     infoPlist: {
       NSLocationWhenInUseUsageDescription: LOCATION_WHY,
+      NSLocationAlwaysAndWhenInUseUsageDescription: LOCATION_ALWAYS_WHY,
+      NSLocationAlwaysUsageDescription: LOCATION_ALWAYS_WHY,
+      // Gap 3: background location only during a delivery run (startLocationUpdatesAsync).
+      UIBackgroundModes: ["location"],
       NSBluetoothAlwaysUsageDescription: "CANAVO connects to Bluetooth thermal printers to print bills and KOTs.",
       NSBluetoothPeripheralUsageDescription: "CANAVO connects to Bluetooth thermal printers to print bills and KOTs.",
       NSCameraUsageDescription: CAMERA_WHY,
@@ -59,6 +66,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     permissions: [
       "ACCESS_FINE_LOCATION",
       "ACCESS_COARSE_LOCATION",
+      // Gap 3: background location during a delivery run, shown as a foreground service (Android 14 type "location").
+      "ACCESS_BACKGROUND_LOCATION",
+      "FOREGROUND_SERVICE",
+      "FOREGROUND_SERVICE_LOCATION",
       "BLUETOOTH",
       "BLUETOOTH_ADMIN",
       "BLUETOOTH_CONNECT",
@@ -69,8 +80,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "VIBRATE",
       "POST_NOTIFICATIONS",
     ],
-    // Foreground-only location: never request background location on Android.
-    blockedPermissions: ["android.permission.ACCESS_BACKGROUND_LOCATION"],
   },
   plugins: [
     "expo-router",
@@ -80,8 +89,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-location",
       {
         locationWhenInUsePermission: LOCATION_WHY,
-        isIosBackgroundLocationEnabled: false,
-        isAndroidBackgroundLocationEnabled: false,
+        locationAlwaysAndWhenInUsePermission: LOCATION_ALWAYS_WHY,
+        isIosBackgroundLocationEnabled: true,
+        isAndroidBackgroundLocationEnabled: true,
+        isAndroidForegroundServiceEnabled: true,
       },
     ],
     ["expo-camera", { cameraPermission: CAMERA_WHY, recordAudioAndroid: false }],

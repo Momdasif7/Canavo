@@ -79,3 +79,16 @@ afterAll(() => {
     /* ignore */
   }
 });
+
+// ---- Gap 3: background location task + battery (native modules).
+jest.mock("expo-task-manager", () => {
+  const tasks = (globalThis.__TASKS__ ??= new Map());
+  return {
+    defineTask: (name, fn) => void tasks.set(name, fn),
+    isTaskDefined: (name) => tasks.has(name),
+  };
+});
+jest.mock("expo-battery", () => ({
+  getBatteryLevelAsync: jest.fn(async () => 0.8),
+  isLowPowerModeEnabledAsync: jest.fn(async () => false),
+}));
