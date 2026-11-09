@@ -21,10 +21,12 @@ import { FoodMark } from "@/components/ui/FoodMark";
 export function BrandStyle({ accent }: { accent?: string | null }) {
   const css = useMemo(() => {
     if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) return null;
-    const vars = primaryCssVars(accent);
-    return `html:root{${Object.entries(vars)
-      .map(([k, v]) => `${k}:${v} !important`)
-      .join(";")}}`;
+    const decl = (vars: Record<string, string>) =>
+      Object.entries(vars)
+        .map(([k, v]) => `${k}:${v} !important`)
+        .join(";");
+    // The default accent has a separate dark-theme scale (bright orange + dark text).
+    return `html:root{${decl(primaryCssVars(accent, "light"))}}html.dark:root:not(.cinema){${decl(primaryCssVars(accent, "dark"))}}`;
   }, [accent]);
   return css ? <style data-brand-accent>{css}</style> : null;
 }

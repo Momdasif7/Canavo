@@ -87,7 +87,7 @@ export async function ensureAndroidChannels() {
     description: "New KOTs, orders ready, delivery updates, tables needing attention, payments",
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 400, 200, 400],
-    lightColor: "#FF6B35",
+    lightColor: "#C2410C",
     sound: "default",
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
@@ -96,7 +96,7 @@ export async function ensureAndroidChannels() {
     description: "Low stock, leave, attendance and report alerts",
     importance: Notifications.AndroidImportance.DEFAULT,
     vibrationPattern: [0, 200],
-    lightColor: "#FF6B35",
+    lightColor: "#C2410C",
     sound: "default",
   });
 }

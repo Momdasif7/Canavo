@@ -1,21 +1,25 @@
 # Known gaps from the spec (QA Phase 16b)
 
 Each gap has a test (passing, or `it.skip` with the reason), a priority with a reason, and a status:
-**Done** (fixed by an earlier phase, verified), **Implemented now** (built in 16b), or **Proposed P2 awaiting approval**.
+**Done** (fixed by an earlier phase, verified), **Implemented now** (built in 16b), **Implemented (approved P2)** (built after
+approval, 10 Nov 2026), or **Proposed P2 awaiting approval**.
 
-Tests: `apps/api/test/integration/known-gaps.test.ts` (12 pass + 13 for the approved P2 gaps 3 and 7; 2 skipped P2 tests), `apps/api/src/services/gstr1.test.ts` (+1 unit test).
+Tests: `apps/api/test/integration/known-gaps.test.ts` (gaps 1–8, incl. the approved P2 gaps 3, 4, 7 and 8b), `apps/api/src/services/gstr1.test.ts` (+1 unit test),
+`coupon-stacking.test.ts` (gap 4, 8 tests) and `business-purge.test.ts` (gap 8b, 9 tests).
 Migration: `20261109200000_b2b_buyer_business_archive`. It adds 4 nullable `Order` columns and 3 nullable `Business` columns, plus the `BusinessStatus.ARCHIVED` value. Every step is additive and needs no backfill.
+Migration `20261110100000_coupon_combinable_business_purge` (approved P2 gaps 4 and 8b): `Coupon.combinable` (default false),
+3 nullable `Business` final-export columns and the platform-only `BusinessTombstone` table (forced RLS: platform/bypass only). Additive.
 
 | # | Gap | Priority | Status |
 |---|-----|----------|--------|
 | 1 | Scheduler single-instance (pg-boss, many API instances) | P1 | Done (Phase 1.2) |
 | 2 | GSTR-1 B2B / B2CL / CDNR / CDNUR | P1 | Implemented now |
 | 3 | Delivery-partner GPS in the background | P2 | Implemented (approved P2) |
-| 4 | One offer per bill / optional stacking | P2 | Done (rule tested), coupon stacking is Proposed P2 |
+| 4 | One offer per bill / optional stacking | P2 | Done (rule tested); combinable coupons Implemented (approved P2) |
 | 5 | Coupon GST treatment and gift cards | P0 check | Done (verified, no defect) |
 | 6 | Tab split atomicity | P1 | Done (Phase 9) |
 | 7 | Clock-in face match | P2 | Implemented (approved P2): manager-review fallback, no on-device matcher |
-| 8 | Business archive / delete after retention | P1 archive, P2 delete | Archive implemented now. Delete is Proposed P2 |
+| 8 | Business archive / delete after retention | P1 archive, P2 delete | Archive implemented; delete after retention Implemented (approved P2) |
 
 ---
 
@@ -102,7 +106,7 @@ Tests: `known-gaps.test.ts` "gap 3" (6 tests). Mobile: `test/backgroundLocation.
 
 Store work is still needed: the Play background-location declaration with a review video, and a privacy-policy update (see `apps/mobile/STORE_RELEASE.md`).
 
-## 4. One offer per bill: Done, optional coupon stacking Proposed P2
+## 4. One offer per bill: Done, combinable coupons Implemented (approved P2)
 **Rule:** only the best-saving offer *or* coupon applies (`bestOffer` in `offer-engine.ts`). Loyalty points and the manual
 discount still apply on top. Optional stacking **already exists for automatic offers**: offers flagged `combinable` (Phase 3.7)
 apply on top, but only on items that no other offer has discounted.
@@ -117,7 +121,28 @@ apply on top, but only on items that no other offer has discounted.
 - The comparison panel would explain each step.
 
 **Why P2:** this is a business-rule change, and it needs the owner to decide the cap.
-Test: `it.skip("gap 4 …")`.
+
+**Implemented (approved P2):**
+- `Coupon.combinable` (default **false**, so one offer *or* coupon per bill stays the rule). The owner opts a coupon in on
+  Customers → Coupons ("Combine with offers"); the coupon list marks it "combines with offers".
+- Cap: `maxStackedDiscountPercent` in the loyalty settings (Customers → Loyalty, default **30 %**). When a combinable coupon
+  stacks, all promotions together may take at most that share of the pre-tax bill (after the manual discount); the
+  **coupon** is cut to fit, offers keep their amounts.
+- Order (`evaluatePromotions`, plan `STACK`): the best offer and combinable offers (item offers, then the bill offer), then the
+  coupon on the **remaining pre-tax value**. Loyalty points come after, as before.
+- Choice: stacking is used only when it saves more than both the best offer alone and the coupon alone. A **tie** keeps the
+  single coupon (one promotion on the bill). If the offers already use the whole cap, the coupon isn't applied (and isn't
+  used up) when the offer saves more; the POS shows why in the warnings and the comparison panel ("applied after the offers…",
+  "cut to the stacking limit").
+- GST is unchanged: every discount still lowers each line's taxable value before tax (`computeBill`), so GST is charged on
+  the discounted value per line.
+- Coupon limits (`usageLimit`, `perCustomerLimit`, personal coupons) work exactly as before under stacking; cancelling a bill
+  gives the use back.
+- Online ordering page: optional "Coupon code" at checkout (`couponCode` on `POST /public/o/:slug/orders`), same rules.
+  Mobile POS: no coupon entry yet (unchanged).
+
+Tests: `known-gaps.test.ts` "gap 4" (stacks on the best offer, GST per line on the reduced value) and `coupon-stacking.test.ts`
+(default not combinable, order of application, cap, tie, cap already used, usage limits total/per customer + cancel, online).
 
 ## 5. Coupon GST treatment and gift cards: Done (verified, no defect)
 - Item and bill discounts, offers, coupons and points all reduce the **taxable value before GST** (`computeBill` in
@@ -175,7 +200,7 @@ Tests: `known-gaps.test.ts` "gap 7" (7 tests). Mobile: `test/faceCheck.test.tsx`
 **Needs a real device:** the front camera capture and the prompt timing, and reference-photo upload on a slow network. The privacy-policy
 notice text needs legal review before the feature is switched on for a business.
 
-## 8. Business archive: Implemented now (P1). Delete after retention: Proposed P2
+## 8. Business archive: Implemented now (P1). Delete after retention: Implemented (approved P2)
 **Why P1 (archive):** without it, a hotel that leaves can only be "suspended", which looks temporary. Its logins and storefront
 must stop for good while its tax records are kept.
 
@@ -202,4 +227,29 @@ must stop for good while its tax records are kept.
 - It leaves a tombstone (`Business` row with name hash, dates and a deletion audit entry) and removes the business from backups as they age out.
 
 **Why P2:** deletion is irreversible, it touches every table, and it needs an approved retention policy and legal sign-off.
-Test: `it.skip("P2 … gap 8b")`.
+
+**Implemented (approved P2), `services/business-purge.ts`:**
+- **Final export first.** The daily `business-retention` platform job writes a CSV-zip export of every archived business that
+  is within 30 days of `deleteAfter` (to `storage/exports`) and emails each owner a one-time-token link
+  (`GET /public/business-export/:token`; only its SHA-256 is stored). The super admin can send it earlier
+  (`POST /platform/businesses/:id/final-export`) but never receives the link or the file. Re-sending replaces the link; the
+  first offer date is kept.
+- **Dry run:** `GET /platform/businesses/:id/purge-preview`: row counts per table, `purgeFrom`, `canPurge` and blockers.
+- **Approval:** `POST /platform/businesses/:id/purge {confirmName, confirmText: "DELETE"}` (super admin only). It is refused (409)
+  for a business that isn't archived, **before `deleteAfter`**, and until 30 days after the final export was offered.
+- **Purge (RLS bypassed):** a `BusinessTombstone` is written first. Then:
+  - uploaded images referenced by the business's rows are deleted (local files; Cloudinary through its destroy API when configured);
+  - every business-scoped table is deleted, children first, in batches of 500;
+  - the `Business` row and its export file are deleted.
+- **What is kept:** the tombstone (business id, SHA-256 of the name, created/archived/delete-after/export/approval/completed dates,
+  row counts, files deleted/failed) and the platform audit entries (`platform.business.archive / final_export / purge`). Hotel
+  user ids in platform audit rows are cleared.
+- **Idempotent:** approving again returns the tombstone. The job resumes a purge that stopped half way, re-offers nothing, and
+  never deletes a business that no super admin approved (it only lists them).
+- **Web:** Platform → business (archived): a "Retention and deletion" card with the dates, blockers, "Email final export to
+  owners" and "Delete permanently" (row counts, type the name and DELETE).
+- Backups are not rewritten; the deleted business leaves them as they age out (`BACKUP_RETENTION`).
+
+Tests: `business-purge.test.ts` (refused before retention / before the export notice, one-time link download, typed confirmation
+and roles, full purge incl. files with tombstone + audit kept and other hotels untouched, idempotent approval, job notice once,
+job resume, tombstones not visible to hotels) and `known-gaps.test.ts` "gap 8b".

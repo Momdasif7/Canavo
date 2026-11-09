@@ -91,7 +91,7 @@ function ViewController({ value, outlet, focusKey }: { value: LatLng | null; out
 
 export default function LeafletMap({ value, outlet, zones = [], activeZoneId, onPick, focusKey, height = 240, className }: LeafletMapProps) {
   const deliveryIcon = useMemo(() => pinIcon("#ef4444", "●"), []);
-  const outletIcon = useMemo(() => pinIcon("#ff6b35", "C"), []);
+  const outletIcon = useMemo(() => pinIcon("#c2410c", "C"), []);
   const center = value ?? outlet ?? INDIA;
   const zoom = value ? 15 : outlet ? 13 : 5;
   const readOnly = !onPick;

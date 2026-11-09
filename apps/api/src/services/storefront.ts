@@ -669,6 +669,7 @@ export async function placeOnlineOrder(slug: string, input: OnlineOrderInput, ip
         customerName: input.customerName,
         customerPhone: input.customerPhone,
         interState: false,
+        couponCode: input.couponCode || undefined,
         items: lines.map((l) => ({ menuItemId: l.menuItemId, variantId: l.variantId, addonIds: l.addonIds, quantity: l.quantity, notes: l.notes })),
         notes: ["Online", timeNote, PAYMENT_LABEL[input.payment], input.notes].filter(Boolean).join(" · ").slice(0, 300),
         delivery: delivery ? { ...deliveryInput!, source: "IN_APP", cod: input.payment === "COD" } : undefined,

@@ -181,6 +181,8 @@ export interface Coupon {
   startsAt: string | null;
   expiresAt: string | null;
   active: boolean;
+  /** P2 gap 4: stacks on the bill's offers (capped by the loyalty setting maxStackedDiscountPercent) */
+  combinable: boolean;
   createdAt: string;
 }
 

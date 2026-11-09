@@ -253,34 +253,106 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
     }
   }
 
-  const lineDiscounts = ctx.lines.map(() => 0);
-  const applied: AppliedOffer[] = [];
-  const billDiscounts: BillDiscount[] = [];
   const billLines = ctx.lines.map((l, i) => ({ unitPrice: l.unitPrice, quantity: l.quantity, gstRate: gst(i), lineDiscount: lineDiscountBase[i] }));
   const menuSubtotal = ctx.lines.reduce((s, l) => s + Math.max(0, l.unitPrice * l.quantity - l.manualDiscount), 0);
-  const remainingBase = preTaxRemaining(billLines, mode, input.discount ? [input.discount] : []);
-  const useOffer = (b: BestOffer) => {
-    if (b.lineDiscounts) b.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
-    else {
-      // D1: a ₹-off bill offer is GST-inclusive when the outlet chose that; a %-off saving is already pre-tax.
-      const flat = billDiscountConfigSchema.safeParse(b.offer.config).data?.discountType === "FLAT";
-      billDiscounts.push({ type: "FLAT", value: b.saving, includesTax: flat && outlet.flatDiscountsIncludeTax });
+  const manual = input.discount ? [input.discount] : [];
+  const remainingBase = preTaxRemaining(billLines, mode, manual);
+
+  type CouponRow = NonNullable<Awaited<ReturnType<typeof prisma.coupon.findFirst>>>;
+  interface Plan {
+    kind: "BEST" | "COUPON" | "STACK";
+    lineDiscounts: number[];
+    billDiscounts: BillDiscount[];
+    applied: AppliedOffer[];
+    appliedIds: Set<string>;
+    /** Pre-tax coupon discount on this plan (0 = coupon not used) */
+    coupon: number;
+    /** STACK: the coupon was cut to keep all promotions within maxStackedDiscountPercent */
+    capped: boolean;
+    /** Pre-tax value removed by every promotion of this plan */
+    total: number;
+  }
+  /**
+   * Build one way of discounting the bill:
+   *  - BEST:   the best single offer (+ combinable offers on free items), no coupon;
+   *  - COUPON: the coupon alone on the pre-tax bill (+ combinable offers on top) — one offer per bill;
+   *  - STACK:  P2 gap 4, a combinable coupon: item offers → bill offer → the coupon last, on the remaining pre-tax
+   *            value, cut so all promotions together stay within maxStackedDiscountPercent of the pre-tax bill.
+   * GST is untouched by the choice: every discount still lowers each line's taxable value before tax (computeBill).
+   */
+  const build = (kind: "BEST" | "COUPON" | "STACK", coupon?: CouponRow, stackCapPercent = 100): Plan => {
+    const lineDiscounts = ctx.lines.map(() => 0);
+    const billDiscounts: BillDiscount[] = [];
+    const applied: AppliedOffer[] = [];
+    const appliedIds = new Set<string>();
+    const remaining = () =>
+      preTaxRemaining(
+        ctx.lines.map((l, i) => ({ ...billLines[i], lineDiscount: lineDiscountBase[i] + lineDiscounts[i] })),
+        mode,
+        [...manual, ...billDiscounts],
+      );
+    const pushCoupon = (c: CouponRow, amount: number) => {
+      billDiscounts.push({ type: "FLAT", value: amount, includesTax: c.discountType === "FLAT" && outlet.flatDiscountsIncludeTax });
+      applied.push({ kind: "COUPON", id: c.id, label: `Coupon ${c.code}`, amount });
+    };
+    const useOffer = (b: BestOffer) => {
+      if (b.lineDiscounts) b.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
+      else {
+        // D1: a ₹-off bill offer is GST-inclusive when the outlet chose that; a %-off saving is already pre-tax.
+        const flat = billDiscountConfigSchema.safeParse(b.offer.config).data?.discountType === "FLAT";
+        billDiscounts.push({ type: "FLAT", value: b.saving, includesTax: flat && outlet.flatDiscountsIncludeTax });
+      }
+      applied.push({ kind: "OFFER", id: b.offer.id, label: b.offer.name, amount: b.saving });
+      appliedIds.add(b.offer.id);
+    };
+    let couponPart = 0;
+    if (kind === "COUPON" && coupon) {
+      couponPart = couponAmount(coupon, remainingBase);
+      pushCoupon(coupon, couponPart);
+    } else if (best) useOffer(best);
+
+    // Phase 3.7: combinable offers apply on top, on items no other offer has discounted yet.
+    for (const cand of ranked) {
+      if (!cand.offer.combinable || appliedIds.has(cand.offer.id)) continue;
+      if (cand.lineDiscounts) {
+        const free = engineLines.map((l, i) => (lineDiscounts[i] > 0 ? { ...l, quantity: 0 } : l));
+        const r = evaluateLineOffers([cand.offer], free);
+        const before = remaining();
+        r.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
+        const saving = before - remaining();
+        if (saving > 0) {
+          applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: saving });
+          appliedIds.add(cand.offer.id);
+        }
+      } else {
+        const b = evaluateBillOffer([cand.offer], menuSubtotal, remaining());
+        if (b) {
+          const flat = billDiscountConfigSchema.safeParse(cand.offer.config).data?.discountType === "FLAT";
+          billDiscounts.push({ type: "FLAT", value: b.amount, includesTax: flat && outlet.flatDiscountsIncludeTax });
+          applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: b.amount });
+          appliedIds.add(cand.offer.id);
+        }
+      }
     }
-    applied.push({ kind: "OFFER", id: b.offer.id, label: b.offer.name, amount: b.saving });
+    let capped = false;
+    if (kind === "STACK" && coupon) {
+      // Bill-level discounts are applied in order, so the coupon sits last, on what the offers left.
+      const offersTotal = remainingBase - remaining();
+      const raw = couponAmount(coupon, remaining());
+      const room = Math.max(0, Math.floor((remainingBase * stackCapPercent) / 100) - offersTotal);
+      couponPart = Math.min(raw, room);
+      capped = couponPart < raw;
+      if (couponPart > 0) pushCoupon(coupon, couponPart);
+    }
+    return { kind, lineDiscounts, billDiscounts, applied, appliedIds, coupon: couponPart, capped, total: remainingBase - remaining() };
   };
-  const remaining = () =>
-    preTaxRemaining(
-      ctx.lines.map((l, i) => ({ ...billLines[i], lineDiscount: lineDiscountBase[i] + lineDiscounts[i] })),
-      mode,
-      [...(input.discount ? [input.discount] : []), ...billDiscounts],
-    );
 
   const comparison: OfferComparison[] = [];
-  let couponSaving: number | null = null;
 
   // 3. Coupon
-  let couponId: string | undefined;
-  let couponCode: string | undefined;
+  let plan = build("BEST");
+  let couponRow: CouponRow | undefined;
+  let couponAlone = 0;
   // A preview reports coupon / points problems as warnings, so the cashier still sees correct totals.
   const warnings: string[] = [];
   if (input.couponCode && !moduleEnabled("OFFERS")) {
@@ -301,47 +373,39 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       if (!opts.dryRun) throw badRequest(err ?? "Invalid coupon code");
       warnings.push(err ?? "Invalid coupon code");
     } else {
-      const amount = couponAmount(coupon, remainingBase);
-      couponSaving = amount;
-      comparison.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, saving: amount, applied: !(best && best.saving > amount), note: "" });
-      if (best && best.saving > amount) {
+      couponRow = coupon;
+      couponAlone = couponAmount(coupon, remainingBase);
+      // One offer per bill: the coupon alone wins against the best offer on a tie (the customer asked for it).
+      const alone = build("COUPON", coupon);
+      if (!(best && best.saving > couponAlone)) plan = alone;
+      if (coupon.combinable && best) {
+        // Owner opted this coupon in: stack it on the offers when that saves more than either choice alone
+        // (a tie keeps the simpler single-promotion bill).
+        const cap = (await getLoyaltyConfig()).maxStackedDiscountPercent;
+        const stack = build("STACK", coupon, cap);
+        if (stack.coupon > 0 && stack.total > plan.total) plan = stack;
+        else if (plan !== alone && stack.coupon === 0) {
+          warnings.push(`Coupon ${coupon.code} not applied — the offers already use the ${cap}% stacking limit, and “${best.offer.name}” saves more`);
+        }
+        if (plan === stack && stack.capped) warnings.push(`Coupon ${coupon.code} reduced to keep all discounts within ${cap}% of the bill`);
+      } else if (plan !== alone && best) {
         warnings.push(`Coupon ${coupon.code} not applied — only one offer per bill, and “${best.offer.name}” saves more`);
-      } else {
-        couponId = coupon.id;
-        couponCode = coupon.code;
-        billDiscounts.push({ type: "FLAT", value: amount, includesTax: coupon.discountType === "FLAT" && outlet.flatDiscountsIncludeTax });
-        applied.push({ kind: "COUPON", id: coupon.id, label: `Coupon ${coupon.code}`, amount });
       }
     }
   }
-  if (!couponId && best) useOffer(best);
+  const { lineDiscounts, billDiscounts, applied, appliedIds } = plan;
+  const stacked = plan.kind === "STACK";
+  const couponId = applied.some((a) => a.kind === "COUPON") ? couponRow?.id : undefined;
+  const couponCode = couponId ? couponRow?.code : undefined;
+  const remaining = () =>
+    preTaxRemaining(
+      ctx.lines.map((l, i) => ({ ...billLines[i], lineDiscount: lineDiscountBase[i] + lineDiscounts[i] })),
+      mode,
+      [...manual, ...billDiscounts],
+    );
 
-  // Phase 3.7: combinable offers apply on top, on items no other offer has discounted yet.
-  const appliedIds = new Set(applied.filter((a) => a.kind === "OFFER").map((a) => a.id));
-  for (const cand of ranked) {
-    if (!cand.offer.combinable || appliedIds.has(cand.offer.id)) continue;
-    if (cand.lineDiscounts) {
-      const free = engineLines.map((l, i) => (lineDiscounts[i] > 0 ? { ...l, quantity: 0 } : l));
-      const r = evaluateLineOffers([cand.offer], free);
-      const before = remaining();
-      r.lineDiscounts.forEach((d, i) => (lineDiscounts[i] += d));
-      const saving = before - remaining();
-      if (saving > 0) {
-        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: saving });
-        appliedIds.add(cand.offer.id);
-      }
-    } else {
-      const b = evaluateBillOffer([cand.offer], menuSubtotal, remaining());
-      if (b) {
-        const flat = billDiscountConfigSchema.safeParse(cand.offer.config).data?.discountType === "FLAT";
-        billDiscounts.push({ type: "FLAT", value: b.amount, includesTax: flat && outlet.flatDiscountsIncludeTax });
-        applied.push({ kind: "OFFER", id: cand.offer.id, label: cand.offer.name, amount: b.amount });
-        appliedIds.add(cand.offer.id);
-      }
-    }
-  }
-  // Why each offer was or wasn't used (shown on the POS).
-  const winner = couponId ? `the coupon (${couponCode})` : best ? `“${best.offer.name}”` : null;
+  // Why each offer / the coupon was or wasn't used (shown on the POS).
+  const winner = couponId && !stacked ? `the coupon (${couponCode})` : best ? `“${best.offer.name}”` : null;
   for (const c of ranked) {
     const on = appliedIds.has(c.offer.id);
     comparison.push({
@@ -350,11 +414,22 @@ export async function evaluatePromotions(ctx: PricingContext, opts: EvaluateOpti
       label: c.offer.name,
       saving: c.saving,
       applied: on,
-      note: on ? (c === best && !couponId ? "Saves the most" : "Combines with other offers") : c.offer.combinable ? "Its items already have a discount" : `One offer per bill: ${winner} saves more`,
+      note: on
+        ? c === best && (!couponId || stacked) ? (stacked ? "Saves the most; the coupon stacks on it" : "Saves the most") : "Combines with other offers"
+        : c.offer.combinable ? "Its items already have a discount" : `One offer per bill: ${winner} saves more`,
     });
   }
-  for (const c of comparison) if (c.kind === "COUPON") c.note = c.applied ? (best && couponSaving !== null && best.saving === couponSaving ? "Same saving as the best offer; the customer's coupon wins a tie" : "Saves the most") : `One offer per bill: “${best?.offer.name}” saves more`;
-
+  if (couponRow) {
+    const on = Boolean(couponId);
+    const note = !on
+      ? `One offer per bill: “${best?.offer.name}” saves more`
+      : stacked
+        ? `Combinable coupon: applied after the offers on the remaining bill${plan.capped ? " (cut to the stacking limit)" : ""}`
+        : best && best.saving === couponAlone
+          ? "Same saving as the best offer; the customer's coupon wins a tie"
+          : "Saves the most";
+    comparison.push({ kind: "COUPON", id: couponRow.id, label: `Coupon ${couponRow.code}`, saving: stacked ? plan.coupon : couponAlone, applied: on, note });
+  }
   // 4. Points (a preview reports problems as warnings so the cart stays usable while editing)
   let pointsRedeemed = 0;
   if (input.redeemPoints && !crm) throw badRequest("Loyalty points are not enabled for this business");

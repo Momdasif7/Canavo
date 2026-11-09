@@ -174,7 +174,7 @@ function AddToTab() {
                     {l.quantity}
                   </AppText>
                   <Pressable onPress={() => changeQty(l.key, 1)} style={[styles.qty, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel={`One more ${l.item.name}`}>
-                    <Ionicons name="add" size={22} color="#fff" />
+                    <Ionicons name="add" size={22} color={t.primaryText} />
                   </Pressable>
                 </Row>
                 <Input placeholder="Note for kitchen (e.g. less spicy)" value={l.notes} onChangeText={(v) => setNotes(l.key, v)} maxLength={200} style={{ minHeight: 44, fontSize: font.md }} />

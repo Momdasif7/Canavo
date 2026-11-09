@@ -15,6 +15,7 @@ import { createGzip, createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
 import type { Response } from "express";
+import type { Writable } from "node:stream";
 import archiver from "archiver";
 import { Prisma } from "@prisma/client";
 import { platformPrisma, prisma as tenantPrisma } from "../db";
@@ -27,9 +28,9 @@ import { env } from "../env";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { storageDir } from "./storage";
 
-type Tx = Prisma.TransactionClient;
+export type Tx = Prisma.TransactionClient;
 type Row = Record<string, unknown>;
-type DmmfModel = (typeof Prisma.dmmf.datamodel.models)[number];
+export type DmmfModel = (typeof Prisma.dmmf.datamodel.models)[number];
 
 const PAGE = 1000;
 const BACKUP_RE = /^canavo-backup-(auto|manual)-\d{8}-\d{6}\.ndjson\.gz$/;
@@ -54,7 +55,7 @@ const tableName = (m: DmmfModel) => m.dbName ?? m.name;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const delegate = (tx: Tx | typeof prisma, model: string): any => (tx as unknown as Record<string, unknown>)[delegateName(model)];
 
-function pkFields(m: DmmfModel): string[] {
+export function pkFields(m: DmmfModel): string[] {
   if (m.primaryKey?.fields?.length) return [...m.primaryKey.fields];
   return m.fields.filter((f) => f.isId).map((f) => f.name);
 }
@@ -84,7 +85,7 @@ export function insertOrder(all: readonly DmmfModel[] = models()): DmmfModel[] {
 }
 
 /** Self-referencing FK columns, e.g. MenuCategory.parentId. */
-function selfFks(m: DmmfModel): { from: string; to: string }[] {
+export function selfFks(m: DmmfModel): { from: string; to: string }[] {
   return m.fields
     .filter((f) => f.kind === "object" && f.type === m.name && (f.relationFromFields?.length ?? 0) === 1)
     .map((f) => ({ from: f.relationFromFields![0], to: f.relationToFields![0] }));
@@ -119,7 +120,7 @@ async function appliedMigrations(tx: Tx | typeof prisma = prisma): Promise<strin
 }
 
 /** Page through a table ordered by primary key, calling `onRows` per page. */
-async function eachPage(tx: Tx, m: DmmfModel, onRows: (rows: Row[]) => Promise<void> | void, where?: Row) {
+export async function eachPage(tx: Tx, m: DmmfModel, onRows: (rows: Row[]) => Promise<void> | void, where?: Row) {
   const orderBy = pkFields(m).map((f) => ({ [f]: "asc" }));
   for (let skip = 0; ; skip += PAGE) {
     const rows: Row[] = await delegate(tx, m.name).findMany({ where, orderBy, skip, take: PAGE });
@@ -422,7 +423,7 @@ export async function tableCounts(): Promise<Record<string, number>> {
 
 /** Secrets never leave the server in a data export (backups are full-fidelity). */
 // DeviceToken = push-notification tokens (credentials for sending to a phone), CustomerOtp = login codes.
-const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey", "DeviceToken", "CustomerOtp"]);
+export const EXCLUDED_MODELS = new Set(["RefreshToken", "OtpCode", "PasswordResetToken", "RecoveryCode", "IdempotencyKey", "DeviceToken", "CustomerOtp"]);
 // BusinessIntegration.secrets (encrypted keys) and webhookKey (the store's webhook path) stay on the server;
 // so do ChannelConnection's encrypted hub API key / webhook secret (QA Phase 14).
 const REDACTED_FIELDS = new Set(["passwordHash", "pinHash", "tokenHash", "codeHash", "aadhaarEnc", "totpSecretEnc", "secrets", "webhookKey", "apiKeyEnc", "webhookSecretEnc"]);
@@ -446,7 +447,7 @@ export function csvCell(v: unknown): string {
  * or (up to 3 hops) through a required parent relation that has one.
  * null = the model can't be tied to a business (platform-wide data) → not exported.
  */
-function businessWhere(m: DmmfModel, businessId: string, outletIds: string[], depth = 0): Row | null {
+export function businessWhere(m: DmmfModel, businessId: string, outletIds: string[], depth = 0): Row | null {
   const names = new Set(m.fields.map((f) => f.name));
   if (m.name === "Business") return { id: businessId };
   if (names.has("businessId")) return { businessId };
@@ -464,21 +465,30 @@ function businessWhere(m: DmmfModel, businessId: string, outletIds: string[], de
 }
 
 export async function streamExport(res: Response, format: "json" | "csv-zip", businessId?: string) {
-  const outletIds = businessId ? (await tenantPrisma.outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
+  const ts = stamp();
+  res.setHeader("content-disposition", `attachment; filename="canavo-export-${ts}.${format === "json" ? "json" : "zip"}"`);
+  res.type(format === "json" ? "application/json" : "application/zip");
+  // The owner's export runs on the tenant client: RLS confines it to their hotel as a second guard.
+  await writeExport(res, format, businessId, businessId ? (tenantPrisma as unknown as Tx) : undefined);
+}
+
+/**
+ * Write the data export (every table, or one business's rows) to a stream. `client`: defaults to the
+ * platform client; the platform's final export of an archived business (gap 8b) uses it with the explicit
+ * business filter, since nobody of that business can sign in any more.
+ */
+export async function writeExport(out: Writable, format: "json" | "csv-zip", businessId?: string, client?: Tx) {
+  const tx = client ?? (prisma as unknown as Tx);
+  const outletIds = businessId ? (await (tx as unknown as typeof prisma).outlet.findMany({ where: { businessId }, select: { id: true } })).map((o) => o.id) : [];
   const scoped = insertOrder()
     .filter((m) => !EXCLUDED_MODELS.has(m.name))
     .map((m) => ({ m, where: businessId ? businessWhere(m, businessId, outletIds) : undefined }))
     .filter((x) => x.where !== null);
   const order = scoped.map((x) => x.m);
   const whereOf = new Map(scoped.map((x) => [x.m.name, x.where ?? undefined]));
-  const ts = stamp();
-  // The owner's export runs on the tenant client: RLS confines it to their hotel as a second guard.
-  const tx = (businessId ? tenantPrisma : prisma) as unknown as Tx;
   if (format === "json") {
-    res.setHeader("content-disposition", `attachment; filename="canavo-export-${ts}.json"`);
-    res.type("application/json");
     const w = async (s: string) => {
-      if (!res.write(s)) await once(res, "drain");
+      if (!out.write(s)) await once(out, "drain");
     };
     await w(`{"exportedAt":${JSON.stringify(new Date().toISOString())},"tables":{`);
     for (const [i, m] of order.entries()) {
@@ -498,14 +508,12 @@ export async function streamExport(res: Response, format: "json" | "csv-zip", bu
       await w("]");
     }
     await w("}}");
-    res.end();
+    out.end();
     return;
   }
-  res.setHeader("content-disposition", `attachment; filename="canavo-export-${ts}.zip"`);
-  res.type("application/zip");
   const zip = archiver("zip", { zlib: { level: 6 } });
   zip.on("warning", (e) => console.warn("[export]", e));
-  zip.pipe(res);
+  zip.pipe(out);
   for (const m of order) {
     const cols = m.fields.filter((f) => f.kind !== "object" && !looksSecret(f.name)).map((f) => f.name);
     const parts: string[] = [cols.join(",")];

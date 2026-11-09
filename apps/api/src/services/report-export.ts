@@ -153,7 +153,7 @@ export function toPdf(tables: ExportTable[], docTitle?: string): Promise<Buffer>
     const left = doc.page.margins.left;
     const width = doc.page.width - left - doc.page.margins.right;
     const bottom = () => doc.page.height - doc.page.margins.bottom - 20;
-    const saffron = "#FF6B35";
+    const saffron = "#C2410C";
 
     if (docTitle) {
       doc.fillColor(saffron).font("Helvetica-Bold").fontSize(16).text(docTitle, left, doc.y, { width });

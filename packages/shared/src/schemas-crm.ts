@@ -85,6 +85,9 @@ export const loyaltyConfigSchema = z.object({
   birthdayCouponType: z.enum(["FLAT", "PERCENT"]).default("PERCENT"),
   birthdayCouponValue: z.number().int().positive().default(20),
   birthdayCouponMaxDiscount: paise.nullable().default(10_000),
+  /** P2 gap 4: when a combinable coupon stacks on offers, all promotions together may take at most this share of the
+   * pre-tax bill (the coupon is reduced to fit). */
+  maxStackedDiscountPercent: z.number().int().min(0).max(100).default(30),
 });
 export type LoyaltyConfig = z.infer<typeof loyaltyConfigSchema>;
 
@@ -206,6 +209,9 @@ const couponBase = z.object({
   startsAt: z.string().datetime().nullable().optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   active: z.boolean().default(true),
+  /** P2 gap 4: also applies on top of the bill's offers (coupon last, on the remaining pre-tax value; total capped by
+   * the business's maxStackedDiscountPercent). Default false: one offer OR coupon per bill. */
+  combinable: z.boolean().default(false),
 });
 const refineCoupon = (c: Partial<z.infer<typeof couponBase>>, ctx: z.RefinementCtx) => {
   if (c.discountType === "PERCENT" && c.value !== undefined && c.value > 100) {

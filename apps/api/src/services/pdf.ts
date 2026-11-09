@@ -15,7 +15,7 @@ export function renderReceiptPdf(r: ReceiptData): Promise<Buffer> {
 
     const left = doc.page.margins.left;
     const width = doc.page.width - left - doc.page.margins.right;
-    const saffron = "#FF6B35";
+    const saffron = "#C2410C";
 
     const plainBill = r.documentType === "BILL";
     const legalName = r.legalName ?? r.outlet.legalName;

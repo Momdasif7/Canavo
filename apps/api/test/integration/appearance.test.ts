@@ -26,7 +26,7 @@ describe("user appearance preferences", () => {
 
     const me = (await cashier.call("GET", "/auth/me")).body;
     expect(me.preferences).toEqual({ appearance: "dark", textSize: "normal", density: "compact", accent: "#2563EB" });
-    expect(me.brand).toEqual({ accent: "#FF6B35", corners: "rounded" });
+    expect(me.brand).toEqual({ accent: "#C2410C", corners: "rounded" });
 
     for (const k of ["kitchen", "delivery"] as const) {
       const c = await login(srv.base, h.users[k].email, h.outletId);
@@ -54,7 +54,7 @@ describe("user appearance preferences", () => {
     expect((await c.call("PUT", "/auth/me/preferences", { appearance: "dark" })).status).toBe(200);
     const me = (await c.call("GET", "/auth/me")).body;
     expect(me.preferences.appearance).toBe("dark");
-    expect(me.brand).toEqual({ accent: "#FF6B35", corners: "rounded" });
+    expect(me.brand).toEqual({ accent: "#C2410C", corners: "rounded" });
   });
 });
 
@@ -76,7 +76,7 @@ describe("business brand", () => {
 
     // Another business keeps its own (default) brand.
     const otherCashier = await login(srv.base, other.users.cashier.email, other.outletId);
-    expect((await otherCashier.call("GET", "/auth/me")).body.brand).toEqual({ accent: "#FF6B35", corners: "rounded" });
+    expect((await otherCashier.call("GET", "/auth/me")).body.brand).toEqual({ accent: "#C2410C", corners: "rounded" });
     expect((await db.business.findUniqueOrThrow({ where: { id: other.businessId } })).brand).toEqual({});
   });
 });

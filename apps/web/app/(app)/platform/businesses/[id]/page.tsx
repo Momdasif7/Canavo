@@ -23,6 +23,7 @@ import { Table, THead, Th, Td } from "@/components/ui/Table";
 import { Alert, EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
 import { BusinessStatusBadge, ModuleChips, ModulePicker } from "@/components/platform/modules";
 import { AddOwnerDialog, SendResetLinkDialog } from "@/components/platform/OwnerDialogs";
+import { RetentionCard } from "@/components/platform/RetentionCard";
 
 type BusinessMeta = Pick<BusinessDetail, "id" | "name" | "legalName" | "phone" | "email" | "notes" | "status" | "modules" | "createdAt" | "updatedAt"> & {
   features?: BusinessDetail["features"];
@@ -120,6 +121,7 @@ export default function BusinessDetailPage() {
           <OwnersCard business={b} onCreate={() => setCreating(true)} onReset={setResetting} onReset2fa={setResetting2fa} readOnly={readOnly} />
         </div>
         <div className="space-y-5">
+          {archived && <RetentionCard businessId={b.id} name={b.name} readOnly={readOnly} />}
           <DetailsCard business={b} onSaved={applyUpdate} readOnly={readOnly} />
           <OutletsCard business={b} />
         </div>

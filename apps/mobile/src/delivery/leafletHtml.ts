@@ -70,7 +70,7 @@ export function leafletHtml(o: LeafletOptions): string {
   html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: ${bg}; }
   .leaflet-control-attribution { font-size: 9px; }
   ${o.dark ? ".leaflet-tile { filter: brightness(0.75) contrast(1.1) saturate(0.8); }" : ""}
-  .outlet-dot { width: 18px; height: 18px; border-radius: 9px; background: #FF6B35; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); }
+  .outlet-dot { width: 18px; height: 18px; border-radius: 9px; background: #C2410C; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); }
 </style>
 </head><body>
 <div id="map"></div>

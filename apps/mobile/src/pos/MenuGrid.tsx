@@ -121,7 +121,7 @@ export function MenuGrid({
           const photo = photos && !brokenImages.has(item.id) ? mediaUrl(item.imageUrl) : null;
           const qtyBadge = qty ? (
             <View style={[styles.badge, { backgroundColor: t.primary }]}>
-              <AppText style={{ color: "#fff", fontWeight: "800", fontSize: 13 }} numberOfLines={1}>
+              <AppText style={{ color: t.primaryText, fontWeight: "800", fontSize: 13 }} numberOfLines={1}>
                 {qty > 99 ? "99+" : qty}
               </AppText>
             </View>

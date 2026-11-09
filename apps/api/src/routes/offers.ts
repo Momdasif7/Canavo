@@ -136,6 +136,7 @@ offersRouter.post("/coupons/validate", requirePermission("order:create"), async 
     value: coupon.value,
     maxDiscount: coupon.maxDiscount,
     minOrder: coupon.minOrder,
+    combinable: coupon.combinable,
     estimatedDiscount,
     message: `${coupon.code}: ${formatINR(estimatedDiscount)} off (final amount is computed on the pre-tax bill)`,
   });

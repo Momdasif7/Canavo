@@ -56,6 +56,13 @@ export const businessArchiveSchema = z.object({
 });
 export type BusinessArchiveInput = z.infer<typeof businessArchiveSchema>;
 
+/** P2 gap 8b: permanently delete an archived business past its retention date — type its name and DELETE. */
+export const businessPurgeSchema = z.object({
+  confirmName: z.string().trim().min(1).max(120),
+  confirmText: z.literal("DELETE", { errorMap: () => ({ message: 'Type DELETE to confirm' }) }),
+});
+export type BusinessPurgeInput = z.infer<typeof businessPurgeSchema>;
+
 /**
  * Super admin: add an owner account to a business. Only owners — the owner
  * (and their managers) create every other staff account inside the hotel.

@@ -240,7 +240,7 @@ export function DeliveryHome() {
             style={({ pressed }) => [styles.active, { backgroundColor: pressed ? t.surfaceAlt : t.surface, borderColor: summary.activeDeliveries ? t.primary : t.border }]}
           >
             <View style={[styles.activeCount, { backgroundColor: summary.activeDeliveries ? t.primary : t.surfaceAlt }]}>
-              <AppText style={{ color: summary.activeDeliveries ? "#fff" : t.textMuted, fontWeight: "900", fontSize: font.xl }}>{summary.activeDeliveries}</AppText>
+              <AppText style={{ color: summary.activeDeliveries ? t.primaryText : t.textMuted, fontWeight: "900", fontSize: font.xl }}>{summary.activeDeliveries}</AppText>
             </View>
             <View style={{ flex: 1 }}>
               <AppText variant="h3">Active deliver{summary.activeDeliveries === 1 ? "y" : "ies"}</AppText>

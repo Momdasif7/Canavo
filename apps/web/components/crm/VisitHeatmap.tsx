@@ -40,7 +40,7 @@ export function VisitHeatmap({ grid }: { grid: number[][] }) {
                         title={label}
                         aria-label={label}
                         className="h-6 rounded-[4px] bg-surface-2 ring-1 ring-inset ring-line/60"
-                        style={n ? { backgroundColor: `rgba(255, 107, 53, ${0.18 + 0.82 * (n / max)})` } : undefined}
+                        style={n ? { backgroundColor: `rgb(var(--primary) / ${0.18 + 0.82 * (n / max)})` } : undefined}
                       />
                     </td>
                   );
@@ -60,7 +60,7 @@ export function VisitHeatmap({ grid }: { grid: number[][] }) {
             <span
               key={f}
               className="h-3 w-4 rounded-[3px] bg-surface-2 ring-1 ring-inset ring-line/60"
-              style={f ? { backgroundColor: `rgba(255, 107, 53, ${0.18 + 0.82 * f})` } : undefined}
+              style={f ? { backgroundColor: `rgb(var(--primary) / ${0.18 + 0.82 * f})` } : undefined}
             />
           ))}
           More

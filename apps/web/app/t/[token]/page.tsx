@@ -193,7 +193,7 @@ export default function TableOrderPage() {
               {orders.map((o) => (
                 <li key={o.id} className="rounded-xl bg-surface-2/60 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-bold", STAGE_TONE[o.stage] ?? "bg-primary-50 text-primary dark:bg-primary/10")}>
+                    <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-bold", STAGE_TONE[o.stage] ?? "bg-primary-50 text-primary dark:bg-primary/10 dark:text-primary-200")}>
                       {o.stage === "ready" && <CheckCircle size={14} weight="fill" />}
                       {STAGE_LABEL[o.stage]}
                     </span>

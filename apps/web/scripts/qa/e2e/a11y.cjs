@@ -86,16 +86,12 @@ async function scan(browser, theme, summary, report) {
           summary[x.impact] = (summary[x.impact] || 0) + 1;
           report.push({ theme, role, route, ...x });
         }
-        // Known, product-owned exception: the CANAVO brand orange #FF6B35 is 2.83:1 against white (white text
-        // on orange buttons, orange text / chips on white or orange tints). Changing it is a brand decision (see appearance.ts);
-        // those nodes are counted under "brand" and don't fail the gate. Everything else does.
-        const isBrand = (n) => /#ff6b35/i.test(n.msg);
+        // No brand exception any more: the default CANAVO orange is #C2410C (5.18:1 with white text) in the
+        // light theme and #FF6B35 with dark text in the dark theme (see appearance.ts), so contrast issues fail too.
         const bad = [];
         for (const x of v) {
           if (x.impact !== "serious" && x.impact !== "critical") continue;
-          const rest = x.id === "color-contrast" ? x.all.filter((n) => !isBrand(n)) : x.all;
-          summary.brand = (summary.brand || 0) + (x.all.length - rest.length);
-          if (rest.length) bad.push({ ...x, nodes: rest.length, targets: rest.map((n) => n.target) });
+          bad.push({ ...x, nodes: x.all.length, targets: x.all.map((n) => n.target) });
         }
         check(`${theme} ${route}: no serious/critical axe issues`, bad.length === 0, bad.map((x) => `${x.id}(${x.nodes}) ${x.targets[0]}`).join(" | "));
       });
