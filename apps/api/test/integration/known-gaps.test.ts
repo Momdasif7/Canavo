@@ -1,6 +1,7 @@
 /**
  * QA Phase 16b — known gaps from the spec (docs/qa/known-gaps.md).
  *  - gap 2: B2B / B2CL / CDNR / CDNUR in GSTR-1 (buyer GSTIN + place of supply on bills)
+ *  - gap 4: combinable coupons stack on the best offer (approved P2)
  *  - gap 5: coupons are pre-tax discounts per line; gift cards are a payment, not a discount
  *  - gap 8: platform archive / restore of a business
  *  - P2 gaps awaiting approval: it.skip with the reason
@@ -173,6 +174,31 @@ describe("gap 5 — coupon / offer discounts are pre-tax; gift cards are a payme
   });
 });
 
+describe("gap 4 — combinable coupons (approved P2; more cases in coupon-stacking.test.ts)", () => {
+  it("a coupon marked combinable applies on top of the best automatic offer; GST is on each line's discounted value", async () => {
+    await db.offer.updateMany({ where: { businessId: h.businessId }, data: { active: false } });
+    const items = [
+      { menuItemId: h.items.biryani, quantity: 1 },
+      { menuItemId: h.items.samosa, quantity: 2 },
+    ];
+    const full = (await owner.call("POST", "/orders", { orderType: "TAKEAWAY", items })).body;
+    expect((await owner.call("POST", "/offers", { name: "Gap4 10% off", type: "BILL_DISCOUNT", config: { discountType: "PERCENT", value: 10 } })).status).toBe(201);
+    expect((await owner.call("POST", "/offers/coupons", { code: "GAP4STACK", discountType: "PERCENT", value: 5, combinable: true })).status).toBe(201);
+    const o = await owner.call("POST", "/orders", { orderType: "TAKEAWAY", items, couponCode: "GAP4STACK" });
+    expect(o.status).toBe(201);
+    expect(o.body.appliedOffers.map((a: { kind: string }) => a.kind)).toEqual(["OFFER", "COUPON"]);
+    const offer = Math.round(full.taxableValue * 0.1);
+    const coupon = Math.round((full.taxableValue - offer) * 0.05);
+    const row = await db.order.findUniqueOrThrow({ where: { id: o.body.id } });
+    expect(Math.abs(row.taxableValue - (full.taxableValue - offer - coupon))).toBeLessThanOrEqual(1);
+    for (const l of await db.orderItem.findMany({ where: { orderId: o.body.id } })) {
+      expect(l.discount).toBeGreaterThan(0);
+      expect(l.cgst + l.sgst).toBe(Math.round((l.taxableValue * 5) / 100));
+    }
+    await db.offer.updateMany({ where: { businessId: h.businessId }, data: { active: false } });
+  });
+});
+
 describe("gap 8 — archive a business", () => {
   let admin: Client;
   let biz: Hotel;
@@ -233,10 +259,6 @@ describe("P2 gaps awaiting approval", () => {
   it.skip("gap 3: the outlet keeps seeing a delivery partner's location while the app is in the background", () => {
     // Mobile: live location is foreground-only (expo-location watchPositionAsync; ACCESS_BACKGROUND_LOCATION blocked).
     // Needs expo-task-manager + startLocationUpdatesAsync, Play background-location declaration and prominent disclosure.
-  });
-  it.skip("gap 4: a coupon marked combinable applies on top of the best automatic offer", () => {
-    // Business rule today: one offer OR coupon per bill (bestOffer); only offers flagged `combinable` stack (Phase 3.7).
-    // Coupons have no `combinable` flag. Proposal in known-gaps.md.
   });
   it.skip("gap 7: clock-in is refused (or flagged) when the selfie does not match the staff profile photo", () => {
     // CLOCK_IN_SELFIE stores the selfie for manager review only; no face matching (DPDP consent / biometric data).
