@@ -2783,6 +2783,12 @@
             "minimum": 0,
             "nullable": true,
             "default": 10000
+          },
+          "maxStackedDiscountPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 30
           }
         }
       },
@@ -3097,6 +3103,10 @@
           "active": {
             "type": "boolean",
             "default": true
+          },
+          "combinable": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [
@@ -3182,6 +3192,10 @@
           "active": {
             "type": "boolean",
             "default": true
+          },
+          "combinable": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -3607,6 +3621,10 @@
               "COD",
               "UPI"
             ]
+          },
+          "couponCode": {
+            "type": "string",
+            "maxLength": 30
           },
           "delivery": {
             "type": "object",
@@ -4492,6 +4510,25 @@
         "required": [
           "confirmName",
           "reason"
+        ]
+      },
+      "businessPurgeSchema": {
+        "type": "object",
+        "properties": {
+          "confirmName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "confirmText": {
+            "enum": [
+              "DELETE"
+            ]
+          }
+        },
+        "required": [
+          "confirmName",
+          "confirmText"
         ]
       },
       "platformUserCreateSchema": {
@@ -13000,7 +13037,7 @@
         }
       },
       "post": {
-        "summary": "Create coupon. Body: couponCreateSchema",
+        "summary": "Create coupon. Body: couponCreateSchema (combinable: stacks after the bill's offers on the remaining pre-tax value, capped by loyalty maxStackedDiscountPercent; default one offer per bill)",
         "tags": [
           "Coupons"
         ],
@@ -19305,6 +19342,220 @@
         ],
         "responses": {
           "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/platform/businesses/{id}/purge-preview": {
+      "get": {
+        "summary": "Gap 8b dry run: row counts per table, deleteAfter, final-export date, purgeFrom, canPurge and blockers (no hotel data).",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/platform/businesses/{id}/final-export": {
+      "post": {
+        "summary": "Gap 8b: write the archived business's final export (CSV zip) and email the owners a one-time download link (the operator never gets it). Returns {finalExportAt, sentTo}.",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/platform/businesses/{id}/purge": {
+      "post": {
+        "summary": "Gap 8b: permanently delete an archived business (super admin). Body: businessPurgeSchema {confirmName, confirmText: \"DELETE\"}. 409 before deleteAfter or before the final export was offered 30 days earlier. Deletes files + every business row, leaves a BusinessTombstone; idempotent.",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/businessPurgeSchema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform/business-tombstones": {
+      "get": {
+        "summary": "Gap 8b: deleted businesses (id, name hash, dates, row counts).",
+        "tags": [
+          "Platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success (some POST actions answer 200)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/public/business-export/{token}": {
+      "get": {
+        "summary": "Gap 8b: an archived business's final export (zip) from the link emailed to its owners; 404 once deleted or the link was replaced.",
+        "tags": [
+          "Public"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/outlet"
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "Success (some POST actions answer 200)"
           },
           "400": {

@@ -27,7 +27,7 @@ export const ops: Op[] = [
   ["post", "/offers/{id}/toggle", "Toggle active (or body {active})", "Offers"],
   ["delete", "/offers/{id}", "Delete offer", "Offers"],
   ["get", "/offers/coupons", "List coupons ?search&active", "Coupons"],
-  ["post", "/offers/coupons", "Create coupon. Body: couponCreateSchema", "Coupons"],
+  ["post", "/offers/coupons", "Create coupon. Body: couponCreateSchema (combinable: stacks after the bill's offers on the remaining pre-tax value, capped by loyalty maxStackedDiscountPercent; default one offer per bill)", "Coupons"],
   ["post", "/offers/coupons/validate", "Validate a coupon for a cart. Body: couponValidateSchema", "Coupons"],
   ["get", "/offers/coupons/report", "Coupon usage report ?from&to (YYYY-MM-DD)", "Coupons"],
   ["get", "/offers/coupons/{id}", "Coupon detail with redemptions", "Coupons"],
