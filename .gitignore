@@ -19,3 +19,9 @@ test-results/
 .next-*/
 apps/mobile/.env
 *.tsbuildinfo
+
+# Claude Code: temporary agent worktrees (nested git checkouts) — never commit
+.claude/worktrees/
+# Generated test reports (Stryker mutation reports, etc.)
+packages/*/reports/
+**/.stryker-tmp/
