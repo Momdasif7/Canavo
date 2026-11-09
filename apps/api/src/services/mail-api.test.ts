@@ -24,3 +24,15 @@ describe("platform email over HTTPS", () => {
     expect(r.body).toMatchObject({ from: "CANAVO <ops@x.co>", to: ["a@x.co", "b@x.co"], html: "<p>Hi</p>", attachments: [{ filename: "r.pdf", content: "UERG" }] });
   });
 });
+
+describe("Gmail API", () => {
+  it("builds a base64url RFC 822 message with the sender, subject, HTML and attachment", async () => {
+    const { gmailRaw } = await import("./mail-api");
+    const raw = Buffer.from(await gmailRaw("CANAVO <ops@x.co>", mail), "base64url").toString();
+    expect(raw).toMatch(/^From: CANAVO <ops@x\.co>/m);
+    expect(raw).toMatch(/^To: a@x\.co/m);
+    expect(raw).toMatch(/^Subject: Hi/m);
+    expect(raw).toMatch(/filename=r\.pdf/);
+    expect(raw).toContain("UERG");
+  });
+});

@@ -56,7 +56,13 @@ const schema = z.object({
   MSG91_ALERT_TEMPLATE_ID: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   /** Platform email over HTTPS instead of SMTP (hosts that block SMTP ports, e.g. Render free) */
-  MAIL_API_PROVIDER: z.enum(["brevo", "resend"]).optional(),
+  MAIL_API_PROVIDER: z.enum(["brevo", "resend", "gmail"]).optional(),
+  /** MAIL_API_PROVIDER=gmail: OAuth client + refresh token with the gmail.send scope */
+  GMAIL_CLIENT_ID: z.string().optional(),
+  GMAIL_CLIENT_SECRET: z.string().optional(),
+  GMAIL_REFRESH_TOKEN: z.string().optional(),
+  /** Tests only */
+  GMAIL_TOKEN_URL: z.string().url().optional(),
   MAIL_API_KEY: z.string().optional(),
   /** Tests only: point the email API at a local stand-in */
   MAIL_API_BASE_URL: z.string().url().optional(),
@@ -123,7 +129,7 @@ export function productionConfigProblems(e = env): string[] {
   }
   if (/localhost|127\.0\.0\.1/.test(e.WEB_APP_URL)) problems.push("WEB_APP_URL points at localhost (password links would be broken)");
   // D13: password setup/reset links must reach people by email or SMS.
-  if (!e.SMTP_HOST && !(e.MAIL_API_PROVIDER && e.MAIL_API_KEY) && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID) && !e.ALLOW_NO_MESSAGING) {
+  if (!e.SMTP_HOST && !(e.MAIL_API_PROVIDER && (e.MAIL_API_KEY || e.GMAIL_REFRESH_TOKEN)) && !(e.MSG91_AUTH_KEY && e.MSG91_ALERT_TEMPLATE_ID) && !e.ALLOW_NO_MESSAGING) {
     problems.push("Configure email (SMTP_HOST, or MAIL_API_PROVIDER + MAIL_API_KEY) or SMS (MSG91_AUTH_KEY + MSG91_ALERT_TEMPLATE_ID): password setup and reset links are sent through them");
   }
   return problems;
