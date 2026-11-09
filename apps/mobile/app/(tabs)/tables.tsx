@@ -273,7 +273,7 @@ function OpenTableSheet({ table, onClose, onOpened }: { table: FloorTable | null
           </Pressable>
           <AppText style={{ fontSize: 40, fontWeight: "900", minWidth: 60, textAlign: "center" }}>{guests}</AppText>
           <Pressable onPress={() => setGuests((g) => Math.min(100, g + 1))} style={[styles.step, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel="More guests">
-            <Ionicons name="add" size={28} color="#fff" />
+            <Ionicons name="add" size={28} color={t.primaryText} />
           </Pressable>
         </Row>
         {guests > table.capacity ? <AppText variant="small" color={t.warning} style={{ textAlign: "center" }}>More guests than seats ({table.capacity}).</AppText> : null}

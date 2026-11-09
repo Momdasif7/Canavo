@@ -504,7 +504,7 @@ function BillSheet({
               </Pressable>
               <AppText style={{ fontSize: 34, fontWeight: "900", minWidth: 60, textAlign: "center" }}>{parts}</AppText>
               <Pressable onPress={() => setParts((p) => Math.min(50, p + 1))} style={[styles.step, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel="More people">
-                <Ionicons name="add" size={26} color="#fff" />
+                <Ionicons name="add" size={26} color={t.primaryText} />
               </Pressable>
             </Row>
             <AppText variant="small" style={{ textAlign: "center" }}>
@@ -631,7 +631,7 @@ function GuestsSheet({ visible, initial, onClose, onSave }: { visible: boolean; 
           </Pressable>
           <AppText style={{ fontSize: 40, fontWeight: "900", minWidth: 60, textAlign: "center" }}>{g}</AppText>
           <Pressable onPress={() => setG((x) => Math.min(100, x + 1))} style={[styles.step, { borderColor: t.primary, backgroundColor: t.primary }]} accessibilityLabel="More guests">
-            <Ionicons name="add" size={28} color="#fff" />
+            <Ionicons name="add" size={28} color={t.primaryText} />
           </Pressable>
         </Row>
         <Button title="Save" size="lg" onPress={() => onSave(g)} />

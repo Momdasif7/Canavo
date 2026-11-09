@@ -77,7 +77,7 @@ export const ItemCard = memo(function ItemCard({
             <Clock size={11} className="shrink-0" /> {item.availableFrom}–{item.availableTo}
           </span>
         ) : hasOptions ? (
-          <span className="whitespace-nowrap rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold uppercase leading-4 tracking-wide text-primary dark:bg-primary/15" data-testid="item-badge">
+          <span className="whitespace-nowrap rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold uppercase leading-4 tracking-wide text-primary dark:bg-primary/15 dark:text-primary-200" data-testid="item-badge">
             Options
           </span>
         ) : (

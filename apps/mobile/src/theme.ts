@@ -1,8 +1,12 @@
 import { useColorScheme } from "react-native";
 
 export const brand = {
-  saffron: "#FF6B35",
-  saffronDark: "#E5551F",
+  /** CANAVO orange: 5.18:1 with white text (WCAG AA). */
+  saffron: "#C2410C",
+  /** Pressed / darker variant. */
+  saffronDark: "#9A3412",
+  /** Bright orange for dark backgrounds (use dark text on it: 6.3:1). */
+  saffronBright: "#FF6B35",
   forest: "#2D6A4F",
   forestLight: "#40916C",
   veg: "#1B873F",
@@ -53,8 +57,8 @@ const dark: Palette = {
   text: "#F5F5F2",
   textMuted: "#B0B0C0",
   border: "#3A3A55",
-  primary: brand.saffron,
-  primaryText: "#FFFFFF",
+  primary: brand.saffronBright,
+  primaryText: "#17171F",
   success: brand.forestLight,
   danger: "#EF5350",
   warning: "#FFB74D",

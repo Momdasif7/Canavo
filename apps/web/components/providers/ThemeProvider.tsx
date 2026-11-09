@@ -6,14 +6,14 @@ import { normalizeBrand, normalizeUserPreferences, primaryCssVars, type Brand, t
 type Theme = "light" | "dark";
 /** light | dark | system (older builds stored only light / dark) */
 const THEME_KEY = "canavo.theme";
-/** Cached look { prefs, brand, vars } so the first paint already has the right colours and sizes */
+/** Cached look { prefs, brand, vars, darkVars } so the first paint already has the right colours and sizes */
 const LOOK_KEY = "canavo.look";
 
 /**
  * Runs before hydration (inlined in <head>) so the first paint uses the right theme, accent
  * colour (CSS variables), text size, density and corners from the last session on this device.
  */
-export const themeInitScript = `(function(){try{var d=document.documentElement,t=localStorage.getItem("${THEME_KEY}");if(t==="dark"||((!t||t==="system")&&matchMedia("(prefers-color-scheme: dark)").matches))d.classList.add("dark");var l=JSON.parse(localStorage.getItem("${LOOK_KEY}")||"null");if(l){for(var k in l.vars)d.style.setProperty(k,l.vars[k]);d.dataset.text=l.prefs.textSize;d.dataset.density=l.prefs.density;d.dataset.corners=l.brand.corners}}catch(e){}})()`;
+export const themeInitScript = `(function(){try{var d=document.documentElement,t=localStorage.getItem("${THEME_KEY}");if(t==="dark"||((!t||t==="system")&&matchMedia("(prefers-color-scheme: dark)").matches))d.classList.add("dark");var l=JSON.parse(localStorage.getItem("${LOOK_KEY}")||"null");if(l){var v=(d.classList.contains("dark")&&l.darkVars)||l.vars;for(var k in v)d.style.setProperty(k,v[k]);d.dataset.text=l.prefs.textSize;d.dataset.density=l.prefs.density;d.dataset.corners=l.brand.corners}}catch(e){}})()`;
 
 interface ThemeValue {
   /** The resolved light / dark theme on screen */
@@ -59,14 +59,17 @@ function applyLook(prefs: UserPreferences, brand: Brand): Theme {
   const theme = resolve(prefs);
   const root = document.documentElement;
   root.classList.toggle("dark", theme === "dark");
-  const vars = primaryCssVars(prefs.accent ?? brand.accent);
-  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  // The default accent has its own dark-theme scale (bright orange + dark text); custom accents are the same in both.
+  const accent = prefs.accent ?? brand.accent;
+  const vars = primaryCssVars(accent, "light");
+  const darkVars = primaryCssVars(accent, "dark");
+  for (const [k, v] of Object.entries(theme === "dark" ? darkVars : vars)) root.style.setProperty(k, v);
   root.dataset.text = prefs.textSize;
   root.dataset.density = prefs.density;
   root.dataset.corners = brand.corners;
   try {
     localStorage.setItem(THEME_KEY, prefs.appearance);
-    localStorage.setItem(LOOK_KEY, JSON.stringify({ prefs, brand, vars }));
+    localStorage.setItem(LOOK_KEY, JSON.stringify({ prefs, brand, vars, darkVars }));
   } catch {
     /* ignore */
   }

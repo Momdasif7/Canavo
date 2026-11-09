@@ -4282,7 +4282,7 @@
           "accent": {
             "type": "string",
             "pattern": "^#[0-9a-fA-F]{6}$",
-            "default": "#FF6B35"
+            "default": "#C2410C"
           },
           "corners": {
             "type": "string",

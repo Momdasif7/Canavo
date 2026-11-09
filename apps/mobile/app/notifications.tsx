@@ -60,7 +60,7 @@ export default function NotificationsScreen() {
         ]}
       >
         <View style={[styles.icon, { backgroundColor: n.read ? t.surfaceAlt : t.primary }]}>
-          <Ionicons name={iconForKind(n.kind)} size={20} color={n.read ? t.textMuted : "#fff"} />
+          <Ionicons name={iconForKind(n.kind)} size={20} color={n.read ? t.textMuted : t.primaryText} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>

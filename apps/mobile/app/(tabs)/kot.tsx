@@ -247,8 +247,8 @@ function KotScreen() {
                 <Row style={{ flexWrap: "wrap" }}>
                   {tableLabel ? (
                     <View style={[styles.tag, { backgroundColor: t.primary }]}>
-                      <Ionicons name="grid" size={14} color="#fff" />
-                      <AppText style={styles.tagText}>Table {tableLabel}</AppText>
+                      <Ionicons name="grid" size={14} color={t.primaryText} />
+                      <AppText style={[styles.tagText, { color: t.primaryText }]}>Table {tableLabel}</AppText>
                     </View>
                   ) : null}
                   {isPreOrder ? (

@@ -164,7 +164,7 @@ export function CameraScanDialog({ open, onClose, onDetected }: { open: boolean;
       ) : (
         <div className="relative overflow-hidden rounded-xl bg-black">
           <video ref={videoRef} muted playsInline className="aspect-video w-full object-cover" />
-          <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-primary/80 shadow-[0_0_12px_rgba(255,107,53,0.8)]" />
+          <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-primary/80 shadow-[0_0_12px_rgb(var(--primary)/0.8)]" />
         </div>
       )}
     </Dialog>

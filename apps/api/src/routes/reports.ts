@@ -1842,5 +1842,5 @@ export function summaryHtml(built: BuiltReport): string {
       const txt = type === "money" ? fmtRs(v) : type === "pct" ? `${v}%` : String(v);
       return `<tr><td style="padding:2px 12px 2px 0;color:#555">${label}</td><td style="padding:2px 0;text-align:right"><b>${txt}</b></td></tr>`;
     });
-  return `<h3 style="margin:16px 0 4px;color:#FF6B35">${built.title}</h3>${rows.length ? `<table>${rows.join("")}</table>` : "<p>See attachment.</p>"}`;
+  return `<h3 style="margin:16px 0 4px;color:#C2410C">${built.title}</h3>${rows.length ? `<table>${rows.join("")}</table>` : "<p>See attachment.</p>"}`;
 }

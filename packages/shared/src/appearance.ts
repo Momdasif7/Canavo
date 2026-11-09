@@ -5,12 +5,18 @@
  */
 import { z } from "zod";
 
-/** CANAVO orange — the default accent. */
-export const DEFAULT_ACCENT = "#FF6B35";
+/**
+ * CANAVO orange — the default accent. A deep orange (5.18:1 against white) so white button text
+ * meets WCAG AA; the original bright #FF6B35 (2.8:1) is kept as LEGACY_ACCENT for businesses that
+ * saved it explicitly and as the dark-theme default (where it is the readable one).
+ */
+export const DEFAULT_ACCENT = "#C2410C";
+/** The pre-2026-11 brand orange (fails AA with white text; still valid as a custom colour). */
+export const LEGACY_ACCENT = "#FF6B35";
 
 /** Accent presets offered in the Appearance page (any other hex is allowed too). */
 export const ACCENT_PRESETS = [
-  { name: "CANAVO orange", hex: "#FF6B35" },
+  { name: "CANAVO orange", hex: "#C2410C" },
   { name: "Ocean blue", hex: "#2563EB" },
   { name: "Leaf green", hex: "#16A34A" },
   { name: "Royal purple", hex: "#7C3AED" },
@@ -23,7 +29,7 @@ export const ACCENT_PRESETS = [
 const hexColor = z
   .string()
   .trim()
-  .regex(/^#[0-9a-fA-F]{6}$/, "Colour must be a hex value like #FF6B35")
+  .regex(/^#[0-9a-fA-F]{6}$/, "Colour must be a hex value like #C2410C")
   .transform((s) => s.toUpperCase());
 
 export const CORNER_STYLES = ["rounded", "square"] as const;
@@ -124,44 +130,67 @@ export type PrimaryScale = Record<PrimaryShade | "DEFAULT" | "fg", string>;
 
 const triplet = (c: Rgb) => c.join(" ");
 
-/** The hand-tuned CANAVO orange scale (kept exactly so the default look doesn't change). */
+/** The hand-tuned CANAVO orange scale (light theme): deep orange, white text, darker on hover / press. */
 const DEFAULT_SCALE: PrimaryScale = {
-  DEFAULT: "255 107 53", // #FF6B35
-  "50": "255 243 238", // #FFF3EE
+  DEFAULT: "194 65 12", // #C2410C — 5.18:1 with white
+  "50": "255 245 240", // #FFF5F0 — #C2410C text on it is 4.8:1
   "100": "255 227 214", // #FFE3D6
   "200": "255 196 170", // #FFC4AA
+  "500": "194 65 12",
+  "600": "163 52 9", // #A33409 (hover)
+  "700": "134 43 8", // #862B08 (pressed / text on tints)
+  fg: "255 255 255",
+};
+
+/**
+ * Dark theme default: on dark surfaces the deep orange is too dim for text (3.3:1), so the default
+ * accent switches back to the bright #FF6B35 with dark text on solid fills (6.3:1) — orange text on
+ * the dark surfaces is 5.4:1+.
+ */
+const DEFAULT_DARK_SCALE: PrimaryScale = {
+  DEFAULT: "255 107 53", // #FF6B35
+  "50": "255 243 238",
+  "100": "255 227 214",
+  "200": "255 196 170",
   "500": "255 107 53",
   "600": "232 84 31", // #E8541F
   "700": "194 66 21", // #C24215
-  fg: "255 255 255",
+  fg: "23 23 31",
 };
+
+/** The original hand-tuned #FF6B35 scale, kept exactly for businesses that saved that colour. */
+const LEGACY_SCALE: PrimaryScale = { ...DEFAULT_DARK_SCALE, fg: "255 255 255" };
+
+export type ThemeMode = "light" | "dark";
 
 /**
  * Tailwind-style shade scale from one accent hex: tints towards white for 50–200,
  * shades towards black for 600 (hover) and 700 (pressed). `fg` is the text colour
  * on a solid accent: white unless the accent is too pale for it (white text reads
- * fine on saturated brand colours down to ~2.5:1 — CANAVO orange is 2.8:1 — so
- * yellow / lime / pastel accents get dark text instead).
+ * fine on saturated brand colours down to ~2.5:1, so yellow / lime / pastel accents
+ * get dark text instead). The default accent has its own hand-tuned light / dark scales.
  */
-export function primaryScale(hex: string): PrimaryScale {
+export function primaryScale(hex: string, theme: ThemeMode = "light"): PrimaryScale {
   const base = hexToRgb(hex);
-  if (triplet(base) === DEFAULT_SCALE.DEFAULT) return { ...DEFAULT_SCALE };
+  const t = triplet(base);
+  if (t === DEFAULT_SCALE.DEFAULT) return { ...(theme === "dark" ? DEFAULT_DARK_SCALE : DEFAULT_SCALE) };
+  if (t === LEGACY_SCALE.DEFAULT) return { ...LEGACY_SCALE };
   const fg = contrastRatio(base, WHITE) >= 2.5 ? WHITE : DARK_FG;
   return {
-    DEFAULT: triplet(base),
+    DEFAULT: t,
     "50": triplet(mix(base, WHITE, 0.92)),
     "100": triplet(mix(base, WHITE, 0.8)),
     "200": triplet(mix(base, WHITE, 0.6)),
-    "500": triplet(base),
+    "500": t,
     "600": triplet(mix(base, BLACK, 0.12)),
     "700": triplet(mix(base, BLACK, 0.26)),
     fg: triplet(fg),
   };
 }
 
-/** CSS custom properties for a scale: { "--primary": "255 107 53", "--primary-50": ..., "--primary-fg": ... }. */
-export function primaryCssVars(hex: string): Record<string, string> {
-  const s = primaryScale(hex);
+/** CSS custom properties for a scale: { "--primary": "194 65 12", "--primary-50": ..., "--primary-fg": ... }. */
+export function primaryCssVars(hex: string, theme: ThemeMode = "light"): Record<string, string> {
+  const s = primaryScale(hex, theme);
   const vars: Record<string, string> = { "--primary": s.DEFAULT, "--primary-fg": s.fg };
   for (const k of PRIMARY_SHADES) vars[`--primary-${k}`] = s[k];
   return vars;

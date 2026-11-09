@@ -119,7 +119,7 @@ function LineRow({ line }: { line: CartLine }) {
               style={[styles.qtyBtn, { borderColor: t.primary, backgroundColor: t.primary }]}
               accessibilityLabel={`Add one ${line.item.name}`}
             >
-              <Ionicons name="add" size={22} color="#fff" />
+              <Ionicons name="add" size={22} color={t.primaryText} />
             </Pressable>
           </Row>
         )}

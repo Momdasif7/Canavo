@@ -4,13 +4,14 @@
 
 :root {
   /* Accent (CANAVO orange by default); ThemeProvider overrides these from the brand / user accent. */
-  --primary: 255 107 53; /* #FF6B35 */
-  --primary-50: 255 243 238;
+  /* Keep in sync with DEFAULT_SCALE / DEFAULT_DARK_SCALE in packages/shared/src/appearance.ts. */
+  --primary: 194 65 12; /* #C2410C — 5.18:1 with white text (WCAG AA) */
+  --primary-50: 255 245 240;
   --primary-100: 255 227 214;
   --primary-200: 255 196 170;
-  --primary-500: 255 107 53;
-  --primary-600: 232 84 31;
-  --primary-700: 194 66 21;
+  --primary-500: 194 65 12;
+  --primary-600: 163 52 9; /* hover */
+  --primary-700: 134 43 8; /* pressed */
   --primary-fg: 255 255 255;
   --tap: 48px;
   --radius-sm: 0.125rem;
@@ -30,6 +31,15 @@
 }
 
 .dark {
+  /* Default accent in dark theme: bright #FF6B35 with dark text (inline brand vars from ThemeProvider win). */
+  --primary: 255 107 53;
+  --primary-50: 255 243 238;
+  --primary-100: 255 227 214;
+  --primary-200: 255 196 170;
+  --primary-500: 255 107 53;
+  --primary-600: 232 84 31;
+  --primary-700: 194 66 21;
+  --primary-fg: 23 23 31;
   --bg: 26 26 46; /* #1A1A2E */
   --surface: 35 35 60;
   --surface-2: 45 45 74;

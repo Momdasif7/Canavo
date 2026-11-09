@@ -44,7 +44,7 @@ export async function sendSchedule(s: ReportSchedule, now = new Date()) {
   const period = from === to ? from : `${from} to ${to}`;
   const subject = `${outlet.name} — ${s.frequency === "WEEKLY" ? "weekly" : "daily"} report ${period}`;
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<h2 style="color:#FF6B35;margin:0">CANAVO · ${escape(outlet.name)}</h2>
+<h2 style="color:#C2410C;margin:0">CANAVO · ${escape(outlet.name)}</h2>
 <p style="color:#666;margin:4px 0 12px">${s.frequency === "WEEKLY" ? "Weekly" : "Daily"} report for ${period}. Detailed spreadsheets are attached.</p>
 ${sections.join("\n")}
 <p style="color:#999;font-size:12px;margin-top:24px">Amounts in ₹. You receive this because a report schedule is set up for ${escape(s.email)} in CANAVO.</p>

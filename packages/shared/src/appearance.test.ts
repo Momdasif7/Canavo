@@ -4,6 +4,7 @@ import {
   contrastRatio,
   DEFAULT_ACCENT,
   hexToRgb,
+  LEGACY_ACCENT,
   normalizeBrand,
   normalizeUserPreferences,
   primaryCssVars,
@@ -12,8 +13,39 @@ import {
 } from "./appearance";
 
 describe("primary colour scale", () => {
-  it("keeps the hand-tuned CANAVO orange scale exactly (default look unchanged)", () => {
+  it("uses the hand-tuned CANAVO orange scale for the default accent", () => {
+    expect(DEFAULT_ACCENT).toBe("#C2410C");
     expect(primaryScale(DEFAULT_ACCENT)).toEqual({
+      DEFAULT: "194 65 12",
+      "50": "255 245 240",
+      "100": "255 227 214",
+      "200": "255 196 170",
+      "500": "194 65 12",
+      "600": "163 52 9",
+      "700": "134 43 8",
+      fg: "255 255 255",
+    });
+    expect(primaryScale("#c2410c")).toEqual(primaryScale(DEFAULT_ACCENT));
+  });
+
+  it("default accent meets WCAG AA (4.5:1) for text in both themes", () => {
+    const rgb = (t: string) => t.split(" ").map(Number) as [number, number, number];
+    const light = primaryScale(DEFAULT_ACCENT);
+    expect(contrastRatio(rgb(light.DEFAULT), rgb(light.fg))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(rgb(light["600"]), rgb(light.fg))).toBeGreaterThanOrEqual(4.5); // hover
+    expect(contrastRatio(rgb(light.DEFAULT), rgb(light["50"]))).toBeGreaterThanOrEqual(4.5); // orange text on tint
+    expect(contrastRatio(rgb(light.DEFAULT), [255, 255, 255])).toBeGreaterThanOrEqual(4.5); // orange text on white
+    const dark = primaryScale(DEFAULT_ACCENT, "dark");
+    expect(contrastRatio(rgb(dark.DEFAULT), rgb(dark.fg))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(rgb(dark.DEFAULT), [35, 35, 60])).toBeGreaterThanOrEqual(4.5); // orange text on dark surface
+    // hover / pressed get darker
+    const sum = (t: string) => rgb(t).reduce((a, b) => a + b, 0);
+    expect(sum(light["600"])).toBeLessThan(sum(light.DEFAULT));
+    expect(sum(light["700"])).toBeLessThan(sum(light["600"]));
+  });
+
+  it("keeps the legacy #FF6B35 scale exactly for businesses that saved it", () => {
+    expect(primaryScale(LEGACY_ACCENT)).toEqual({
       DEFAULT: "255 107 53",
       "50": "255 243 238",
       "100": "255 227 214",
@@ -23,7 +55,8 @@ describe("primary colour scale", () => {
       "700": "194 66 21",
       fg: "255 255 255",
     });
-    expect(primaryScale("#ff6b35")).toEqual(primaryScale(DEFAULT_ACCENT));
+    expect(primaryScale(LEGACY_ACCENT, "dark")).toEqual(primaryScale(LEGACY_ACCENT));
+    expect(primaryCssVars("#2563EB", "dark")).toEqual(primaryCssVars("#2563EB"));
   });
 
   it("tints lighter shades towards white and darker shades towards black", () => {
@@ -69,9 +102,9 @@ describe("primary colour scale", () => {
 
 describe("appearance settings", () => {
   it("normalizes stored JSON, dropping invalid fields", () => {
-    expect(normalizeBrand({})).toEqual({ accent: "#FF6B35", corners: "rounded" });
+    expect(normalizeBrand({})).toEqual({ accent: "#C2410C", corners: "rounded" });
     expect(normalizeBrand({ accent: "#2563eb", corners: "square", junk: 1 })).toEqual({ accent: "#2563EB", corners: "square" });
-    expect(normalizeBrand({ accent: "blue", corners: "wavy" })).toEqual({ accent: "#FF6B35", corners: "rounded" });
+    expect(normalizeBrand({ accent: "blue", corners: "wavy" })).toEqual({ accent: "#C2410C", corners: "rounded" });
     expect(normalizeUserPreferences(null)).toEqual({ appearance: "system", textSize: "normal", density: "comfortable", accent: null });
     expect(normalizeUserPreferences({ appearance: "dark", textSize: "huge", accent: "#7c3aed" })).toEqual({
       appearance: "dark",

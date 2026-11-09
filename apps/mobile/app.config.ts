@@ -1,6 +1,6 @@
 import type { ExpoConfig, ConfigContext } from "expo/config";
 
-const PRIMARY = "#FF6B35";
+const PRIMARY = "#C2410C";
 
 /**
  * Store versions. `version` is the user-visible version; bump `BUILD` for
