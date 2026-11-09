@@ -29,6 +29,7 @@ const PUBLIC = new Set([
   // Uploaded images (menu photos, logos, selfies): unguessable names, 72 random bits
   "get /uploads/files/:name",
   "get /public/receipts/:token",
+  "get /public/business-export/:token", // gap 8b: owners' final export, one-time token emailed to them
   "post /webhooks/razorpay",
   // Per-store Razorpay webhook: unguessable key + that store's signature
   "post /webhooks/razorpay/:businessKey",
