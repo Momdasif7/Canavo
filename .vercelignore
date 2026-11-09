@@ -1,0 +1,20 @@
+# Never upload secrets, local data or build output to Vercel (web only builds apps/web + packages/shared)
+.env
+.env.*
+!.env.example
+!.env.production.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.production.example
+node_modules
+**/node_modules
+**/.next
+**/.next-*
+**/dist
+**/.turbo
+apps/api/storage
+apps/mobile
+docs
+.claude
+*.zip

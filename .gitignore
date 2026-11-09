@@ -26,3 +26,5 @@ apps/mobile/.env
 packages/*/reports/
 **/.stryker-tmp/
 docs/build/screens/
+.vercel
+.env*
